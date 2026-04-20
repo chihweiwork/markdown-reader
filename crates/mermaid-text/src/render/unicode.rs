@@ -14,7 +14,7 @@ use crate::{
         grid::{EdgeLineStyle, arrow, endpoint},
         layered::GridPos,
     },
-    types::{Direction, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape},
+    types::{Direction, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape, NodeStyle},
 };
 
 // ---------------------------------------------------------------------------
@@ -231,6 +231,37 @@ fn tip_char_for_back_edge(dir: Direction) -> char {
 /// row for TD, etc.) are NOT treated as back-edges — they are perpendicular-axis
 /// connections (e.g. internal edges of a TD subgraph inside an LR parent) and
 /// should use the normal routing path.
+/// Compute the `(border_cell, first_path_cell)` pair for a back-edge that
+/// attaches to the perpendicular side of a node. These are the cells that
+/// need junction glyphs so the routed perimeter path connects visibly to
+/// the node box border.
+///
+/// For LR/RL flow: `border_cell` is the bottom-center of the box border,
+/// `first_path_cell` is one cell directly below.
+/// For TD/BT flow: `border_cell` is the right-center, `first_path_cell`
+/// is one cell directly to the right.
+fn back_edge_border_cells(
+    pos: GridPos,
+    geom: NodeGeom,
+    dir: Direction,
+) -> ((usize, usize), (usize, usize)) {
+    let (c, r) = pos;
+    match dir {
+        Direction::LeftToRight | Direction::RightToLeft => {
+            let col = c + geom.cx();
+            let border_row = r + geom.height - 1;
+            let path_row = r + geom.height;
+            ((col, border_row), (col, path_row))
+        }
+        Direction::TopToBottom | Direction::BottomToTop => {
+            let row = r + geom.cy();
+            let border_col = c + geom.width - 1;
+            let path_col = c + geom.width;
+            ((border_col, row), (path_col, row))
+        }
+    }
+}
+
 fn is_back_edge(from_pos: GridPos, to_pos: GridPos, dir: Direction) -> bool {
     let (fc, fr) = from_pos;
     let (tc, tr) = to_pos;
@@ -390,6 +421,33 @@ pub fn render(
     positions: &HashMap<String, GridPos>,
     sg_bounds: &[SubgraphBounds],
 ) -> String {
+    render_inner(graph, positions, sg_bounds, false)
+}
+
+/// Render `graph` with embedded ANSI 24-bit color SGR sequences derived from
+/// the `style` and `linkStyle` directives stored on the graph.
+///
+/// Behaves identically to [`render`] for graphs that carry no color
+/// metadata. When colors *are* present, every colored cell emits the matching
+/// foreground / background SGR pair, and every row ends with `\x1b[0m`.
+///
+/// This is the entry point used when the caller has opted into ANSI output
+/// (e.g. via the CLI `--color` flag); the colorless [`render`] is preserved
+/// for callers that need byte-clean text.
+pub fn render_color(
+    graph: &Graph,
+    positions: &HashMap<String, GridPos>,
+    sg_bounds: &[SubgraphBounds],
+) -> String {
+    render_inner(graph, positions, sg_bounds, true)
+}
+
+fn render_inner(
+    graph: &Graph,
+    positions: &HashMap<String, GridPos>,
+    sg_bounds: &[SubgraphBounds],
+    with_color: bool,
+) -> String {
     // Pre-compute geometry for every node
     let geoms: HashMap<String, NodeGeom> = graph
         .nodes
@@ -442,9 +500,16 @@ pub fn render(
     // Collect edge label placements for a deferred write — labels must be
     // written *after* all routing so that no subsequent A* path overwrites them.
     // Each entry is `(col, row, label_text)`.
-    let mut pending_labels: Vec<(usize, usize, String)> = Vec::new();
+    let mut pending_labels: Vec<(usize, usize, String, Option<crate::types::Rgb>)> = Vec::new();
     // Collision registry: `(col, row, display_width, height)` of committed labels.
     let mut placed_labels: Vec<(usize, usize, usize, usize)> = Vec::new();
+    // Back-edge connector points: where to stamp `┬` / `┴` (LR) or `├` / `┤`
+    // (TD) after node boxes are drawn, so the perimeter back-edge path
+    // connects visibly to its source and destination borders.
+    // Entries: `(border_col, border_row, is_destination)`.
+    let mut back_edge_border_joins: Vec<(usize, usize, bool)> = Vec::new();
+    // First-path-cell joins (source end only — destination end is the arrow tip).
+    let mut back_edge_path_joins: Vec<(usize, usize)> = Vec::new();
 
     for (edge_idx, edge) in graph.edges.iter().enumerate() {
         let Some(Some((src, dst))) = attach_points.get(edge_idx) else {
@@ -464,6 +529,26 @@ pub fn render(
                 _ => false,
             }
         };
+
+        // For back-edges, the perimeter path attaches one cell past the
+        // source's perpendicular border (below for LR, right for TB). The
+        // node border there is drawn solid by pass 2, which visually
+        // disconnects the path. Record the border cell and the adjacent
+        // path cell so a post-pass can stamp junction glyphs.
+        if edge_is_back
+            && let (Some(fp), Some(fg), Some(tp), Some(tg)) = (
+                positions.get(&edge.from).copied(),
+                geoms.get(&edge.from).copied(),
+                positions.get(&edge.to).copied(),
+                geoms.get(&edge.to).copied(),
+            )
+        {
+            let (sb, sp) = back_edge_border_cells(fp, fg, graph.direction);
+            let (db, _) = back_edge_border_cells(tp, tg, graph.direction);
+            back_edge_border_joins.push((sb.0, sb.1, false));
+            back_edge_border_joins.push((db.0, db.1, true));
+            back_edge_path_joins.push(sp);
+        }
 
         // Select the forward tip character (destination end).
         // For EdgeEndpoint::None (plain line), we route with the normal arrow
@@ -543,6 +628,15 @@ pub fn render(
                 grid.set(src.col, src.row, back_tip);
                 grid.protect_cell(src.col, src.row);
             }
+
+            // Apply edge color (`linkStyle <idx> stroke:#…`) to every cell of
+            // the routed path including the tip.
+            if with_color
+                && let Some(es) = graph.edge_styles.get(&edge_idx)
+                && let Some(stroke) = es.stroke
+            {
+                grid.paint_fg_path(path, stroke);
+            }
         }
 
         // Compute edge label position using the actual routed path.
@@ -550,7 +644,18 @@ pub fn render(
             && let Some((lbl_col, lbl_row)) =
                 label_position(path, lbl, graph.direction, &mut placed_labels)
         {
-            pending_labels.push((lbl_col, lbl_row, lbl.clone()));
+            // Pick edge label color (`linkStyle … color:#…`), falling back to
+            // the edge stroke color when only `stroke:` is set, so labels
+            // visually track their lines.
+            let lbl_color = if with_color {
+                graph
+                    .edge_styles
+                    .get(&edge_idx)
+                    .and_then(|es| es.color.or(es.stroke))
+            } else {
+                None
+            };
+            pending_labels.push((lbl_col, lbl_row, lbl.clone(), lbl_color));
         }
     }
 
@@ -564,13 +669,45 @@ pub fn render(
             continue;
         };
         draw_node_box(&mut grid, node, pos, geom);
+
+        // Apply node color (`style <id> fill:#…,stroke:#…,color:#…`).
+        if with_color
+            && let Some(style) = graph.node_styles.get(&node.id).copied()
+        {
+            paint_node_colors(&mut grid, pos, geom, style);
+        }
+    }
+
+    // Pass 2a.5: Stamp back-edge connector glyphs at each back-edge's
+    // source/destination border so the perimeter path connects visibly.
+    // Pass 2 just redrew the node box's bottom/right border as a plain line,
+    // hiding the routed back-edge's exit/entry point.
+    let (border_junction, path_junction) = match graph.direction {
+        Direction::LeftToRight | Direction::RightToLeft => ('┬', '┴'),
+        Direction::TopToBottom | Direction::BottomToTop => ('├', '┤'),
+    };
+    for (col, row, _is_dest) in &back_edge_border_joins {
+        grid.set(*col, *row, border_junction);
+    }
+    for (col, row) in &back_edge_path_joins {
+        // Only upgrade the path cell if it's a plain horizontal/vertical line
+        // from the router — corners and other junctions are left alone so we
+        // don't mangle complex routed paths.
+        let current = grid.get(*col, *row);
+        if current == '─' || current == '│' {
+            grid.set(*col, *row, path_junction);
+        }
     }
 
     // Pass 2b: Write all edge labels after node boxes so that node box
     // drawing (which uses `set()` unconditionally) cannot overwrite labels.
     // Labels are protected so that node labels in pass 3 cannot erase them.
-    for (lbl_col, lbl_row, lbl) in &pending_labels {
+    for (lbl_col, lbl_row, lbl, lbl_color) in &pending_labels {
         grid.write_text_protected(*lbl_col, *lbl_row, lbl);
+        if let Some(c) = lbl_color {
+            let lbl_w = UnicodeWidthStr::width(lbl.as_str());
+            grid.paint_fg_rect(*lbl_col, *lbl_row, lbl_w, 1, *c);
+        }
     }
 
     // Pass 3: Draw node labels last so they are never overwritten.
@@ -584,7 +721,54 @@ pub fn render(
         draw_label_centred(&mut grid, node, pos, geom);
     }
 
-    grid.render()
+    if with_color {
+        grid.render_with_colors()
+    } else {
+        grid.render()
+    }
+}
+
+/// Paint the foreground and background color layers of a node's bounding box
+/// according to `style`. The actual glyphs were already drawn by
+/// [`draw_node_box`] / [`draw_label_centred`]; here we only stamp the color
+/// values into the grid's parallel color layer.
+///
+/// - `fill`   → background of every interior cell (so even the spaces
+///   between label glyphs render with the fill color).
+/// - `stroke` → foreground of every border cell (the outline glyphs).
+/// - `color`  → foreground of every interior cell (the label text).
+fn paint_node_colors(grid: &mut Grid, pos: GridPos, geom: NodeGeom, style: NodeStyle) {
+    let (col, row) = pos;
+    let w = geom.width;
+    let h = geom.height;
+    if w < 2 || h < 2 {
+        return;
+    }
+
+    // Border (top + bottom rows, plus left + right cols, excluding corners
+    // already covered by the rows).
+    if let Some(stroke) = style.stroke {
+        for x in col..(col + w) {
+            grid.set_fg(x, row, stroke);
+            grid.set_fg(x, row + h - 1, stroke);
+        }
+        for y in (row + 1)..(row + h - 1) {
+            grid.set_fg(col, y, stroke);
+            grid.set_fg(col + w - 1, y, stroke);
+        }
+    }
+
+    // Interior cells.
+    let inner_col = col + 1;
+    let inner_row = row + 1;
+    let inner_w = w - 2;
+    let inner_h = h - 2;
+    if let Some(fill) = style.fill {
+        grid.paint_bg_rect(inner_col, inner_row, inner_w, inner_h, fill);
+    }
+    if let Some(text_color) = style.color {
+        grid.paint_fg_rect(inner_col, inner_row, inner_w, inner_h, text_color);
+    }
 }
 
 // ---------------------------------------------------------------------------

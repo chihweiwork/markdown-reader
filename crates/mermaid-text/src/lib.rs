@@ -220,19 +220,19 @@ pub fn render_with_width(input: &str, max_width: Option<usize>) -> Result<String
     // 1. Detect diagram type.
     let kind = detect::detect(input)?;
 
-    match kind {
+    let graph = match kind {
         DiagramKind::Sequence => {
             // Sequence diagrams have a fixed layout; no compaction pass.
             let diag = parser::sequence::parse(input)?;
             return Ok(render::sequence::render(&diag));
         }
-        DiagramKind::Flowchart => {
-            // Fall through to the flowchart path below.
+        DiagramKind::Flowchart => parser::parse(input)?,
+        DiagramKind::State => {
+            // State diagrams transform into a flowchart Graph and ride the
+            // same compaction + render pipeline.
+            parser::state::parse(input)?
         }
-    }
-
-    // 2. Parse flowchart (once — reused across compaction attempts).
-    let graph = parser::parse(input)?;
+    };
 
     // 3. Render with default config first.
     let default_cfg = LayoutConfig::default();
@@ -349,6 +349,137 @@ pub fn render_ascii_with_width(input: &str, max_width: Option<usize>) -> Result<
     Ok(to_ascii(&unicode))
 }
 
+/// Bundle of optional rendering knobs accepted by [`render_with_options`].
+///
+/// All fields default to "off / unconstrained": `RenderOptions::default()`
+/// yields a result identical to [`render`].
+///
+/// ANSI color is opt-in. When `color` is `false` (the default) the output is
+/// guaranteed to contain zero ANSI escape bytes, matching the historical
+/// "deterministic, newline-delimited" contract.
+#[derive(Debug, Clone, Default)]
+pub struct RenderOptions {
+    /// Optional column budget. When `Some(n)`, progressive compaction is
+    /// attempted to keep the longest line within `n` cells.
+    pub max_width: Option<usize>,
+    /// Replace Unicode box-drawing glyphs with ASCII equivalents (see
+    /// [`to_ascii`]). Composes freely with `color`.
+    pub ascii: bool,
+    /// Emit ANSI 24-bit color SGR sequences derived from `style` /
+    /// `linkStyle` directives. Off by default so existing callers see no
+    /// behaviour change.
+    pub color: bool,
+}
+
+/// Render a Mermaid diagram with the full set of opt-in knobs.
+///
+/// This is the most flexible public entry point. Existing helpers
+/// ([`render`], [`render_with_width`], [`render_ascii`],
+/// [`render_ascii_with_width`]) are thin wrappers over this function and
+/// remain available for callers that don't need ANSI color.
+///
+/// # Errors
+///
+/// Same as [`render`].
+///
+/// # Examples
+///
+/// ```
+/// use mermaid_text::{render_with_options, RenderOptions};
+///
+/// let opts = RenderOptions { color: true, ..Default::default() };
+/// let out = render_with_options(
+///     "graph LR\nA[Start] --> B[End]\nstyle A fill:#336,color:#fff",
+///     &opts,
+/// ).unwrap();
+/// // ANSI 24-bit color escapes are present.
+/// assert!(out.contains("\x1b[38;2;"));
+/// ```
+pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, Error> {
+    let kind = detect::detect(input)?;
+
+    let unicode = match kind {
+        DiagramKind::Sequence => {
+            // Sequence diagrams ignore color and width opts (no compaction
+            // pipeline, no style directives wired up yet).
+            let diag = parser::sequence::parse(input)?;
+            render::sequence::render(&diag)
+        }
+        DiagramKind::Flowchart => {
+            let graph = parser::parse(input)?;
+            render_flowchart_with_color(&graph, opts.max_width, opts.color)
+        }
+        DiagramKind::State => {
+            // State diagrams become a flowchart Graph at parse time, so the
+            // same compaction + color pipeline applies.
+            let graph = parser::state::parse(input)?;
+            render_flowchart_with_color(&graph, opts.max_width, opts.color)
+        }
+    };
+
+    if opts.ascii {
+        Ok(to_ascii(&unicode))
+    } else {
+        Ok(unicode)
+    }
+}
+
+/// Run the flowchart compaction pipeline and emit the chosen result with or
+/// without color. Compaction is always measured in colorless mode (ANSI
+/// escapes confuse `unicode-width`); the final pass re-renders the winning
+/// config in the caller's preferred mode.
+fn render_flowchart_with_color(
+    graph: &crate::types::Graph,
+    max_width: Option<usize>,
+    with_color: bool,
+) -> String {
+    const COMPACT_CONFIGS: &[LayoutConfig] = &[
+        LayoutConfig {
+            layer_gap: 4,
+            node_gap: 2,
+        },
+        LayoutConfig {
+            layer_gap: 2,
+            node_gap: 1,
+        },
+        LayoutConfig {
+            layer_gap: 1,
+            node_gap: 0,
+        },
+    ];
+
+    let default_cfg = LayoutConfig::default();
+
+    // No width constraint — natural-size rendering.
+    let Some(budget) = max_width else {
+        return render_with_config_color(graph, &default_cfg, with_color);
+    };
+
+    // Measure with the colorless renderer so SGR bytes don't skew the width.
+    let plain = render_with_config(graph, &default_cfg);
+    if max_line_width(&plain) <= budget {
+        return if with_color {
+            render_with_config_color(graph, &default_cfg, true)
+        } else {
+            plain
+        };
+    }
+
+    for cfg in COMPACT_CONFIGS {
+        let candidate = render_with_config(graph, cfg);
+        if max_line_width(&candidate) <= budget {
+            return if with_color {
+                render_with_config_color(graph, cfg, true)
+            } else {
+                candidate
+            };
+        }
+    }
+    // Nothing fit; emit the most compact candidate.
+    let last = COMPACT_CONFIGS.last().expect("non-empty");
+    render_with_config_color(graph, last, with_color)
+}
+
 /// Convert a Unicode-rendered diagram string to its ASCII equivalent.
 ///
 /// Each Unicode box-drawing or arrow glyph is replaced with the closest
@@ -412,6 +543,7 @@ pub fn to_ascii(s: &str) -> String {
             '▴' => '^',
             // ---- Endpoint / decorator glyphs ----
             '◇' => '*',
+            '●' => '*',
             '○' | '◯' => 'o',
             '×' => 'x',
             // ---- Exotic double-line / mixed box chars (subgraph labels etc.) ----
@@ -433,19 +565,27 @@ pub fn to_ascii(s: &str) -> String {
 
 /// Render a pre-parsed `graph` using the given layout configuration.
 fn render_with_config(graph: &crate::types::Graph, config: &LayoutConfig) -> String {
+    render_with_config_color(graph, config, false)
+}
+
+/// Same as [`render_with_config`] but with optional ANSI color output.
+fn render_with_config_color(
+    graph: &crate::types::Graph,
+    config: &LayoutConfig,
+    with_color: bool,
+) -> String {
     let mut positions = layout::layered::layout(graph, config);
 
-    // When subgraphs are present, offset all positions to ensure there is
-    // room for subgraph border padding above/left of the topmost/leftmost
-    // subgraph member. Without this, a subgraph whose members start at (0,0)
-    // would have a border_row of 0 too (saturating_sub), causing the border
-    // to overlap the node boxes.
     if !graph.subgraphs.is_empty() {
         offset_positions_for_subgraphs(graph, &mut positions);
     }
 
     let sg_bounds = layout::subgraph::compute_subgraph_bounds(graph, &positions);
-    render::render(graph, &positions, &sg_bounds)
+    if with_color {
+        render::render_color(graph, &positions, &sg_bounds)
+    } else {
+        render::render(graph, &positions, &sg_bounds)
+    }
 }
 
 /// Shift all node positions so that the innermost subgraph members have
@@ -1193,7 +1333,7 @@ mod tests {
 
     #[test]
     fn unknown_diagram_types_still_error() {
-        let err = render("stateDiagram-v2\ns1 --> s2").unwrap_err();
+        let err = render("pie title Pets\n\"Dogs\" : 40").unwrap_err();
         assert!(
             matches!(err, Error::UnsupportedDiagram(_)),
             "expected UnsupportedDiagram, got {err:?}"

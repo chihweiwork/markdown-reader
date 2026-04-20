@@ -256,3 +256,202 @@ fn back_edge_lr() {
     let out = mermaid_text::render("graph LR; A-->B-->C; C-->A").unwrap();
     assert_snapshot!("back_edge_lr", out);
 }
+
+// ---------------------------------------------------------------------------
+// 18. ANSI color regression guard — running through `render_with_options`
+//     with `color: false` must produce the exact same bytes as `render`.
+//     This is the structural promise that ANSI is opt-in.
+// ---------------------------------------------------------------------------
+#[test]
+fn color_disabled_is_byte_identical() {
+    let src = "graph LR\nA[Start] --> B[End]\nstyle A fill:#336,stroke:#fff,color:#fff";
+    let plain = mermaid_text::render(src).unwrap();
+    let opts = mermaid_text::RenderOptions::default();
+    let via_options = mermaid_text::render_with_options(src, &opts).unwrap();
+    assert_eq!(plain, via_options, "color=false path must be byte-identical");
+    assert!(
+        !via_options.contains('\x1b'),
+        "no ANSI escape bytes when color=false"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 19. Node fill / stroke / color via `style` directive — the canonical case.
+//     Snapshot captures the SGR sequences literally so any drift in the
+//     emission shape is caught.
+// ---------------------------------------------------------------------------
+#[test]
+fn node_fill_stroke_and_color() {
+    let src = r#"graph LR
+        A[Start] --> B[End]
+        style A fill:#336,stroke:#fff,color:#fff"#;
+    let opts = mermaid_text::RenderOptions {
+        color: true,
+        ..Default::default()
+    };
+    let out = mermaid_text::render_with_options(src, &opts).unwrap();
+    assert!(out.contains("\x1b[48;2;51;51;102m"), "fill SGR present");
+    assert!(out.contains("\x1b[38;2;255;255;255m"), "fg SGR present");
+    assert_snapshot!("node_fill_stroke_and_color", out);
+}
+
+// ---------------------------------------------------------------------------
+// 20. Edge color via `linkStyle` directive.
+// ---------------------------------------------------------------------------
+#[test]
+fn edge_link_style() {
+    let src = r#"graph LR
+        A --> B
+        A --> C
+        linkStyle 0 stroke:#f00
+        linkStyle 1 stroke:#0f0,color:#fff"#;
+    let opts = mermaid_text::RenderOptions {
+        color: true,
+        ..Default::default()
+    };
+    let out = mermaid_text::render_with_options(src, &opts).unwrap();
+    assert!(out.contains("\x1b[38;2;255;0;0m"), "stroke #f00 present");
+    assert!(out.contains("\x1b[38;2;0;255;0m"), "stroke #0f0 present");
+    assert_snapshot!("edge_link_style", out);
+}
+
+// ---------------------------------------------------------------------------
+// State diagrams — transformed to flowchart Graph, ride the same renderer.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn state_simple_chain() {
+    let src = "stateDiagram-v2\n[*] --> A\nA --> B\nB --> [*]";
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("state_simple_chain", out);
+}
+
+#[test]
+fn state_self_transition() {
+    let src = "stateDiagram-v2\n[*] --> A\nA --> A : retry";
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("state_self_transition", out);
+}
+
+#[test]
+fn state_multi_line_description() {
+    let src = "stateDiagram-v2
+direction LR
+[*] --> Active
+Active : Line one
+Active : Line two
+Active : Line three";
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("state_multi_line_description", out);
+}
+
+#[test]
+fn state_composite_simple() {
+    let src = "stateDiagram-v2
+state Active {
+[*] --> Inner
+Inner --> Done
+}";
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("state_composite_simple", out);
+}
+
+#[test]
+fn state_composite_with_external_edges() {
+    // External edges to/from the composite ID get rewritten at parse time
+    // so the arrows visibly land on the composite's start / end markers.
+    let src = "stateDiagram-v2
+direction LR
+[*] --> Active
+state Active {
+Idle --> Working
+Working --> Idle
+}
+Active --> [*]";
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("state_composite_with_external_edges", out);
+}
+
+#[test]
+fn state_nested_composites() {
+    let src = "stateDiagram-v2
+state Outer {
+state Inner {
+A --> B
+}
+Other --> Other
+}";
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("state_nested_composites", out);
+}
+
+#[test]
+fn state_composite_keyboard_lock() {
+    // The classic Mermaid composite-state example: Active wraps three
+    // independent toggle states (NumLock, CapsLock, ScrollLock).
+    let src = "stateDiagram-v2
+[*] --> Active
+state Active {
+NumLockOff --> NumLockOn : EvNumLockPressed
+NumLockOn --> NumLockOff : EvNumLockPressed
+CapsLockOff --> CapsLockOn : EvCapsLockPressed
+CapsLockOn --> CapsLockOff : EvCapsLockPressed
+}";
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("state_composite_keyboard_lock", out);
+}
+
+#[test]
+fn state_circuit_breaker() {
+    // The user's exact input — the primary acceptance test for v1.
+    let src = r#"stateDiagram-v2
+    [*] --> CLOSED
+    CLOSED --> OPEN : 5 consecutive failures
+    OPEN --> HALF_OPEN : probe interval elapsed
+    HALF_OPEN --> CLOSED : probe succeeds
+    HALF_OPEN --> OPEN : probe fails (increased backoff)
+
+    CLOSED : All DB calls pass through
+    CLOSED : Counting consecutive failures
+    OPEN : DB calls skipped (sleep for probe interval)
+    OPEN : No writes attempted
+    HALF_OPEN : One probe call allowed through"#;
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("state_circuit_breaker", out);
+}
+
+// ---------------------------------------------------------------------------
+// 21. ANSI + ASCII compose — `to_ascii` is char-by-char and must leave the
+//     embedded SGR escape sequences untouched.
+// ---------------------------------------------------------------------------
+#[test]
+fn color_plus_ascii_composes() {
+    let src = "graph LR\nA --> B\nstyle A fill:#336,color:#fff";
+    let opts = mermaid_text::RenderOptions {
+        color: true,
+        ascii: true,
+        ..Default::default()
+    };
+    let out = mermaid_text::render_with_options(src, &opts).unwrap();
+    assert!(out.contains("\x1b[48;2;51;51;102m"), "fill SGR survives ascii");
+    // Strip SGR; remainder must be pure ASCII.
+    let stripped: String = {
+        let mut s = String::with_capacity(out.len());
+        let mut in_esc = false;
+        for ch in out.chars() {
+            if ch == '\x1b' {
+                in_esc = true;
+                continue;
+            }
+            if in_esc {
+                if ch == 'm' {
+                    in_esc = false;
+                }
+                continue;
+            }
+            s.push(ch);
+        }
+        s
+    };
+    assert!(stripped.is_ascii(), "post-strip output is pure ASCII");
+}

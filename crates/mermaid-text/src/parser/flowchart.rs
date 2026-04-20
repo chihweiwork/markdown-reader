@@ -15,7 +15,10 @@
 
 use crate::{
     Error,
-    types::{Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape, Subgraph},
+    types::{
+        Direction, Edge, EdgeEndpoint, EdgeStyle, EdgeStyleColors, Graph, Node, NodeShape, Rgb,
+        Subgraph,
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -178,8 +181,16 @@ fn parse_statements(
                 }
                 i += 1;
             }
-            // Style / class directives — silently skip.
-            "style" | "classDef" | "class" | "click" | "linkStyle" | "accTitle" | "accDescr" => {
+            "style" => {
+                parse_style_directive(stmt, graph);
+                i += 1;
+            }
+            "linkStyle" => {
+                parse_link_style_directive(stmt, graph);
+                i += 1;
+            }
+            // Other style / class directives — silently skip.
+            "classDef" | "class" | "click" | "accTitle" | "accDescr" => {
                 i += 1;
             }
             _ => {
@@ -814,6 +825,91 @@ fn soft_wrap_into(line: &str, out: &mut String) {
 }
 
 // ---------------------------------------------------------------------------
+// Style directive parsing
+// ---------------------------------------------------------------------------
+
+/// Parse a `style <id> key:value,key:value,...` directive and merge the
+/// recognised color attributes (`fill`, `stroke`, `color`) into
+/// `graph.node_styles`. Unknown keys and unparseable values are silently
+/// ignored so the directive cannot break otherwise-valid input.
+fn parse_style_directive(stmt: &str, graph: &mut Graph) {
+    // Split off the leading "style" keyword and the target id.
+    let mut parts = stmt.splitn(3, char::is_whitespace);
+    let _ = parts.next(); // "style"
+    let Some(id) = parts.next().map(str::trim).filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let rest = parts.next().unwrap_or("");
+
+    let mut style = graph.node_styles.get(id).copied().unwrap_or_default();
+    apply_color_pairs(rest, |key, value| match key {
+        "fill" => style.fill = Rgb::parse_hex(value),
+        "stroke" => style.stroke = Rgb::parse_hex(value),
+        "color" => style.color = Rgb::parse_hex(value),
+        _ => {}
+    });
+    graph.node_styles.insert(id.to_string(), style);
+}
+
+/// Parse a `linkStyle <indexes> key:value,...` directive and merge the
+/// recognised colors into `graph.edge_styles` for each listed index.
+///
+/// The index list may be a comma-separated list of integers (e.g.
+/// `linkStyle 0,1,2 stroke:#f00`) or `default` (which we currently
+/// interpret as "apply to all known edges so far").
+fn parse_link_style_directive(stmt: &str, graph: &mut Graph) {
+    let mut parts = stmt.splitn(3, char::is_whitespace);
+    let _ = parts.next(); // "linkStyle"
+    let Some(indexes) = parts.next().map(str::trim).filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let rest = parts.next().unwrap_or("");
+
+    let target_indexes: Vec<usize> = if indexes == "default" {
+        (0..graph.edges.len()).collect()
+    } else {
+        indexes
+            .split(',')
+            .filter_map(|s| s.trim().parse::<usize>().ok())
+            .collect()
+    };
+    if target_indexes.is_empty() {
+        return;
+    }
+
+    let mut delta = EdgeStyleColors::default();
+    apply_color_pairs(rest, |key, value| match key {
+        "stroke" => delta.stroke = Rgb::parse_hex(value),
+        "color" => delta.color = Rgb::parse_hex(value),
+        _ => {}
+    });
+
+    for idx in target_indexes {
+        let entry = graph.edge_styles.entry(idx).or_default();
+        if delta.stroke.is_some() {
+            entry.stroke = delta.stroke;
+        }
+        if delta.color.is_some() {
+            entry.color = delta.color;
+        }
+    }
+}
+
+/// Walk a `key:value,key:value,...` payload and call `f` for each pair.
+///
+/// Whitespace around keys, values, and separators is ignored. Pairs without
+/// a `:` are silently skipped.
+fn apply_color_pairs(payload: &str, mut f: impl FnMut(&str, &str)) {
+    for pair in payload.split(',') {
+        let pair = pair.trim();
+        let Some((key, value)) = pair.split_once(':') else {
+            continue;
+        };
+        f(key.trim(), value.trim());
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1068,5 +1164,50 @@ mod tests {
     fn parse_cross_endpoint() {
         let g = parse("graph LR\nA--xB").unwrap();
         assert_eq!(g.edges[0].end, EdgeEndpoint::Cross);
+    }
+
+    #[test]
+    fn parse_style_directive_records_colors() {
+        let src = "graph LR\nA-->B\nstyle A fill:#336,stroke:#fff,color:#fff";
+        let g = parse(src).unwrap();
+        let style = g.node_styles.get("A").copied().unwrap();
+        assert_eq!(style.fill, Some(Rgb(0x33, 0x33, 0x66)));
+        assert_eq!(style.stroke, Some(Rgb(0xff, 0xff, 0xff)));
+        assert_eq!(style.color, Some(Rgb(0xff, 0xff, 0xff)));
+    }
+
+    #[test]
+    fn parse_style_directive_ignores_unknown_keys_and_bad_hex() {
+        let src = "graph LR\nA\nstyle A fill:#zzz,foo:bar,stroke:#000";
+        let g = parse(src).unwrap();
+        let style = g.node_styles.get("A").copied().unwrap();
+        assert_eq!(style.fill, None);
+        assert_eq!(style.stroke, Some(Rgb(0, 0, 0)));
+    }
+
+    #[test]
+    fn parse_link_style_directive_per_index() {
+        let src = "graph LR\nA-->B\nA-->C\nlinkStyle 0 stroke:#f00\nlinkStyle 1 stroke:#0f0,color:#fff";
+        let g = parse(src).unwrap();
+        let e0 = g.edge_styles.get(&0).copied().unwrap();
+        assert_eq!(e0.stroke, Some(Rgb(0xff, 0, 0)));
+        assert!(e0.color.is_none());
+        let e1 = g.edge_styles.get(&1).copied().unwrap();
+        assert_eq!(e1.stroke, Some(0).map(|_| Rgb(0, 0xff, 0)));
+        assert_eq!(e1.color, Some(Rgb(0xff, 0xff, 0xff)));
+    }
+
+    #[test]
+    fn parse_link_style_default_applies_to_all() {
+        let src = "graph LR\nA-->B\nA-->C\nlinkStyle default stroke:#abc";
+        let g = parse(src).unwrap();
+        assert_eq!(
+            g.edge_styles.get(&0).and_then(|e| e.stroke),
+            Some(Rgb(0xaa, 0xbb, 0xcc))
+        );
+        assert_eq!(
+            g.edge_styles.get(&1).and_then(|e| e.stroke),
+            Some(Rgb(0xaa, 0xbb, 0xcc))
+        );
     }
 }

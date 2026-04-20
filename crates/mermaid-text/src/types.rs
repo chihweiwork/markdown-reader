@@ -111,6 +111,71 @@ pub enum NodeShape {
     DoubleCircle,
 }
 
+/// A 24-bit RGB color, used for ANSI truecolor SGR sequences.
+///
+/// Parsed from Mermaid `style` / `linkStyle` directives like
+/// `fill:#336`, `stroke:#ffffff`, `color:#fff`. Both `#RGB` and
+/// `#RRGGBB` forms are accepted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rgb(pub u8, pub u8, pub u8);
+
+impl Rgb {
+    /// Parse a Mermaid hex color of the form `#RGB` or `#RRGGBB`
+    /// (case-insensitive). The leading `#` is required.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mermaid_text::types::Rgb;
+    ///
+    /// assert_eq!(Rgb::parse_hex("#336"), Some(Rgb(0x33, 0x33, 0x66)));
+    /// assert_eq!(Rgb::parse_hex("#FFFFFF"), Some(Rgb(0xff, 0xff, 0xff)));
+    /// assert_eq!(Rgb::parse_hex("336"), None); // missing '#'
+    /// assert_eq!(Rgb::parse_hex("#GG0000"), None); // not hex
+    /// ```
+    pub fn parse_hex(s: &str) -> Option<Self> {
+        let body = s.strip_prefix('#')?;
+        match body.len() {
+            3 => {
+                let r = u8::from_str_radix(&body[0..1], 16).ok()?;
+                let g = u8::from_str_radix(&body[1..2], 16).ok()?;
+                let b = u8::from_str_radix(&body[2..3], 16).ok()?;
+                Some(Self(r * 0x11, g * 0x11, b * 0x11))
+            }
+            6 => {
+                let r = u8::from_str_radix(&body[0..2], 16).ok()?;
+                let g = u8::from_str_radix(&body[2..4], 16).ok()?;
+                let b = u8::from_str_radix(&body[4..6], 16).ok()?;
+                Some(Self(r, g, b))
+            }
+            _ => None,
+        }
+    }
+}
+
+/// Per-node style attributes parsed from `style <id> ...` directives.
+///
+/// Only color-related attributes are tracked. Unrecognised keys
+/// (e.g. `font-size`) are silently ignored at parse time.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct NodeStyle {
+    /// Background color for the node interior cells (`fill:#…`).
+    pub fill: Option<Rgb>,
+    /// Foreground color for the node border glyphs (`stroke:#…`).
+    pub stroke: Option<Rgb>,
+    /// Foreground color for the node label text (`color:#…`).
+    pub color: Option<Rgb>,
+}
+
+/// Per-edge color attributes parsed from `linkStyle <index> ...` directives.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EdgeStyleColors {
+    /// Foreground color for the edge glyphs (`stroke:#…`).
+    pub stroke: Option<Rgb>,
+    /// Foreground color for the edge label text (`color:#…`).
+    pub color: Option<Rgb>,
+}
+
 /// The visual style of an edge line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EdgeStyle {
@@ -377,6 +442,16 @@ pub struct Graph {
     /// IDs of its immediate children. Use [`Graph::node_to_subgraph`] for
     /// efficient node→subgraph lookups.
     pub subgraphs: Vec<Subgraph>,
+    /// Per-node color overrides parsed from `style <id> ...` directives.
+    ///
+    /// Empty by default; populated only when the source contains `style`
+    /// directives. Used by the renderer when ANSI color output is enabled.
+    pub node_styles: HashMap<String, NodeStyle>,
+    /// Per-edge color overrides parsed from `linkStyle <index> ...` directives.
+    ///
+    /// Keyed by the edge's positional index (0-based, in declaration order).
+    /// Empty by default.
+    pub edge_styles: HashMap<usize, EdgeStyleColors>,
 }
 
 impl Graph {
@@ -402,6 +477,8 @@ impl Graph {
             nodes: Vec::new(),
             edges: Vec::new(),
             subgraphs: Vec::new(),
+            node_styles: HashMap::new(),
+            edge_styles: HashMap::new(),
         }
     }
 

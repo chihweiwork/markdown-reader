@@ -3,6 +3,125 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.6.0 — 2026-04-20
+
+### Fixed
+
+- **Back-edge perimeter paths now visibly connect to their source and
+  destination boxes.** Previously, back-edges (`C --> A` when `A` is
+  upstream of `C`) rendered the horizontal perimeter line and arrow
+  tip but left a 1-cell gap between the line and each node's
+  bottom/right border, producing a "line coming from nowhere" effect.
+  A new post-pass stamps `┬`/`┴` (LR/RL) or `├`/`┤` (TD/BT) junction
+  glyphs on the source and destination border cells so the connection
+  reads cleanly. Pre-existing since 0.3.0; surfaced frequently in
+  state-diagram retry loops.
+- **Orphan `[*]` markers from composite-edge rewrites are dropped.**
+  When the user writes `Active --> [*]` on a composite whose inner
+  flow never transitions to an end marker, the parse-time rewrite
+  synthesises an `__end__Active --> __end__` pair that has no
+  connection to the composite's real states. Those floating
+  double-circles now get garbage-collected before rendering, leaving
+  only the markers that visibly participate in the diagram. Applies
+  symmetrically to orphaned `__start__` chains.
+
+### Added
+
+- **Composite states for state diagrams** (`state X { … }`). Recursive
+  nesting is supported; each composite renders as a rounded rectangle
+  enclosing its inner states. The state-diagram parser was refactored
+  into a recursive walker that opens a new scope on `state Id {` and
+  closes it on `}`. Per Mermaid spec, both `state Id { … }` and
+  `state "Display" as Id { … }` openers are accepted.
+- **Per-composite `[*]` scope.** Each composite has its own start and
+  end markers, mangled as `__start__<ancestor_path>` /
+  `__end__<ancestor_path>` so `[*] --> Inner` inside `state Active {…}`
+  is a different node from a top-level `[*] --> X`. Top-level marker
+  IDs (`__start__`, `__end__`) are preserved exactly to keep
+  0.5.0 snapshots byte-identical.
+- **External edges to/from composite IDs are rewritten at parse time.**
+  `OuterState --> Composite` becomes `OuterState --> __start__Composite`
+  (the synthesised inner start marker), and `Composite --> Done`
+  becomes `__end__Composite --> Done`. The arrow lands visibly inside
+  the composite border on its start/end marker — a sensible
+  approximation of Mermaid's "arrow to composite border" rendering.
+- **Per-composite `direction` overrides** (`direction LR` inside a
+  composite body) populate the existing `Subgraph::direction` field.
+- **Stricter error handling** for state diagrams: an unterminated
+  composite (`state X { …` with no closing `}`) and a stray `}` at
+  top level both return a clear `Error::ParseError` with line number,
+  rather than silently consuming or dropping content.
+
+### Notes
+
+- Out of scope (intentional follow-ups): concurrent regions (`--`),
+  real shapes for `<<choice>>` / `<<fork>>` / `<<join>>` (still
+  silently rendered as plain rounded states), notes (silently
+  skipped), `classDef` / `class` / `style` / `click` (silently
+  skipped), cross-composite transitions (Mermaid itself doesn't
+  support these).
+- One-line composite syntax `state X { [*] --> Inner }` is not
+  supported — the closing `}` must be on its own line.
+
+## 0.5.0 — 2026-04-19
+
+### Added
+
+- **`stateDiagram` and `stateDiagram-v2` support.** Both keywords share the
+  same grammar in upstream Mermaid; we accept either. State diagrams are
+  parsed into the existing flowchart `Graph` type and ride the same
+  layered layout, A* edge routing, ANSI color, ASCII fallback, and
+  `--width` compaction pipeline as flowcharts. No CLI changes — pass a
+  `.mmd` containing a state diagram to `mermaid-text` and it Just Works.
+- Supported syntax (the "Always" / "Common" tiers per the Mermaid spec):
+  `[*]` start (rendered as a small `Circle` with `●`) and end (rendered
+  as a `DoubleCircle` with `●`); `A --> B` and `A --> B : label`
+  transitions including self-transitions; `STATE : description` lines
+  that accumulate into a multi-line label; `state "Display Name" as Id`
+  with `\n` line-break support; bare `state Id` declarations;
+  `direction LR/TB/BT/RL`; `%%` comments; colons inside labels and
+  descriptions.
+- `'●' → '*'` mapping in `to_ascii` so state diagrams compose with `--ascii`.
+
+### Notes
+
+- Out of scope (intentional follow-ups): composite states `state X { … }`
+  return a clear parse error; concurrent regions (`--`); `<<choice>>` /
+  `<<fork>>` / `<<join>>` shape modifiers (silently treated as plain
+  states for now); notes (silently skipped); `classDef` / `class` /
+  `style` / `click` (silently skipped); `accTitle`, `accDescr`, `scale`,
+  `hide empty description`.
+- The default direction for state diagrams is `TB` (top-to-bottom),
+  matching upstream Mermaid. Add `direction LR` near the top of the
+  source for a wider, shorter layout.
+
+## 0.4.0 — 2026-04-19
+
+### Added
+
+- **ANSI 24-bit color output (opt-in)**. Mermaid `style <id>
+  fill:#…,stroke:#…,color:#…` and `linkStyle <indexes>
+  stroke:#…[,color:#…]` directives — previously silently ignored — are
+  now parsed and emitted as truecolor SGR sequences when color output is
+  requested. New CLI flag `--color` / `-c` and a new public entry point
+  `render_with_options(input, &RenderOptions { color: true, .. })` opt
+  into the new behaviour. The default behaviour of every existing entry
+  point is unchanged: zero ANSI bytes, byte-identical to v0.3.x.
+- New public `RenderOptions { max_width, ascii, color }` struct with a
+  `Default` impl that matches the historical `render` behaviour.
+- New public types `Rgb`, `NodeStyle`, `EdgeStyleColors` plus
+  `Graph::node_styles` / `Graph::edge_styles` registries that hold the
+  parsed color metadata.
+
+### Notes
+
+- `--color` composes with `--ascii`: ANSI escapes are pure ASCII and
+  pass through the box-drawing-to-ASCII conversion untouched, useful for
+  terminals that strip Unicode but speak ANSI.
+- Out of scope for this release (intentional follow-ups): `classDef` /
+  `:::className` shorthand, subgraph border styling, 256-color and
+  16-color fallbacks, and color support in `sequenceDiagram` rendering.
+
 ## 0.3.4 — 2026-04-18
 
 ### Fixed

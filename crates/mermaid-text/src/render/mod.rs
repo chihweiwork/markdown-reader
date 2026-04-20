@@ -3,4 +3,4 @@
 pub mod sequence;
 pub mod unicode;
 
-pub use unicode::render;
+pub use unicode::{render, render_color};

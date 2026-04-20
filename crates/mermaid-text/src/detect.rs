@@ -9,6 +9,9 @@ pub enum DiagramKind {
     Flowchart,
     /// `sequenceDiagram` diagrams.
     Sequence,
+    /// `stateDiagram` and `stateDiagram-v2` diagrams. Both keywords share the
+    /// same grammar in upstream Mermaid; only the JS renderer differs.
+    State,
 }
 
 /// Detect the kind of Mermaid diagram described by `input`.
@@ -53,6 +56,7 @@ pub fn detect(input: &str) -> Result<DiagramKind, Error> {
     match keyword.to_lowercase().as_str() {
         "graph" | "flowchart" => Ok(DiagramKind::Flowchart),
         "sequencediagram" => Ok(DiagramKind::Sequence),
+        "statediagram" | "statediagram-v2" => Ok(DiagramKind::State),
         other => Err(Error::UnsupportedDiagram(other.to_string())),
     }
 }
@@ -93,6 +97,30 @@ mod tests {
         assert_eq!(
             detect("%% This is a comment\ngraph LR\nA-->B").unwrap(),
             DiagramKind::Flowchart
+        );
+    }
+
+    #[test]
+    fn detects_state_diagram_keyword() {
+        assert_eq!(
+            detect("stateDiagram\n[*] --> A").unwrap(),
+            DiagramKind::State
+        );
+    }
+
+    #[test]
+    fn detects_state_diagram_v2_keyword() {
+        assert_eq!(
+            detect("stateDiagram-v2\n[*] --> A").unwrap(),
+            DiagramKind::State
+        );
+    }
+
+    #[test]
+    fn state_diagram_keyword_is_case_insensitive() {
+        assert_eq!(
+            detect("StateDiagram-V2\n[*] --> A").unwrap(),
+            DiagramKind::State
         );
     }
 }

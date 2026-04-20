@@ -1,8 +1,10 @@
 //! Mermaid diagram parsers.
 //!
-//! Supports `graph`/`flowchart` and `sequenceDiagram` syntax.
+//! Supports `graph`/`flowchart`, `sequenceDiagram`, and `stateDiagram` /
+//! `stateDiagram-v2` syntax.
 
 pub mod flowchart;
 pub mod sequence;
+pub mod state;
 
 pub use flowchart::parse;

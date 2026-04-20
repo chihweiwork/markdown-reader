@@ -20,6 +20,10 @@
 //! # ASCII-only output (no Unicode box-drawing):
 //! echo "graph LR; A-->B-->C" | mermaid-text --ascii
 //! mermaid-text --ascii --width 60 diagram.mmd
+//!
+//! # ANSI 24-bit color (honours `style` / `linkStyle` directives):
+//! mermaid-text --color diagram.mmd
+//! mermaid-text --color --ascii diagram.mmd      # composes with --ascii
 //! ```
 
 use std::io::Read;
@@ -30,6 +34,7 @@ fn main() {
 
     let mut max_width: Option<usize> = None;
     let mut ascii_mode = false;
+    let mut color_mode = false;
     let mut path: Option<String> = None;
 
     while let Some(arg) = args.next() {
@@ -47,8 +52,11 @@ fn main() {
             "--ascii" => {
                 ascii_mode = true;
             }
+            "--color" | "-c" => {
+                color_mode = true;
+            }
             "--help" | "-h" => {
-                println!("Usage: mermaid-text [--width N] [--ascii] [FILE]");
+                println!("Usage: mermaid-text [--width N] [--ascii] [--color] [FILE]");
                 println!();
                 println!("Render a Mermaid graph/flowchart diagram as text.");
                 println!();
@@ -62,6 +70,9 @@ fn main() {
                 );
                 println!("              Useful for SSH sessions to old hosts, CI log viewers,");
                 println!("              or terminals without Unicode fonts.");
+                println!("  --color, -c Emit ANSI 24-bit color SGR sequences using the");
+                println!("              `style` / `linkStyle` directives in the source.");
+                println!("              Off by default; composes with --ascii.");
                 println!("  --help      Print this help message");
                 process::exit(0);
             }
@@ -93,11 +104,14 @@ fn main() {
     };
 
     // Dispatch to the appropriate renderer.
-    let result = if ascii_mode {
-        mermaid_text::render_ascii_with_width(&source, max_width)
-    } else {
-        mermaid_text::render_with_width(&source, max_width)
-    };
+    let result = mermaid_text::render_with_options(
+        &source,
+        &mermaid_text::RenderOptions {
+            max_width,
+            ascii: ascii_mode,
+            color: color_mode,
+        },
+    );
 
     match result {
         Ok(output) => print!("{output}"),

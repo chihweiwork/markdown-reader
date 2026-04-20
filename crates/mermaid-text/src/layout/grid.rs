@@ -17,6 +17,8 @@ use std::collections::BinaryHeap;
 
 use unicode_width::UnicodeWidthChar;
 
+use crate::types::Rgb;
+
 // Box-drawing character sets
 /// Rectangle corners and sides. T-junctions and crosses are not listed here
 /// because they are derived on demand by the direction-bit canvas via
@@ -236,6 +238,12 @@ pub struct Grid {
     /// cells so that rounded corners, arrow tips, and node labels survive
     /// any subsequent edge routing that happens to cross them.
     protected: Vec<Vec<bool>>,
+    /// Optional foreground color per cell. Empty (all `None`) until the
+    /// caller paints colors via [`Grid::set_fg`] / [`Grid::paint_fg_rect`].
+    /// Consumed only by [`Grid::render_with_colors`].
+    fg: Vec<Vec<Option<Rgb>>>,
+    /// Optional background color per cell — see [`Grid::fg`].
+    bg: Vec<Vec<Option<Rgb>>>,
     /// Total columns.
     width: usize,
     /// Total rows.
@@ -255,6 +263,8 @@ impl Grid {
             obstacles: vec![vec![Obstacle::Free; width]; height],
             directions: vec![vec![0u8; width]; height],
             protected: vec![vec![false; width]; height],
+            fg: vec![vec![None; width]; height],
+            bg: vec![vec![None; width]; height],
             width,
             height,
         }
@@ -366,6 +376,115 @@ impl Grid {
         } else {
             ' '
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Color layer
+    // -----------------------------------------------------------------------
+
+    /// Paint the foreground color of cell `(col, row)`. Out-of-bounds writes
+    /// are silently ignored.
+    pub fn set_fg(&mut self, col: usize, row: usize, c: Rgb) {
+        if row < self.height && col < self.width {
+            self.fg[row][col] = Some(c);
+        }
+    }
+
+    /// Paint the background color of cell `(col, row)`.
+    pub fn set_bg(&mut self, col: usize, row: usize, c: Rgb) {
+        if row < self.height && col < self.width {
+            self.bg[row][col] = Some(c);
+        }
+    }
+
+    /// Paint the foreground color over every cell in the rectangle anchored at
+    /// `(col, row)` with size `w × h`. Cells outside the grid are skipped.
+    pub fn paint_fg_rect(&mut self, col: usize, row: usize, w: usize, h: usize, c: Rgb) {
+        for dy in 0..h {
+            for dx in 0..w {
+                self.set_fg(col + dx, row + dy, c);
+            }
+        }
+    }
+
+    /// Paint the background color over every cell in the rectangle anchored at
+    /// `(col, row)` with size `w × h`.
+    pub fn paint_bg_rect(&mut self, col: usize, row: usize, w: usize, h: usize, c: Rgb) {
+        for dy in 0..h {
+            for dx in 0..w {
+                self.set_bg(col + dx, row + dy, c);
+            }
+        }
+    }
+
+    /// Paint the foreground color along every cell of `path`. `path` is a list
+    /// of `(col, row)` pairs as produced by the A\* edge router.
+    pub fn paint_fg_path(&mut self, path: &[(usize, usize)], c: Rgb) {
+        for &(col, row) in path {
+            self.set_fg(col, row, c);
+        }
+    }
+
+    /// Render the grid as a string with embedded ANSI 24-bit truecolor SGR
+    /// sequences for any cells with non-`None` `fg`/`bg`.
+    ///
+    /// Trailing whitespace on each row is trimmed (matching [`std::fmt::Display`]).
+    /// SGR runs are coalesced — only color changes between adjacent visible
+    /// cells emit an escape sequence — and every row ends with `\x1b[0m` so
+    /// the trim and the colors do not interfere.
+    ///
+    /// If no cell carries a color (the default), the output is byte-for-byte
+    /// identical to [`std::fmt::Display`]. Callers that want a hard guarantee
+    /// of zero ANSI bytes should use [`Grid::render`] instead.
+    pub fn render_with_colors(&self) -> String {
+        let mut out = String::with_capacity(self.height * (self.width + 16));
+        let mut row_buf = String::with_capacity(self.width + 32);
+        for row in 0..self.height {
+            row_buf.clear();
+            let mut current_fg: Option<Rgb> = None;
+            let mut current_bg: Option<Rgb> = None;
+            let mut any_sgr_in_row = false;
+            for col in 0..self.width {
+                let fg = self.fg[row][col];
+                let bg = self.bg[row][col];
+                if fg != current_fg || bg != current_bg {
+                    // Reset before emitting a new combo so transitions from
+                    // colored back to uncolored cleanly drop attributes.
+                    if any_sgr_in_row {
+                        row_buf.push_str("\x1b[0m");
+                    }
+                    if let Some(Rgb(r, g, b)) = fg {
+                        use std::fmt::Write;
+                        let _ = write!(row_buf, "\x1b[38;2;{r};{g};{b}m");
+                        any_sgr_in_row = true;
+                    }
+                    if let Some(Rgb(r, g, b)) = bg {
+                        use std::fmt::Write;
+                        let _ = write!(row_buf, "\x1b[48;2;{r};{g};{b}m");
+                        any_sgr_in_row = true;
+                    }
+                    current_fg = fg;
+                    current_bg = bg;
+                }
+                row_buf.push(self.cells[row][col]);
+            }
+            // Trim trailing ASCII spaces *before* the optional final reset, so
+            // padding that the no-color renderer would have stripped does not
+            // leak through as visible whitespace once the SGR is stripped.
+            while row_buf.ends_with(' ') {
+                row_buf.pop();
+            }
+            if any_sgr_in_row {
+                row_buf.push_str("\x1b[0m");
+            }
+            out.push_str(&row_buf);
+            out.push('\n');
+        }
+        // Strip the same trailing-blank-line pattern as `Display`.
+        while out.ends_with("\n\n") {
+            out.pop();
+        }
+        out
     }
 
     /// Convert the grid to a `String`, stripping trailing spaces from each row.

@@ -114,10 +114,134 @@ mermaid-text --width 80 my_diagram.mmd
 | Subgraphs (`subgraph … end`) | yes |
 | Nested subgraphs | yes |
 | Per-subgraph `direction` override | partial |
-| `style`, `classDef`, `linkStyle` | silently ignored |
-| `sequenceDiagram`, `pie`, `gantt`, etc. | not supported |
+| `style <id> fill:#…,stroke:#…,color:#…` (color output) | yes (opt-in) |
+| `linkStyle <i> stroke:#…[,color:#…]` (color output) | yes (opt-in) |
+| `classDef`, `class`, `:::className` shorthand | silently ignored |
+| `stateDiagram` / `stateDiagram-v2` | yes (transformed to flowchart) |
+| `sequenceDiagram` | yes (separate pipeline) |
+| `pie`, `gantt`, `journey`, `erDiagram`, etc. | not supported |
 
 ---
+
+### ANSI color (opt-in)
+
+Mermaid `style <id> …` and `linkStyle <indexes> …` directives can drive
+24-bit ANSI color output. The default rendering is unchanged — zero ANSI
+bytes — so existing pipelines and snapshot tests are unaffected.
+
+**CLI:**
+
+```sh
+mermaid-text --color diagram.mmd
+mermaid-text --color --ascii diagram.mmd     # composes with --ascii
+mermaid-text -c -w 80 diagram.mmd
+```
+
+**Library:**
+
+```rust
+use mermaid_text::{render_with_options, RenderOptions};
+
+let opts = RenderOptions { color: true, ..Default::default() };
+let out = render_with_options(
+    "graph LR\n\
+     A[Start] --> B[End]\n\
+     style A fill:#336,stroke:#fff,color:#fff",
+    &opts,
+)?;
+// `out` contains \x1b[38;2;…m / \x1b[48;2;…m sequences
+```
+
+Recognised attributes:
+
+| Directive | Attribute | Effect |
+|---|---|---|
+| `style <id>` | `fill:#RRGGBB`  | node interior background |
+| `style <id>` | `stroke:#RRGGBB` | node border foreground |
+| `style <id>` | `color:#RRGGBB`  | node label foreground |
+| `linkStyle <i\|default>` | `stroke:#RRGGBB` | edge glyph + label foreground (label falls back to `stroke` if `color` is omitted) |
+| `linkStyle <i\|default>` | `color:#RRGGBB`  | edge label foreground only |
+
+`#RGB` and `#RRGGBB` hex forms are both accepted; unknown keys and bad
+hex values are silently ignored so a stray attribute can never break an
+otherwise-valid diagram. 24-bit truecolor (`xterm-direct` / `truecolor`)
+is required — most modern terminals (iTerm2, Kitty, Ghostty, WezTerm,
+Alacritty, Terminal.app, GNOME Terminal, Windows Terminal) qualify.
+
+Out of scope for now: `classDef` / `:::className` shorthand, subgraph
+border colors, and 256-color / 16-color fallbacks.
+
+### State diagrams
+
+Both `stateDiagram` and `stateDiagram-v2` are accepted (they share the
+same grammar in upstream Mermaid; only the JS renderer differs). State
+diagrams are transformed into the flowchart `Graph` type at parse time,
+so the entire flowchart pipeline — layout, edge routing, ANSI color,
+ASCII fallback, width compaction — applies to them unchanged.
+
+**Example — circuit-breaker FSM:**
+
+```
+stateDiagram-v2
+    direction LR
+    [*] --> CLOSED
+    CLOSED --> OPEN : 5 consecutive failures
+    OPEN --> HALF_OPEN : probe interval elapsed
+    HALF_OPEN --> CLOSED : probe succeeds
+    HALF_OPEN --> OPEN : probe fails
+
+    CLOSED : All DB calls pass through
+    CLOSED : Counting consecutive failures
+    OPEN : DB calls skipped
+    HALF_OPEN : One probe call allowed
+```
+
+The `[*]` start marker renders as a small rounded circle with `●`; the
+`[*]` end marker renders as a double-circle with `●` (visually
+distinguishing start from end). State descriptions stack into a
+multi-line label inside the box. Default direction is `TB` —
+add `direction LR` near the top for a wider, shorter layout.
+
+**Composite states** (`state X { … }`) render as a rounded rectangle
+labeled with the composite's id, enclosing its inner states. Recursive
+nesting works. External edges to / from a composite id are rewritten
+at parse time so the arrow visibly lands on the composite's inner
+start (incoming) or end (outgoing) marker:
+
+```
+stateDiagram-v2
+[*] --> Active
+state Active {
+    [*] --> Idle
+    Idle --> Working : start
+    Working --> Idle : done
+}
+Active --> [*]
+```
+
+Each composite has its own `[*]` scope — `[*]` inside `Active` refers
+to Active's start/end, distinct from the top-level. Per-composite
+`direction LR` works inside the body.
+
+**Supported subset (the "Always" / "Common" tiers of the Mermaid spec):**
+
+| Feature | Supported |
+|---|---|
+| `[*]` start / end markers | yes |
+| `A --> B` / `A --> B : label` transitions | yes |
+| Self-transitions | yes |
+| `STATE : description` (multi-line accumulating) | yes |
+| `state "Display" as Id` | yes |
+| `state Id` bare declaration | yes |
+| `direction LR/TB/BT/RL` | yes |
+| `%%` comments | yes |
+| Composite states `state X { … }` (recursive nesting) | yes |
+| External edge to / from a composite ID | yes (rewritten to scoped `[*]`) |
+| Per-composite `direction` override | yes |
+| Concurrent regions `--` | not yet |
+| `<<choice>>` / `<<fork>>` / `<<join>>` shape modifiers | parsed, rendered as plain states |
+| Notes | silently ignored |
+| `classDef` / `class` / `style` / `click` | silently ignored |
 
 ### ASCII fallback
 

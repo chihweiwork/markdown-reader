@@ -1,0 +1,9 @@
+---
+source: crates/mermaid-text/tests/snapshots.rs
+expression: out
+---
+╭─────╮      ╭────────────╮
+│( ● )│─────┐│  Line one  │
+╰─────╯     ▸│  Line two  │
+             │ Line three │
+             ╰────────────╯
