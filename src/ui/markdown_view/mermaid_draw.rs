@@ -29,6 +29,11 @@ pub struct MermaidDrawParams<'a> {
     pub block_start: u32,
     /// Exclusive end of the block in absolute logical lines.
     pub block_end: u32,
+    /// Lines into the block above the viewport. Text-mode renderers
+    /// (`AsciiDiagram`, `SourceOnly`, `Failed`) slice their content by
+    /// this offset so scrolling inside a tall diagram reveals lower rows
+    /// instead of always showing the top.
+    pub clip_start: u32,
     /// Active visual-line selection, or `None` in normal mode.
     pub visual_mode: Option<VisualRange>,
 }
@@ -105,54 +110,20 @@ pub fn draw_mermaid_block(
         }
         Some(MermaidEntry::Failed(msg)) => {
             let footer = format!("[mermaid \u{2014} {}]", truncate(msg.as_str(), 60));
-            let mut text = render_mermaid_source_text(params.source, &footer, p);
-            // Apply cursor/selection highlight to the source-text fallback.
-            if params.focused {
-                apply_block_highlight(
-                    &mut text.lines,
-                    params.visual_mode,
-                    params.cursor_line,
-                    params.block_start,
-                    params.block_end,
-                    0,
-                    p.selection_bg,
-                );
-            }
-            render_mermaid_source_styled(f, rect, text, p);
+            let text = render_mermaid_source_text(params.source, &footer, p);
+            render_mermaid_text_block(f, rect, text, p, params);
         }
         Some(MermaidEntry::SourceOnly(reason)) => {
             let footer = format!("[mermaid \u{2014} {reason}]");
-            let mut text = render_mermaid_source_text(params.source, &footer, p);
-            if params.focused {
-                apply_block_highlight(
-                    &mut text.lines,
-                    params.visual_mode,
-                    params.cursor_line,
-                    params.block_start,
-                    params.block_end,
-                    0,
-                    p.selection_bg,
-                );
-            }
-            render_mermaid_source_styled(f, rect, text, p);
+            let text = render_mermaid_source_text(params.source, &footer, p);
+            render_mermaid_text_block(f, rect, text, p, params);
         }
         Some(MermaidEntry::AsciiDiagram { diagram, reason }) => {
             // figurehead rendered a Unicode box-drawing diagram — show it
             // instead of the raw mermaid source.
             let footer = format!("[mermaid \u{2014} {reason}, text-mode diagram]");
-            let mut text = render_mermaid_source_text(diagram.as_str(), &footer, p);
-            if params.focused {
-                apply_block_highlight(
-                    &mut text.lines,
-                    params.visual_mode,
-                    params.cursor_line,
-                    params.block_start,
-                    params.block_end,
-                    0,
-                    p.selection_bg,
-                );
-            }
-            render_mermaid_source_styled(f, rect, text, p);
+            let text = render_mermaid_source_text(diagram.as_str(), &footer, p);
+            render_mermaid_text_block(f, rect, text, p, params);
         }
     }
 }
@@ -218,6 +189,41 @@ pub fn render_mermaid_source_styled(f: &mut Frame, rect: Rect, text: Text<'stati
         .style(Style::default().bg(p.background));
     let para = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
     f.render_widget(para, rect);
+}
+
+/// Render the text-mode body of a mermaid block (`AsciiDiagram`,
+/// `SourceOnly`, or `Failed`), correctly slicing by the scroll offset so
+/// tall diagrams reveal their lower rows when scrolled into view.
+///
+/// Without this slicing, `Paragraph` always renders from the first line
+/// of the `Text` regardless of how much the block has been scrolled —
+/// the user sees the top of the diagram pinned in place even after
+/// scrolling well past it. Compare with the `Text` block path (in
+/// `draw.rs`) which already slices visible lines before rendering.
+fn render_mermaid_text_block(
+    f: &mut Frame,
+    rect: Rect,
+    mut text: Text<'static>,
+    p: &Palette,
+    params: &MermaidDrawParams,
+) {
+    let total = text.lines.len();
+    let start = (params.clip_start as usize).min(total);
+    if start > 0 {
+        text.lines.drain(..start);
+    }
+    if params.focused {
+        apply_block_highlight(
+            &mut text.lines,
+            params.visual_mode,
+            params.cursor_line,
+            params.block_start,
+            params.block_end,
+            start,
+            p.selection_bg,
+        );
+    }
+    render_mermaid_source_styled(f, rect, text, p);
 }
 
 /// Truncate `s` to at most `max` bytes, returning the valid UTF-8 prefix.

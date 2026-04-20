@@ -44,6 +44,12 @@ struct MermaidDraw {
     block_start: u32,
     /// Total height of this block in logical lines.
     block_height: u32,
+    /// Lines into the block that are above the viewport (0 when the block's
+    /// top is fully visible). Text-mode renderers (`AsciiDiagram`,
+    /// `SourceOnly`, `Failed`) slice the diagram by this offset so scrolling
+    /// inside a tall diagram reveals lower rows instead of always showing
+    /// the top.
+    clip_start: u32,
     /// Visual selection at the time of the draw instruction capture.
     visual_mode: Option<VisualRange>,
 }
@@ -366,6 +372,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                                 source: source.clone(),
                                 block_start,
                                 block_height,
+                                clip_start,
                                 visual_mode,
                             });
                         }
@@ -485,6 +492,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
             cursor_line,
             block_start: md.block_start,
             block_end: md.block_start + md.block_height,
+            clip_start: md.clip_start,
             visual_mode: md.visual_mode,
         };
         draw_mermaid_block(f, app, rect, &p, &params);

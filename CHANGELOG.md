@@ -5,6 +5,20 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.2] - 2026-04-20
+
+### Fixed
+
+- **Scrolling inside a tall mermaid diagram now works.** v1.8.1 stopped
+  the layout from clamping the reserved height, but the text-mode
+  renderer (`AsciiDiagram`, `SourceOnly`, `Failed`) still always drew
+  the diagram from line 0 of the text — `Paragraph::new(text)` ignores
+  scroll offsets — so the user saw the top of the diagram pinned in
+  place no matter how far they scrolled into it. Now the renderer
+  slices the diagram lines by the scroll offset before passing them to
+  `Paragraph`, mirroring the `DocBlock::Text` path. Tall composite
+  state diagrams scroll smoothly through their full height.
+
 ## [1.8.1] - 2026-04-20
 
 ### Fixed
