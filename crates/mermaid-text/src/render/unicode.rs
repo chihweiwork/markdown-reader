@@ -14,7 +14,7 @@ use crate::{
         grid::{EdgeLineStyle, arrow, endpoint},
         layered::GridPos,
     },
-    types::{Direction, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape, NodeStyle},
+    types::{BarOrientation, Direction, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape, NodeStyle},
 };
 
 // ---------------------------------------------------------------------------
@@ -91,6 +91,20 @@ impl NodeGeom {
                 width: inner_w + 4,
                 height: 5 + extra_lines,
                 text_row: 2,
+            },
+            // Fork/join bars are perpendicular to flow and carry no
+            // label. Single-row horizontal bar (TD/BT) or single-column
+            // vertical bar (LR/RL). `text_row` is irrelevant — the
+            // renderer skips `draw_label_centred` for `Bar(_)` shapes.
+            NodeShape::Bar(BarOrientation::Horizontal) => NodeGeom {
+                width: 5,
+                height: 1,
+                text_row: 0,
+            },
+            NodeShape::Bar(BarOrientation::Vertical) => NodeGeom {
+                width: 1,
+                height: 5,
+                text_row: 0,
             },
         }
     }
@@ -1081,6 +1095,12 @@ fn draw_node_box(grid: &mut Grid, node: &Node, pos: GridPos, geom: NodeGeom) {
         NodeShape::DoubleCircle => {
             grid.draw_double_circle(col, row, geom.width, geom.height);
         }
+        NodeShape::Bar(BarOrientation::Horizontal) => {
+            grid.draw_horizontal_bar(col, row, geom.width);
+        }
+        NodeShape::Bar(BarOrientation::Vertical) => {
+            grid.draw_vertical_bar(col, row, geom.height);
+        }
     }
 }
 
@@ -1164,6 +1184,14 @@ fn truncate_to_width(s: &str, max_width: usize) -> String {
 /// rows starting at `geom.text_row`. Each line is centred independently so
 /// short lines in a mixed-width label still sit in the visual middle.
 fn draw_label_centred(grid: &mut Grid, node: &Node, pos: GridPos, geom: NodeGeom) {
+    // Bars (fork/join) are connection points, not labelled states —
+    // drawing the auto-generated state ID on top of a single `┃` column
+    // or `━` row would be visually confusing. Skip silently; matches
+    // Mermaid's own renderer behaviour for `<<fork>>` / `<<join>>`.
+    if matches!(node.shape, NodeShape::Bar(_)) {
+        return;
+    }
+
     let (col, row) = pos;
     let interior_w = geom.width.saturating_sub(2);
 

@@ -29,7 +29,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     Error,
-    types::{Direction, Edge, Graph, Node, NodeShape, Subgraph},
+    types::{BarOrientation, Direction, Edge, Graph, Node, NodeShape, Subgraph},
 };
 
 const START_PREFIX: &str = "__start__";
@@ -165,6 +165,13 @@ struct Walker {
     composite_children: HashMap<String, Vec<String>>,
     /// Per-composite direction override.
     composite_directions: HashMap<String, Direction>,
+    /// State ids that received a `<<fork>>` or `<<join>>` modifier.
+    /// Stored separately from `shapes` because the visual `Bar`
+    /// orientation depends on the graph's flow direction, which we
+    /// resolve at materialise time. Both fork and join collapse to the
+    /// same `NodeShape::Bar` — they're visually identical and only the
+    /// semantic role differs.
+    pending_bar_kinds: HashSet<String>,
 }
 
 impl Default for Walker {
@@ -191,6 +198,7 @@ impl Default for Walker {
             composite_members: HashMap::new(),
             composite_children: HashMap::new(),
             composite_directions: HashMap::new(),
+            pending_bar_kinds: HashSet::new(),
         }
     }
 }
@@ -385,12 +393,29 @@ impl Walker {
             }
         }
 
-        // Plain `Id …` (any trailing `<<choice>>` / `[[fork]]` modifier ignored).
-        let id = body.split_whitespace().next().unwrap_or("").to_string();
+        // Plain `Id [modifier]` — extract the id, then look at the
+        // remainder for a `<<choice>>` / `<<fork>>` / `<<join>>` (or
+        // `[[…]]`) shape modifier.
+        let mut parts = body.splitn(2, char::is_whitespace);
+        let id = parts.next().unwrap_or("").trim().to_string();
         if id.is_empty() {
             return;
         }
         self.register_node(&id, path);
+        let rest = parts.next().unwrap_or("");
+        if let Some(kind) = parse_shape_modifier(rest) {
+            match kind {
+                ShapeKind::Choice => {
+                    // Choice = decision diamond. Reuse the existing shape;
+                    // no orientation resolution needed.
+                    self.shapes.insert(id, NodeShape::Diamond);
+                }
+                ShapeKind::ForkOrJoin => {
+                    // Defer to materialise-time so we know self.direction.
+                    self.pending_bar_kinds.insert(id);
+                }
+            }
+        }
     }
 
     /// Drop synthesised `[*]` marker nodes that are not connected (in the
@@ -511,8 +536,26 @@ impl Walker {
         self.edges = rewritten;
     }
 
+    /// Resolve `<<fork>>` / `<<join>>` modifiers to concrete `Bar`
+    /// shapes now that the graph's flow direction is known. Bars are
+    /// drawn perpendicular to flow (matching UML / Mermaid convention),
+    /// so the orientation is derived from `self.direction`.
+    fn resolve_pending_bars(&mut self) {
+        if self.pending_bar_kinds.is_empty() {
+            return;
+        }
+        let orientation = match self.direction {
+            Direction::LeftToRight | Direction::RightToLeft => BarOrientation::Vertical,
+            Direction::TopToBottom | Direction::BottomToTop => BarOrientation::Horizontal,
+        };
+        for id in self.pending_bar_kinds.drain() {
+            self.shapes.insert(id, NodeShape::Bar(orientation));
+        }
+    }
+
     /// Build the final Graph.
     fn materialise(mut self) -> Result<Graph, Error> {
+        self.resolve_pending_bars();
         self.rewrite_composite_edges();
         self.gc_orphan_markers();
 
@@ -586,6 +629,35 @@ enum EndpointSide {
 /// Build the synthesised marker node id for a `[*]` reference at the given
 /// composite path. Top-level (empty path) gives the bare prefix; nested
 /// scopes append each composite id with `__` between.
+/// Recognised UML shape modifiers that may follow a `state Id` declaration.
+///
+/// Two variants because choice maps directly to an existing `NodeShape`
+/// while fork / join collapse to a single `NodeShape::Bar` whose
+/// orientation depends on the graph's flow direction (resolved at
+/// materialise time, not here).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShapeKind {
+    /// `<<choice>>` / `[[choice]]` → decision diamond.
+    Choice,
+    /// `<<fork>>` / `<<join>>` (and `[[…]]` variants) — both render as
+    /// the same `NodeShape::Bar`. The semantic difference between fork
+    /// (one in, many out) and join (many in, one out) is not visible
+    /// in the rendered output.
+    ForkOrJoin,
+}
+
+/// Detect a trailing `<<choice>>` / `<<fork>>` / `<<join>>` (or `[[…]]`)
+/// shape modifier on a `state Id …` declaration. Returns `None` when no
+/// recognised modifier is present (so plain `state Id` declarations
+/// continue to use the default `Rounded` shape).
+fn parse_shape_modifier(rest: &str) -> Option<ShapeKind> {
+    match rest.trim() {
+        "<<choice>>" | "[[choice]]" => Some(ShapeKind::Choice),
+        "<<fork>>" | "[[fork]]" | "<<join>>" | "[[join]]" => Some(ShapeKind::ForkOrJoin),
+        _ => None,
+    }
+}
+
 fn mangle_marker(prefix: &str, path: &[String]) -> String {
     if path.is_empty() {
         prefix.to_string()
@@ -839,11 +911,60 @@ mod tests {
     }
 
     #[test]
-    fn shape_modifier_silently_treated_as_plain() {
-        let src = "stateDiagram-v2\nstate ifState <<choice>>\nA --> ifState\nifState --> B";
-        let g = parse(src).unwrap();
-        assert!(g.has_node("ifState"));
-        assert_eq!(g.edges.len(), 2);
+    fn choice_modifier_assigns_diamond_shape() {
+        let g = parse("stateDiagram-v2\nstate D <<choice>>\n[*] --> D").unwrap();
+        assert_eq!(g.node("D").unwrap().shape, NodeShape::Diamond);
+    }
+
+    #[test]
+    fn fork_modifier_assigns_bar_perpendicular_to_flow() {
+        // Default is LR (per Walker::Default), so fork → vertical bar.
+        let g = parse("stateDiagram-v2\nstate F <<fork>>\n[*] --> F").unwrap();
+        assert_eq!(
+            g.node("F").unwrap().shape,
+            NodeShape::Bar(BarOrientation::Vertical)
+        );
+        // Explicit TB → horizontal bar.
+        let g = parse("stateDiagram-v2\ndirection TB\nstate F <<fork>>\n[*] --> F").unwrap();
+        assert_eq!(
+            g.node("F").unwrap().shape,
+            NodeShape::Bar(BarOrientation::Horizontal)
+        );
+    }
+
+    #[test]
+    fn join_modifier_uses_same_shape_as_fork() {
+        // Both fork and join collapse to the same NodeShape::Bar — the
+        // visual is identical; only the semantic role differs.
+        let g = parse("stateDiagram-v2\nstate J <<join>>\n[*] --> J").unwrap();
+        assert_eq!(
+            g.node("J").unwrap().shape,
+            NodeShape::Bar(BarOrientation::Vertical)
+        );
+    }
+
+    #[test]
+    fn double_bracket_shape_modifier_variants_accepted() {
+        let g = parse("stateDiagram-v2\nstate D [[choice]]\n[*] --> D").unwrap();
+        assert_eq!(g.node("D").unwrap().shape, NodeShape::Diamond);
+        let g = parse("stateDiagram-v2\nstate F [[fork]]\n[*] --> F").unwrap();
+        assert_eq!(
+            g.node("F").unwrap().shape,
+            NodeShape::Bar(BarOrientation::Vertical)
+        );
+        let g = parse("stateDiagram-v2\nstate J [[join]]\n[*] --> J").unwrap();
+        assert_eq!(
+            g.node("J").unwrap().shape,
+            NodeShape::Bar(BarOrientation::Vertical)
+        );
+    }
+
+    #[test]
+    fn unrecognised_modifier_falls_through_to_default_shape() {
+        // Defensive: a typo or unsupported `<<…>>` modifier shouldn't
+        // crash or pick a wrong shape — the state stays default Rounded.
+        let g = parse("stateDiagram-v2\nstate X <<typo>>\n[*] --> X").unwrap();
+        assert_eq!(g.node("X").unwrap().shape, NodeShape::Rounded);
     }
 
     #[test]

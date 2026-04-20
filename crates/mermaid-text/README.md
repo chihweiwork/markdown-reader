@@ -242,7 +242,8 @@ to Active's start/end, distinct from the top-level. Per-composite
 | External edge to / from a composite ID | yes (rewritten to scoped `[*]`) |
 | Per-composite `direction` override | yes |
 | Concurrent regions `--` | not yet |
-| `<<choice>>` / `<<fork>>` / `<<join>>` shape modifiers | parsed, rendered as plain states |
+| `<<choice>>` shape modifier | yes (renders as decision Diamond) |
+| `<<fork>>` / `<<join>>` shape modifiers | yes (renders as Bar perpendicular to flow) |
 | Notes | silently ignored |
 | `classDef` / `class` / `style` / `click` | silently ignored |
 

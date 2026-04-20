@@ -3,6 +3,47 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.7.2 — 2026-04-20
+
+### Added
+
+- **`<<choice>>`, `<<fork>>`, `<<join>>` shape modifiers for state
+  diagrams** (and the `[[…]]` alternative spellings). Previously
+  parsed but silently rendered as plain rounded states; now:
+  - `<<choice>>` renders as the existing decision `Diamond` shape.
+  - `<<fork>>` and `<<join>>` collapse to a new `NodeShape::Bar`
+    variant — visually identical, only the semantic role differs.
+- **`NodeShape::Bar(BarOrientation)` variant** with `Horizontal`
+  (`━━━`, used in TD/BT flows) and `Vertical` (`┃` stacked, used
+  in LR/RL flows) orientations. The orientation is resolved at
+  parse time from the graph's flow direction so the bar is always
+  perpendicular to flow, matching UML / Mermaid convention.
+- **`Grid::draw_horizontal_bar` and `Grid::draw_vertical_bar`** —
+  two small public primitives in the `draw_*` family for
+  single-row / single-column thick lines. No direction-bit canvas
+  integration; bars are static character runs.
+
+### Changed
+
+- **`NodeShape` gains a struct variant.** Adding `Bar(BarOrientation)`
+  to a `pub` enum is mildly source-breaking for external consumers
+  that exhaustively match on `NodeShape`. The only known consumer
+  (`markdown-tui-explorer`) doesn't match on it directly, so no
+  observable break in practice. If you see a "non-exhaustive
+  pattern" compile error after upgrading, add a new arm for
+  `NodeShape::Bar(_)`.
+
+### Notes
+
+- Bar shapes don't render their state ID as a label — drawing
+  "ForkPoint" on top of a single `┃` column would be visually
+  confusing, and Mermaid's renderer also hides labels for
+  fork/join. The state ID is still parsed and addressable from
+  edges; it's just not visible inside the bar.
+- v1 always uses the top-level graph direction for fork/join
+  orientation. Per-composite `direction` overrides changing
+  fork/join orientation inside that composite is a follow-up.
+
 ## 0.7.1 — 2026-04-20
 
 ### Fixed

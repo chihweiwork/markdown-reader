@@ -109,6 +109,42 @@ pub enum NodeShape {
     ///
     /// Mermaid syntax: `(((label)))`
     DoubleCircle,
+    /// UML synchronisation bar — a single line used as a fork (one
+    /// incoming, many outgoing) or join (many incoming, one
+    /// outgoing) point in parallel-flow state machines.
+    ///
+    /// The orientation is **perpendicular to the flow direction**
+    /// (so edges fan in/out across its long axis):
+    ///
+    /// - In LR/RL flow: [`BarOrientation::Vertical`] — a column of `┃`
+    ///   glyphs.
+    /// - In TD/BT flow: [`BarOrientation::Horizontal`] — a row of `━`
+    ///   glyphs.
+    ///
+    /// Fork and join are visually identical (only the semantic role
+    /// differs); both use this single shape variant. The renderer
+    /// skips drawing the node label for `Bar(_)` shapes — bars are
+    /// connection points, not labelled states.
+    ///
+    /// Mermaid syntax: `state X <<fork>>` / `state X <<join>>`
+    /// (and the `[[…]]` alternative spellings).
+    Bar(BarOrientation),
+}
+
+/// Orientation for a [`NodeShape::Bar`] (fork/join synchronisation bar).
+///
+/// Resolved at parse time from the graph's flow direction so the
+/// renderer doesn't need direction context — the bar is always
+/// perpendicular to flow:
+///
+/// - `Horizontal` for TD/BT-flow diagrams (row of `━`).
+/// - `Vertical` for LR/RL-flow diagrams (column of `┃`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BarOrientation {
+    /// `━━━` — used for fork/join in TD/BT-flow diagrams.
+    Horizontal,
+    /// `┃` stacked — used for fork/join in LR/RL-flow diagrams.
+    Vertical,
 }
 
 /// A 24-bit RGB color, used for ANSI truecolor SGR sequences.

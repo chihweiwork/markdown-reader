@@ -563,6 +563,29 @@ impl Grid {
         self.set(cx, row + h - 1, '◇');
     }
 
+    /// Draw a single-row thick horizontal bar (`━━━`) at `(col, row)` of
+    /// length `w` cells. Used for UML fork / join synchronisation bars in
+    /// TD/BT-flow state diagrams (`state X <<fork>>` / `<<join>>`).
+    ///
+    /// Bars are simple character runs and don't participate in the
+    /// direction-bit canvas — they're not connectable orthogonal lines.
+    pub fn draw_horizontal_bar(&mut self, col: usize, row: usize, w: usize) {
+        for x in col..(col + w) {
+            self.set(x, row, '━');
+        }
+    }
+
+    /// Draw a single-column thick vertical bar (`┃` stacked) at `(col, row)`
+    /// of length `h` cells. Used for UML fork / join synchronisation bars
+    /// in LR/RL-flow state diagrams (`state X <<fork>>` / `<<join>>`).
+    ///
+    /// Sibling of [`Grid::draw_horizontal_bar`].
+    pub fn draw_vertical_bar(&mut self, col: usize, row: usize, h: usize) {
+        for y in row..(row + h) {
+            self.set(col, y, '┃');
+        }
+    }
+
     /// Draw a stadium (capsule/pill) node: rounded box with `(` / `)` markers
     /// on the vertical midpoint of the left and right edges.
     ///

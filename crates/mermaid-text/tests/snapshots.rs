@@ -346,6 +346,52 @@ Active : Line three";
 }
 
 #[test]
+fn state_diagram_special_shapes() {
+    // Exercises the three UML shape modifiers introduced in 0.7.2:
+    //   <<choice>> → diamond
+    //   <<fork>>   → bar perpendicular to flow (vertical for default LR)
+    //   <<join>>   → bar perpendicular to flow (vertical for default LR)
+    let src = "stateDiagram-v2
+[*] --> Decision
+state Decision <<choice>>
+Decision --> Forked : positive
+Decision --> [*] : negative
+state Forked <<fork>>
+Forked --> Branch1
+Forked --> Branch2
+Branch1 --> Sync
+Branch2 --> Sync
+state Sync <<join>>
+Sync --> [*]";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains('◇'), "missing diamond marker for <<choice>>");
+    assert!(
+        out.contains('┃'),
+        "missing vertical bar glyph for <<fork>>/<<join>> in default LR layout"
+    );
+    assert_snapshot!("state_diagram_special_shapes", out);
+}
+
+#[test]
+fn state_diagram_fork_in_tb_uses_horizontal_bar() {
+    // Confirms orientation flips when the user writes `direction TB`
+    // explicitly — bar is perpendicular to flow regardless of fork
+    // vs. join.
+    let src = "stateDiagram-v2
+direction TB
+[*] --> F
+state F <<fork>>
+F --> A
+F --> B";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(
+        out.contains('━'),
+        "missing horizontal bar glyph for <<fork>> in TB layout"
+    );
+    assert_snapshot!("state_diagram_fork_in_tb_uses_horizontal_bar", out);
+}
+
+#[test]
 fn state_composite_simple() {
     let src = "stateDiagram-v2
 state Active {

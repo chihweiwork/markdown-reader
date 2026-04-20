@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use unicode_width::UnicodeWidthStr;
 
 use crate::layout::subgraph::SG_BORDER_PAD;
-use crate::types::{Direction, Graph, NodeShape, Subgraph};
+use crate::types::{BarOrientation, Direction, Graph, NodeShape, Subgraph};
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -609,6 +609,10 @@ fn node_box_width(graph: &Graph, id: &str) -> usize {
             NodeShape::DoubleCircle => inner + 4,
             // Plain shapes.
             NodeShape::Rectangle | NodeShape::Rounded => inner,
+            // Fork/join bar: perpendicular to flow. Horizontal bars
+            // span 5 cells; vertical bars are a single column.
+            NodeShape::Bar(BarOrientation::Horizontal) => 5,
+            NodeShape::Bar(BarOrientation::Vertical) => 1,
         }
     } else {
         6 // fallback
@@ -638,6 +642,11 @@ fn node_box_height(graph: &Graph, id: &str) -> usize {
             NodeShape::Cylinder => 4 + extra,
             // DoubleCircle needs 5 rows for the concentric inner border.
             NodeShape::DoubleCircle => 5 + extra,
+            // Fork/join bar: perpendicular to flow. Vertical bars span
+            // 5 rows so multiple parallel branches can attach; horizontal
+            // bars are a single row. No label, so no extra rows.
+            NodeShape::Bar(BarOrientation::Vertical) => 5,
+            NodeShape::Bar(BarOrientation::Horizontal) => 1,
         }
     } else {
         3
