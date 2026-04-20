@@ -199,8 +199,11 @@ stateDiagram-v2
 The `[*]` start marker renders as a small rounded circle with `●`; the
 `[*]` end marker renders as a double-circle with `●` (visually
 distinguishing start from end). State descriptions stack into a
-multi-line label inside the box. Default direction is `TB` —
-add `direction LR` near the top for a wider, shorter layout.
+multi-line label inside the box. **Default direction is `LR`** —
+`mermaid-text` intentionally diverges from Mermaid's `TB` default here
+because text rendering inserts `layer_gap` blank rows between each
+row of nodes, so TB balloons vertically. Add `direction TB` near the
+top if you want the Mermaid default.
 
 **Composite states** (`state X { … }`) render as a rounded rectangle
 labeled with the composite's id, enclosing its inner states. Recursive

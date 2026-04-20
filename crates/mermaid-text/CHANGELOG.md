@@ -3,6 +3,20 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.7.0 — 2026-04-20
+
+### Changed
+
+- **State diagrams now default to `LR` direction** (was `TB` to match
+  Mermaid). In a text canvas, TB inserts `layer_gap` (6) blank rows
+  between every layer of nodes, so a typical 4-state machine balloons
+  into 40+ rows. LR keeps the chain horizontal and the diagram one
+  node-height tall, matching how authors would naturally lay out
+  state machines for a terminal. Users who want the original Mermaid
+  default can still write `direction TB` explicitly.
+- Snapshot tests updated to reflect the new default. Diagrams without
+  explicit direction render dramatically shorter and wider.
+
 ## 0.6.0 — 2026-04-20
 
 ### Fixed

@@ -176,8 +176,15 @@ impl Default for Walker {
             explicit_labels: HashMap::new(),
             shapes: HashMap::new(),
             edges: Vec::new(),
-            // Per Mermaid: stateDiagram top-level direction defaults to TB.
-            direction: Direction::TopToBottom,
+            // Mermaid's browser renderer defaults state diagrams to TB, but
+            // in a text canvas TB blows up vertically: each layered-layout
+            // "layer" inserts `layer_gap` (default 6) blank rows between
+            // rows of nodes, so a 5-state chain balloons into 40+ rows of
+            // mostly-empty space. LR keeps the layers horizontal so the
+            // only vertical cost is the tallest node's label height.
+            // Users who want the Mermaid default can still write
+            // `direction TB` explicitly.
+            direction: Direction::LeftToRight,
             composite_ids: HashSet::new(),
             composite_order: Vec::new(),
             composite_path: HashMap::new(),
@@ -787,8 +794,17 @@ mod tests {
     }
 
     #[test]
-    fn default_direction_is_top_to_bottom() {
+    fn default_direction_is_left_to_right() {
+        // mermaid-text intentionally defaults state diagrams to LR (vs.
+        // Mermaid's TB) because TB balloons vertically in text output.
+        // Users can still write `direction TB` for the Mermaid default.
         let g = parse("stateDiagram-v2\n[*] --> A").unwrap();
+        assert_eq!(g.direction, Direction::LeftToRight);
+    }
+
+    #[test]
+    fn explicit_direction_tb_still_honoured() {
+        let g = parse("stateDiagram-v2\ndirection TB\n[*] --> A").unwrap();
         assert_eq!(g.direction, Direction::TopToBottom);
     }
 
