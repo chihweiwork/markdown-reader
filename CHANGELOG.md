@@ -5,6 +5,33 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-04-20
+
+### Added
+
+- **Mermaid state diagrams now render inline.** `stateDiagram` and
+  `stateDiagram-v2` blocks in markdown files are rendered as Unicode
+  box-drawing art (previously fell back to showing the raw source).
+  Includes `[*]` start/end markers, transitions with labels,
+  `STATE : description` accumulation, `state "Display" as Id`, and
+  per-diagram direction overrides.
+- **Composite states `state X { … }`** with recursive nesting and
+  per-composite `[*]` scope render as nested rounded rectangles.
+  External edges to / from composite IDs are automatically rewritten
+  to land on the composite's inner start / end marker so the arrow
+  connects visibly to the composite border region.
+- Bumped `mermaid-text` dependency to **0.6.0**.
+
+### Fixed
+
+- **Back-edge perimeter paths now visibly connect to their boxes.**
+  Any flowchart (or state diagram) with a back-edge (`C --> A` when
+  `A` is upstream of `C`) previously rendered the perimeter line and
+  arrow tip with a 1-cell gap to each node's border. `mermaid-text`
+  0.6.0 stamps `┬`/`┴` (or `├`/`┤` for TD/BT) junction glyphs at both
+  ends so the connection reads cleanly. Surfaces constantly in retry
+  loops in state diagrams.
+
 ## [1.7.1] - 2026-04-17
 
 ### Added
