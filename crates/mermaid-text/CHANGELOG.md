@@ -3,6 +3,24 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.7.1 — 2026-04-20
+
+### Fixed
+
+- **Edge labels no longer overwrite node interiors.** The label
+  placement candidate loop only checked against other labels, never
+  against node bounding boxes. A label whose preferred position
+  happened to fall inside another node would silently overwrite that
+  node's content (e.g. a stray `5` from `5 consecutive failures`
+  appearing inside the OPEN box of a circuit-breaker FSM). The
+  candidate generator now yields 24 LR positions / 15 TB positions
+  (extended row offsets ±1..±4 plus 1/3 and 2/3 column anchors), and
+  `label_position` runs a two-pass selection: prefer candidates that
+  avoid both labels and node interiors; only when none exists, fall
+  back to candidates that avoid label collisions but may sit on a
+  node border. Universal renderer fix — flowcharts and state diagrams
+  with dense edge-label layouts both benefit.
+
 ## 0.7.0 — 2026-04-20
 
 ### Changed

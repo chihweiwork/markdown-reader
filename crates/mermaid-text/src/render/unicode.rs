@@ -469,6 +469,8 @@ fn render_inner(
 
     // Pass 0b: Register all node bounding boxes as hard routing obstacles so
     // that A* edge routing will not route edges through node interiors.
+    // Same loop captures `node_rects` for label-collision avoidance later.
+    let mut node_rects: Vec<(usize, usize, usize, usize)> = Vec::with_capacity(graph.nodes.len());
     for node in &graph.nodes {
         let Some(&(col, row)) = positions.get(&node.id) else {
             continue;
@@ -477,6 +479,7 @@ fn render_inner(
             continue;
         };
         grid.mark_node_box(col, row, geom.width, geom.height);
+        node_rects.push((col, row, geom.width, geom.height));
     }
 
     // Compute spread-adjusted attach points for all edges before drawing.
@@ -642,7 +645,7 @@ fn render_inner(
         // Compute edge label position using the actual routed path.
         if let (Some(lbl), Some(path)) = (&edge.label, &path)
             && let Some((lbl_col, lbl_row)) =
-                label_position(path, lbl, graph.direction, &mut placed_labels)
+                label_position(path, lbl, graph.direction, &mut placed_labels, &node_rects)
         {
             // Pick edge label color (`linkStyle … color:#…`), falling back to
             // the edge stroke color when only `stroke:` is set, so labels
@@ -1201,6 +1204,7 @@ fn label_position(
     label: &str,
     dir: Direction,
     placed: &mut Vec<(usize, usize, usize, usize)>,
+    node_rects: &[(usize, usize, usize, usize)],
 ) -> Option<(usize, usize)> {
     if path.len() < 2 {
         return None;
@@ -1210,66 +1214,102 @@ fn label_position(
         return None;
     }
 
+    let candidates = candidate_positions(path, dir);
+    if candidates.is_empty() {
+        return None;
+    }
+
+    // Pass A: prefer positions that avoid both other labels and node interiors.
+    for &(c, r) in &candidates {
+        if !collides(c, r, lbl_w, placed) && !overlaps_node_interior(c, r, lbl_w, node_rects) {
+            placed.push((c, r, lbl_w, 1));
+            return Some((c, r));
+        }
+    }
+    // Pass B: relax the node-overlap constraint as a last resort. Two
+    // labels on top of each other is unreadable, so we still respect
+    // `placed`; a label sitting on a node's border row is awkward but
+    // strictly better than the previous "overwrite the node interior
+    // silently" behaviour.
+    for &(c, r) in &candidates {
+        if !collides(c, r, lbl_w, placed) {
+            placed.push((c, r, lbl_w, 1));
+            return Some((c, r));
+        }
+    }
+    None
+}
+
+/// Generate the ordered list of `(col, row)` candidates to try for an edge
+/// label, given the routed `path` and the graph direction. Earlier
+/// candidates are preferred — the first non-colliding one wins.
+///
+/// LR/RL: 8 vertical row offsets (±1..±4) × 3 column anchors (segment
+/// midpoint, plus 1/3 and 2/3 along the last horizontal run).
+///
+/// TD/BT: 5 row offsets (0, ±1, ±2) × 3 column anchors (right of, left
+/// of, +2 right of the last vertical run).
+fn candidate_positions(path: &[(usize, usize)], dir: Direction) -> Vec<(usize, usize)> {
     match dir {
         Direction::LeftToRight | Direction::RightToLeft => {
-            // Find the last long horizontal segment (closest to the tip).
-            let (seg_col, seg_row) = last_horizontal_segment(path)?;
-            // Candidates: above the segment, then below.
-            let candidates = [
-                seg_row.saturating_sub(1),
-                seg_row + 1,
-                seg_row.saturating_sub(2),
-                seg_row + 2,
-            ];
-            for lbl_row in candidates {
-                if !collides(seg_col, lbl_row, lbl_w, placed) {
-                    placed.push((seg_col, lbl_row, lbl_w, 1));
-                    return Some((seg_col, lbl_row));
+            let Some((mid_col, seg_row, lo_col, hi_col)) = last_horizontal_segment_with_range(path)
+            else {
+                return Vec::new();
+            };
+            // Three column anchors along the segment.
+            let third = (hi_col - lo_col) / 3;
+            let col_anchors = [mid_col, lo_col + third, lo_col + 2 * third];
+            // Row offsets: alternate above/below, growing in distance.
+            let row_offsets: [isize; 8] = [-1, 1, -2, 2, -3, 3, -4, 4];
+            let mut out = Vec::with_capacity(col_anchors.len() * row_offsets.len());
+            for &c in &col_anchors {
+                for &dr in &row_offsets {
+                    let r = (seg_row as isize + dr).max(0) as usize;
+                    out.push((c, r));
                 }
             }
-            None
+            out
         }
         Direction::TopToBottom | Direction::BottomToTop => {
-            // Find the last long vertical segment (closest to the tip).
-            let (seg_col, seg_row) = last_vertical_segment(path)?;
-            // Try placing to the right of the segment, at the midpoint row
-            // first, then adjacent rows as fallback.
-            let col_candidates = [seg_col + 1, seg_col.saturating_sub(1), seg_col + 2];
+            let (seg_col, seg_row) = match last_vertical_segment(path) {
+                Some(v) => v,
+                None => return Vec::new(),
+            };
+            let col_anchors = [seg_col + 1, seg_col.saturating_sub(1), seg_col + 2];
             let row_offsets: [isize; 5] = [0, -1, 1, -2, 2];
-            for lbl_col in col_candidates {
+            let mut out = Vec::with_capacity(col_anchors.len() * row_offsets.len());
+            for &c in &col_anchors {
                 for &dr in &row_offsets {
-                    let lbl_row = (seg_row as isize + dr).max(0) as usize;
-                    if !collides(lbl_col, lbl_row, lbl_w, placed) {
-                        placed.push((lbl_col, lbl_row, lbl_w, 1));
-                        return Some((lbl_col, lbl_row));
-                    }
+                    let r = (seg_row as isize + dr).max(0) as usize;
+                    out.push((c, r));
                 }
             }
-            None
+            out
         }
     }
 }
 
-/// Find the midpoint `(col, row)` of the **last** horizontal run in `path`
-/// that is at least 2 cells long. "Last" = closest to the tip (end of path).
-///
-/// Returns `None` if no such segment exists.
-fn last_horizontal_segment(path: &[(usize, usize)]) -> Option<(usize, usize)> {
-    // Walk the path from the end, collecting runs of equal row.
+/// Find the **last** horizontal run in `path` (closest to the tip) that is
+/// at least 2 cells long. Returns `(midpoint_col, row, lo_col, hi_col)`
+/// — the inclusive `(lo, hi)` range lets callers pick column anchors
+/// along the segment (not just its midpoint) for label placement.
+fn last_horizontal_segment_with_range(
+    path: &[(usize, usize)],
+) -> Option<(usize, usize, usize, usize)> {
     let n = path.len();
-    let mut i = n.saturating_sub(2); // start one before the tip
+    let mut i = n.saturating_sub(2);
     loop {
         let row = path[i].1;
-        // Extend the run backward while on the same row.
         let mut start = i;
         while start > 0 && path[start - 1].1 == row {
             start -= 1;
         }
         let run_len = i - start + 1;
         if run_len >= 2 {
-            // Midpoint column of this horizontal run.
-            let mid_col = (path[start].0 + path[i].0) / 2;
-            return Some((mid_col, row));
+            let lo_col = path[start].0.min(path[i].0);
+            let hi_col = path[start].0.max(path[i].0);
+            let mid_col = (lo_col + hi_col) / 2;
+            return Some((mid_col, row, lo_col, hi_col));
         }
         if i == 0 {
             break;
@@ -1336,6 +1376,50 @@ fn collides(col: usize, row: usize, w: usize, placed: &[(usize, usize, usize, us
     false
 }
 
+/// Test whether the 1-row label rect at `(col, row)` of width `w` overlaps
+/// the **interior** of any node bounding box in `node_rects`.
+///
+/// "Interior" means the cells inside the border: a node spanning
+/// `(nc, nr)` with size `(nw, nh)` has interior cells `(nc+1..nc+nw-1,
+/// nr+1..nr+nh-1)`. Labels that sit on a node's top or bottom border row
+/// don't count as overlap — they overwrite a single `─` glyph that's
+/// already redrawn in pass 2 with the wrapper border, and we've never
+/// observed a real-world rendering issue from that. Labels that intrude
+/// on the interior overwrite the node's own label text in pass 3, which
+/// is the visible bug this helper exists to detect.
+///
+/// `node_rects` entries: `(col, row, width, height)`. Same shape as
+/// `placed` so callers can build it from `positions` + `geoms`.
+///
+/// Unlike [`collides`], no padding margin is applied — labels touching
+/// (but not entering) a node border are fine.
+fn overlaps_node_interior(
+    col: usize,
+    row: usize,
+    w: usize,
+    node_rects: &[(usize, usize, usize, usize)],
+) -> bool {
+    for &(nc, nr, nw, nh) in node_rects {
+        // Tiny boxes have no usable interior.
+        if nw < 2 || nh < 2 {
+            continue;
+        }
+        let int_left = nc + 1;
+        let int_right = nc + nw - 1; // exclusive
+        let int_top = nr + 1;
+        let int_bottom = nr + nh - 1; // exclusive
+        let row_in_interior = row >= int_top && row < int_bottom;
+        if !row_in_interior {
+            continue;
+        }
+        let col_overlaps = !(col + w <= int_left || int_right <= col);
+        if col_overlaps {
+            return true;
+        }
+    }
+    false
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1367,5 +1451,72 @@ mod tests {
         let out = render_diagram("graph TD\nA[Top] --> B[Bottom]");
         assert!(out.contains("Top"), "missing 'Top' in:\n{out}");
         assert!(out.contains("Bottom"), "missing 'Bottom' in:\n{out}");
+    }
+
+    // ---- overlaps_node_interior ---------------------------------------
+
+    /// A 10×5 box at (10, 5) has interior cells (cols 11..19, rows 6..9).
+    fn one_box() -> Vec<(usize, usize, usize, usize)> {
+        vec![(10, 5, 10, 5)]
+    }
+
+    #[test]
+    fn label_fully_inside_interior_overlaps() {
+        // Label at (12, 7) width 4 → spans cols 12..16, row 7. Inside.
+        assert!(overlaps_node_interior(12, 7, 4, &one_box()));
+    }
+
+    #[test]
+    fn label_on_top_border_does_not_overlap() {
+        // Top border row is 5; interior starts at row 6.
+        assert!(!overlaps_node_interior(12, 5, 4, &one_box()));
+    }
+
+    #[test]
+    fn label_on_bottom_border_does_not_overlap() {
+        // Bottom border row is 9 (height=5 → rows 5..10, border at 5 and 9).
+        assert!(!overlaps_node_interior(12, 9, 4, &one_box()));
+    }
+
+    #[test]
+    fn label_above_box_does_not_overlap() {
+        // Row 4 is above the box entirely.
+        assert!(!overlaps_node_interior(12, 4, 4, &one_box()));
+    }
+
+    #[test]
+    fn label_to_the_right_does_not_overlap() {
+        // Box ends at col 19 (exclusive interior). Label at col 25 is past.
+        assert!(!overlaps_node_interior(25, 7, 4, &one_box()));
+    }
+
+    #[test]
+    fn label_extending_past_right_border_partially_overlaps() {
+        // Label at col 17 width 8 spans cols 17..25 — col 17, 18 are inside.
+        assert!(overlaps_node_interior(17, 7, 8, &one_box()));
+    }
+
+    #[test]
+    fn label_extending_into_left_border_partially_overlaps() {
+        // Label at col 5 width 8 spans cols 5..13 — cols 11, 12 are inside.
+        assert!(overlaps_node_interior(5, 7, 8, &one_box()));
+    }
+
+    #[test]
+    fn label_skipping_over_box_horizontally_does_not_overlap() {
+        // Label at col 5 width 4 spans cols 5..9. Box starts at col 10.
+        assert!(!overlaps_node_interior(5, 7, 4, &one_box()));
+    }
+
+    #[test]
+    fn empty_node_rects_never_overlaps() {
+        assert!(!overlaps_node_interior(0, 0, 100, &[]));
+    }
+
+    #[test]
+    fn tiny_boxes_have_no_interior() {
+        // 1×1 box: no interior cells exist.
+        let boxes = vec![(10, 10, 1, 1)];
+        assert!(!overlaps_node_interior(10, 10, 1, &boxes));
     }
 }

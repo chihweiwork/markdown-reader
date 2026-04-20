@@ -5,6 +5,18 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-04-20
+
+### Fixed
+
+- **Edge labels in mermaid diagrams no longer overwrite node interior
+  text.** Picks up `mermaid-text` 0.7.1 which expanded the label
+  placement candidate set and added a node-interior collision check.
+  The user's circuit-breaker FSM rendering used to show a stray `5`
+  inside the OPEN state (from the edge label `5 consecutive failures`
+  spilling onto the box content); now the label lands on a clean row
+  below the segment and OPEN's content is intact.
+
 ## [1.9.0] - 2026-04-20
 
 ### Changed

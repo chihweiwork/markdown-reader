@@ -3,9 +3,9 @@ source: crates/mermaid-text/tests/snapshots.rs
 expression: out
 ---
 ╭─────╮      ╭────────────────────────────────╮                probe succeeds   ╭───────────────────────────────╮
-│( ● )│─────┐│ One probe call allowed through │───────────────probe fails (increasedAll DB calls pass through   │
+│( ● )│─────┐│ One probe call allowed through │────────────────────────────────┐│   All DB calls pass through   │
 ╰─────╯     │╰────────────────┬───────────────╯───────────────────────────────┐▸│ Counting consecutive failures ││
-            └─────────────────▴───────────────────────────────────────────────┼▸╰───────────────────────────────╯│
+            └─────────────────▴───────────────────────────────probe fails (increased backoff)───────────────────╯│
                               │                                               │                 5 consecutive failures
                               │                                               │┌─────────────────────────────────┘
                               │                                               ││╭─────────────────────────────────────────────╮
