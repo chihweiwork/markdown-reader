@@ -39,6 +39,15 @@ fn font_db() -> &'static Arc<usvg::fontdb::Database> {
 /// Minimum mermaid block height in display lines, even for tiny diagrams.
 pub const MIN_MERMAID_HEIGHT: u32 = 8;
 
+/// Hard safety cap for ASCII / Unicode diagram heights. The diagram-text
+/// path is deterministic — the rendered height is always the line count of
+/// the produced glyphs — so the user-configurable `mermaid_max_height`
+/// (which is meaningful for image rasterisation and source-text fallbacks)
+/// is bypassed here. This cap exists only to bound the layout against
+/// pathological input (e.g. a 100k-line "diagram"), not to constrain
+/// normal use.
+pub const ASCII_DIAGRAM_HARD_CAP: u32 = 1000;
+
 /// Maximum mermaid block height used in the test suite as an explicit cap.
 ///
 /// Production code uses the user-configurable value from
@@ -146,7 +155,12 @@ impl MermaidCache {
     /// - `Ready`: the stored `cell_height` derived from the rendered image.
     /// - `Pending`: `MIN_MERMAID_HEIGHT` (small placeholder until rendering finishes).
     /// - `Failed` / `SourceOnly`: source-line count clamped to `[MIN, max_height]`.
-    /// - `AsciiDiagram`: diagram-line count clamped to `[MIN, max_height]`.
+    /// - `AsciiDiagram`: diagram-line count clamped to `[MIN, ASCII_DIAGRAM_HARD_CAP]`.
+    ///   `mermaid_max_height` is intentionally NOT applied here — text-mode
+    ///   diagrams are deterministic content the user explicitly authored;
+    ///   truncating them at a small default makes the rest of the diagram
+    ///   silently unreachable (the viewer scrolls past it instead of
+    ///   exposing more rows). The hard cap is a defensive bound only.
     /// - Not present: `DEFAULT_MERMAID_HEIGHT`.
     pub fn height(&self, id: MermaidBlockId, source: &str, max_height: u32) -> u32 {
         match self.entries.get(&id) {
@@ -159,7 +173,7 @@ impl MermaidCache {
             }
             Some(MermaidEntry::AsciiDiagram { diagram, .. }) => {
                 let diagram_lines = crate::cast::u32_sat(diagram.lines().count()) + 2;
-                diagram_lines.clamp(MIN_MERMAID_HEIGHT, max_height)
+                diagram_lines.clamp(MIN_MERMAID_HEIGHT, ASCII_DIAGRAM_HARD_CAP)
             }
         }
     }
@@ -677,7 +691,13 @@ mod tests {
     /// `AsciiDiagram` entry — figurehead handles state diagrams and the
     /// image pipeline is skipped for them.
     #[test]
-    fn limited_rendering_tries_figurehead_first() {
+    fn limited_rendering_uses_figurehead() {
+        // `stateDiagram` is treated as a "limited rendering" type — the
+        // image pipeline (mermaid-rs-renderer SVG → raster) handles it
+        // poorly, so the cache always routes through figurehead
+        // (mermaid-text). With mermaid-text 0.6.0+ this now succeeds and
+        // we get an AsciiDiagram. (Pre-0.6.0 it failed and fell back to
+        // SourceOnly — the test originally pinned that fallback.)
         let mut cache = MermaidCache::new();
         let id = MermaidBlockId(100);
         let src = "stateDiagram-v2\n[*] --> A\nA --> B";
@@ -696,8 +716,8 @@ mod tests {
 
         let entry = cache.get(id).expect("entry must be present");
         assert!(
-            matches!(entry, MermaidEntry::SourceOnly(_)),
-            "expected SourceOnly (text renderer is stubbed)"
+            matches!(entry, MermaidEntry::AsciiDiagram { .. }),
+            "expected AsciiDiagram from figurehead (mermaid-text 0.6.0+ supports stateDiagram)"
         );
     }
 
@@ -756,6 +776,51 @@ mod tests {
             matches!(entry, MermaidEntry::SourceOnly(_)),
             "expected SourceOnly in Image mode with no graphics, got a different variant"
         );
+    }
+
+    #[test]
+    fn ascii_diagram_height_ignores_max_height() {
+        // A 60-line text-mode diagram (e.g. a state diagram with composite
+        // states) must reserve all 60+ lines in the document layout, even
+        // when `mermaid_max_height` is the default 30. Truncating here
+        // makes the bottom of the diagram silently unreachable: the
+        // viewer scrolls past the reserved region into the next block.
+        let mut cache = MermaidCache::new();
+        let id = MermaidBlockId(300);
+        let diagram: String = (0..60).map(|i| format!("line {i}\n")).collect();
+        cache.insert(
+            id,
+            MermaidEntry::AsciiDiagram {
+                diagram,
+                reason: "test".to_string(),
+            },
+        );
+        let h = cache.height(id, "irrelevant", 30);
+        assert_eq!(
+            h, 62,
+            "AsciiDiagram must reserve the full diagram height (60 + 2 padding), \
+             not the user's mermaid_max_height clamp"
+        );
+    }
+
+    #[test]
+    fn ascii_diagram_height_caps_at_safety_bound() {
+        // Defensive cap so a pathological 100k-line "diagram" can't blow up
+        // the document layout.
+        let mut cache = MermaidCache::new();
+        let id = MermaidBlockId(301);
+        let diagram: String = (0..(ASCII_DIAGRAM_HARD_CAP as usize + 50))
+            .map(|_| "x\n")
+            .collect();
+        cache.insert(
+            id,
+            MermaidEntry::AsciiDiagram {
+                diagram,
+                reason: "test".to_string(),
+            },
+        );
+        let h = cache.height(id, "", 30);
+        assert_eq!(h, ASCII_DIAGRAM_HARD_CAP);
     }
 
     #[test]

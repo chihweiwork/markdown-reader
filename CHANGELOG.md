@@ -5,6 +5,22 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.1] - 2026-04-20
+
+### Fixed
+
+- **Tall mermaid diagrams are no longer cut off.** Text-mode diagrams
+  (the `AsciiDiagram` cache variant — anything rendered through
+  figurehead / `mermaid-text`) used to be clamped to
+  `mermaid_max_height` (default 30 lines) when sizing their layout slot.
+  A composite-state diagram or any flowchart taller than 30 lines had
+  its bottom rows silently unreachable: scrolling moved past the
+  reserved region into the next document block instead of revealing
+  more of the diagram. Layout now reserves the diagram's actual line
+  count, with a 1000-line defensive safety cap. `mermaid_max_height`
+  still applies to image renders and source-text fallbacks where the
+  bound is meaningful.
+
 ## [1.8.0] - 2026-04-20
 
 ### Added
