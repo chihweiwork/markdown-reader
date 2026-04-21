@@ -19,31 +19,22 @@ _Nothing actively in progress._
 
 ## Next up (ordered roughly by ROI)
 
-### Sequence diagram polish — `mermaid-text` (in progress)
+### Sequence-polish follow-ups (deferred)
 
-Four parser TODOs to retire. **0.9.0 shipped autonumber** plus the
-foundation data model on `SequenceDiagram` for the rest. **0.9.1
-shipped notes** (single-anchor + multi-anchor `over X,Y`, `<br>`
-line breaks, defensive `end note` error). **0.9.2 shipped
-activation bars** (`activate`/`deactivate` directives + inline
-`+`/`-` shorthand on message targets, stack-based pairing for
-nested activations, `┃` overlay on lifelines). Remaining:
+The four-part sequence-diagram polish series shipped over 0.9.0–
+0.9.3. Smaller follow-ups still on the table:
 
-- **Block statements** — `loop` / `alt`/`else` / `opt` / `par`/`and`
-  / `critical`/`option` / `break`. Stack-based parser tracking with
-  matched continuation keywords. Renderer draws labelled brackets
-  spanning the inner messages' participant columns. ~1 day, the
-  trickiest piece.
-
-Defer `rect <colour>` background highlight blocks (Mermaid's
-grammar can't express hex colours and ANSI bg-tinting fights the
-rest of the layered colour system).
-
-#### Note follow-ups (deferred from 0.9.1)
-
-- **Width-aware canvas widening** when a note exceeds the
-  rightmost participant's column. Today the box clips silently at
-  the canvas right edge. Defer until someone reports clipping.
+- **`rect <colour>` background highlight blocks** — Mermaid's
+  grammar can't express hex colours easily, and ANSI bg-tinting
+  fights the layered colour system; defer.
+- **Wider activation bars / block-frame fills** — both currently
+  render single-cell-thick borders. A real "filled thick bar /
+  rectangle" needs a multi-row block-fill primitive (also wanted
+  for the fork/join wider-bars roadmap entry below).
+- **Width-aware canvas widening** when a note (or block label)
+  exceeds the rightmost participant column. Today the content
+  clips silently at the canvas right edge. Defer until someone
+  reports clipping.
 - **Word-wrap for long note lines.** Today users add `<br>`
   manually. Auto-wrap would need a width budget per anchor type.
 - `note over X,Y,Z` (3+ anchor) — Mermaid's grammar doesn't
@@ -169,6 +160,16 @@ defer until someone files a real use case.
 
 ## Done since 1.7.1 (recent history — see CHANGELOGs for detail)
 
+- **0.9.3**: sequence-diagram block statements — `loop`, `alt`/
+  `else`, `opt`, `par`/`and`, `critical`/`option`, `break`. Stack-
+  based parser with proper validation (orphan `end`, wrong
+  continuation keyword, unclosed-at-EOF all error clearly). Renders
+  as labelled rectangles using heavy double-line glyphs (`╔╗╚╝═║`)
+  to differentiate from participant boxes (square) and notes
+  (rounded). Nested blocks inset by 1 cell per nesting level.
+  Continuations draw `╠┄[label]┄╣` dividers. Completes the four-
+  part sequence-diagram polish series — autonumber, notes,
+  activation bars, and blocks all compose cleanly in one diagram.
 - **0.9.2**: sequence-diagram activation bars — both explicit
   `activate X` / `deactivate X` directives and inline `A->>+B` /
   `A-->>-B` shorthand. Stack-based pairing supports nested

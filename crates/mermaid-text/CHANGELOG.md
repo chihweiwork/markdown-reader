@@ -3,6 +3,53 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.9.3 — 2026-04-21
+
+### Added
+
+- **Sequence-diagram block statements** — the last of the four
+  sequence-polish sub-features. Supported kinds:
+  - `loop <label>` … `end`
+  - `alt <cond>` … `else <cond>` … `end`
+  - `opt <label>` … `end`
+  - `par <label>` … `and <label>` … `end`
+  - `critical <label>` … `option <label>` … `end`
+  - `break <label>` … `end`
+- **Stack-based parser** with arbitrary nesting and proper
+  validation: orphan `end`, continuation keyword inside the wrong
+  block kind (e.g. `and` inside `alt`), and unclosed blocks at EOF
+  all return clear `Error::ParseError` messages.
+- **Renderer**: each block draws as a labelled rectangle using
+  heavy double-line glyphs (`╔╗╚╝═║`) — visually distinct from
+  participant boxes (`┌┐└┘`) and notes (`╭╮╰╯`). The label tag
+  appears inset from the top-left as `[loop: forever]`. Branch
+  continuations draw a dashed `╠┄[else: …]┄╣` divider. Nested
+  blocks inset by one cell per nesting level so they read
+  distinctly. Frame glyphs paint into space / lifeline /
+  activation-bar cells only — never overwrite arrow heads or
+  message labels.
+- **5 new snapshot tests** (`sequence_with_loop_block`,
+  `sequence_with_alt_else_block`, `sequence_with_opt_block`,
+  `sequence_with_nested_loop_alt`,
+  `sequence_with_par_and_critical_blocks`) plus 12 new parser unit
+  tests and 2 new helper tests in `parser/common.rs` for
+  `block_kind_from_keyword` / `continuation_keyword_for`.
+
+### Notes
+
+- This completes the **sequence-diagram polish series** started in
+  0.9.0. All four sub-features (autonumber, notes, activation bars,
+  block statements) are now shipped. They compose cleanly: a single
+  diagram can mix all four constructs.
+- `rect <colour>` background highlight blocks remain silently
+  skipped — Mermaid's hex-colour grammar isn't expressible without a
+  bigger colour-system rework, and ANSI bg-tinting fights the rest of
+  the layered colour rendering. Tracked as a deferred follow-up.
+- Single-cell-thick rectangle borders (`║`/`═`) are used because the
+  text grid lacks a multi-row filled-block primitive. Real Mermaid
+  draws thicker bars; tracked alongside the activation-bar width
+  follow-up.
+
 ## 0.9.2 — 2026-04-21
 
 ### Added

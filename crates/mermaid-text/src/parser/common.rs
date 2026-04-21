@@ -6,7 +6,7 @@
 //! drift their own copies. Each helper is `pub(crate)` — these are
 //! parser-internal building blocks, not public crate API.
 
-use crate::sequence::NoteAnchor;
+use crate::sequence::{BlockKind, NoteAnchor};
 use crate::types::{EdgeStyleColors, Graph, NodeStyle, Rgb};
 
 /// Strip a trailing `%% comment` if present, but only if the `%%` is
@@ -402,6 +402,36 @@ pub(crate) fn strip_activation_marker(token: &str) -> (String, Option<bool>) {
     }
 }
 
+/// Map a sequence-diagram block-opener keyword to its [`BlockKind`].
+/// Used by the sequence parser to recognise `loop` / `alt` / `opt` /
+/// `par` / `critical` / `break` openers. Returns `None` for any other
+/// token so callers can dispatch with `if let Some(kind) = …`.
+pub(crate) fn block_kind_from_keyword(s: &str) -> Option<BlockKind> {
+    match s {
+        "loop" => Some(BlockKind::Loop),
+        "alt" => Some(BlockKind::Alt),
+        "opt" => Some(BlockKind::Opt),
+        "par" => Some(BlockKind::Par),
+        "critical" => Some(BlockKind::Critical),
+        "break" => Some(BlockKind::Break),
+        _ => None,
+    }
+}
+
+/// The continuation keyword (if any) that opens an additional branch
+/// for the given block kind. `Alt → "else"`, `Par → "and"`,
+/// `Critical → "option"`. Single-branch kinds (`Loop`, `Opt`, `Break`)
+/// return `None` — encountering their continuation keyword inside any
+/// such block is a parse error.
+pub(crate) fn continuation_keyword_for(kind: BlockKind) -> Option<&'static str> {
+    match kind {
+        BlockKind::Alt => Some("else"),
+        BlockKind::Par => Some("and"),
+        BlockKind::Critical => Some("option"),
+        BlockKind::Loop | BlockKind::Opt | BlockKind::Break => None,
+    }
+}
+
 /// Resolve `(target_id, class_name)` pairs into concrete style entries
 /// on `graph.node_styles` or `graph.subgraph_styles`. Multiple classes
 /// per target stack via [`merge_node_style`] in source order. Class
@@ -670,6 +700,37 @@ mod tests {
         assert_eq!(strip_activation_marker("B"), ("B".to_string(), None));
         assert_eq!(strip_activation_marker("  B  "), ("B".to_string(), None));
         assert_eq!(strip_activation_marker(""), (String::new(), None));
+    }
+
+    // ---- block helpers (sequence-diagram block statements) ------------
+
+    #[test]
+    fn block_kind_from_keyword_recognises_all_kinds() {
+        assert_eq!(block_kind_from_keyword("loop"), Some(BlockKind::Loop));
+        assert_eq!(block_kind_from_keyword("alt"), Some(BlockKind::Alt));
+        assert_eq!(block_kind_from_keyword("opt"), Some(BlockKind::Opt));
+        assert_eq!(block_kind_from_keyword("par"), Some(BlockKind::Par));
+        assert_eq!(
+            block_kind_from_keyword("critical"),
+            Some(BlockKind::Critical)
+        );
+        assert_eq!(block_kind_from_keyword("break"), Some(BlockKind::Break));
+        assert_eq!(block_kind_from_keyword("else"), None); // continuation, not opener
+        assert_eq!(block_kind_from_keyword("end"), None);
+        assert_eq!(block_kind_from_keyword(""), None);
+    }
+
+    #[test]
+    fn continuation_keyword_for_multi_branch_kinds() {
+        assert_eq!(continuation_keyword_for(BlockKind::Alt), Some("else"));
+        assert_eq!(continuation_keyword_for(BlockKind::Par), Some("and"));
+        assert_eq!(
+            continuation_keyword_for(BlockKind::Critical),
+            Some("option")
+        );
+        assert_eq!(continuation_keyword_for(BlockKind::Loop), None);
+        assert_eq!(continuation_keyword_for(BlockKind::Opt), None);
+        assert_eq!(continuation_keyword_for(BlockKind::Break), None);
     }
 
     #[test]

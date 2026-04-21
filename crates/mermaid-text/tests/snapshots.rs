@@ -751,6 +751,95 @@ deactivate B";
 }
 
 #[test]
+fn sequence_with_loop_block() {
+    let src = "sequenceDiagram
+participant A
+participant B
+loop forever
+A->>B: tick
+end";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("[loop: forever]"));
+    assert!(out.contains('╔') && out.contains('╝'));
+    assert_snapshot!("sequence_with_loop_block", out);
+}
+
+#[test]
+fn sequence_with_alt_else_block() {
+    // alt/else with two branches; both branches' labels should appear,
+    // separated by a dashed `╠ ┄ ╣` divider.
+    let src = "sequenceDiagram
+participant A
+participant B
+alt success
+A->>B: ok
+else failure
+A->>B: fail
+end";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("[alt: success]"));
+    assert!(out.contains("[failure]"));
+    assert!(out.contains('╠') && out.contains('╣'));
+    assert_snapshot!("sequence_with_alt_else_block", out);
+}
+
+#[test]
+fn sequence_with_opt_block() {
+    let src = "sequenceDiagram
+A->>B: hi
+opt cache hit
+B->>A: cached
+end";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("[opt: cache hit]"));
+    assert_snapshot!("sequence_with_opt_block", out);
+}
+
+#[test]
+fn sequence_with_nested_loop_alt() {
+    // Nested blocks inset by one cell per nesting level so the inner
+    // rectangle reads distinctly from the outer.
+    let src = "sequenceDiagram
+participant A
+participant B
+loop outer
+alt branch a
+A->>B: a
+else branch b
+A->>B: b
+end
+end";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("[loop: outer]"));
+    assert!(out.contains("[alt: branch a]"));
+    assert_snapshot!("sequence_with_nested_loop_alt", out);
+}
+
+#[test]
+fn sequence_with_par_and_critical_blocks() {
+    // Exercises the less-common multi-branch kinds.
+    let src = "sequenceDiagram
+participant A
+participant B
+par first
+A->>B: msg1
+and second
+A->>B: msg2
+end
+critical primary
+A->>B: try
+option failure
+A->>B: retry
+end";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("[par: first]"));
+    assert!(out.contains("[second]"));
+    assert!(out.contains("[critical: primary]"));
+    assert!(out.contains("[failure]"));
+    assert_snapshot!("sequence_with_par_and_critical_blocks", out);
+}
+
+#[test]
 fn sequence_end_note_returns_helpful_error() {
     // Mermaid's sequence grammar has no `end note` form (state diagrams
     // do; sequence uses `<br>`). Make sure the parser flags this with a

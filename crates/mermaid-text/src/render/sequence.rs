@@ -25,7 +25,7 @@
 use unicode_width::UnicodeWidthStr;
 
 use crate::sequence::{
-    AutonumberState, MessageStyle, NoteAnchor, NoteEvent, SequenceDiagram,
+    AutonumberState, Block, BlockKind, MessageStyle, NoteAnchor, NoteEvent, SequenceDiagram,
 };
 
 // ---------------------------------------------------------------------------
@@ -536,7 +536,17 @@ pub fn render(diag: &SequenceDiagram) -> String {
     // into the height budget so `Canvas::new` allocates enough space.
     let note_rows: usize = diag.notes.iter().map(note_height).sum();
 
-    let height = BOX_HEIGHT + body_rows + note_rows;
+    // Block frames add 2 rows per border and per branch divider (1 for
+    // the glyph itself + 1 spacer below) so adjacent message labels
+    // don't land on the same row as a border. Total per block:
+    //   2 (top) + 2 (bottom) + 2 * (extra branches).
+    let block_rows: usize = diag
+        .blocks
+        .iter()
+        .map(|b| 4 + 2 * b.branches.len().saturating_sub(1))
+        .sum();
+
+    let height = BOX_HEIGHT + body_rows + note_rows + block_rows;
 
     // Canvas width: rightmost participant box right edge + 1 margin.
     let last = &layouts[n - 1];
@@ -590,6 +600,62 @@ pub fn render(diag: &SequenceDiagram) -> String {
     // naturally covers both legs.
     let mut message_arrow_rows: Vec<usize> = Vec::with_capacity(num_messages);
 
+    // Block frame events to insert at each message-index boundary. At
+    // boundary `B`:
+    //   - bottom borders of any block ending at message `B - 1`
+    //   - top borders of any block starting at message `B`
+    //   - dividers for any branch (other than the first) starting at `B`
+    // These advance `arrow_row` and capture each event's row so the
+    // post-loop overlay pass knows where to draw frames.
+    let num_blocks = diag.blocks.len();
+    let mut block_top_rows: Vec<usize> = vec![0; num_blocks];
+    let mut block_bottom_rows: Vec<usize> = vec![0; num_blocks];
+    let mut branch_divider_rows: Vec<Vec<usize>> = diag
+        .blocks
+        .iter()
+        .map(|b| vec![0usize; b.branches.len()])
+        .collect();
+
+    // Helper closure: process all block events at message-index `pos`,
+    // advancing `arrow_row` by 2 per event (1 for the border/divider
+    // glyph row + 1 spacer below it so adjacent message labels don't
+    // collide). The border row is the *first* of the two; the spacer
+    // is implicitly the second. Inner blocks close before outer blocks
+    // at the same position, and outer blocks open before inner blocks.
+    let apply_block_events = |arrow_row: &mut usize,
+                              pos: usize,
+                              top_rows: &mut [usize],
+                              bottom_rows: &mut [usize],
+                              dividers: &mut [Vec<usize>]| {
+        // Bottom borders first (innermost first = forward order in
+        // diag.blocks since LIFO close order means innermost has
+        // lower idx).
+        for (i, b) in diag.blocks.iter().enumerate() {
+            if pos > 0 && b.end_message + 1 == pos {
+                bottom_rows[i] = *arrow_row;
+                *arrow_row += 2;
+            }
+        }
+        // Top borders next, outermost first (outer block has higher
+        // idx in diag.blocks because it closed later — iterate REV).
+        for (i, b) in diag.blocks.iter().enumerate().rev() {
+            if b.start_message == pos {
+                top_rows[i] = *arrow_row;
+                *arrow_row += 2;
+            }
+        }
+        // Branch dividers (continuation rows). Order doesn't matter
+        // visually since each belongs to a different block.
+        for (i, b) in diag.blocks.iter().enumerate() {
+            for (j, branch) in b.branches.iter().enumerate().skip(1) {
+                if branch.start_message == pos {
+                    dividers[i][j] = *arrow_row;
+                    *arrow_row += 2;
+                }
+            }
+        }
+    };
+
     // Helper closure: render any notes whose `after_message` matches
     // `at`, advancing `arrow_row` by each note's height. Used both
     // before the message loop (for notes with after_message == 0)
@@ -608,7 +674,29 @@ pub fn render(diag: &SequenceDiagram) -> String {
     // at the top of the body, before the first message label.
     render_notes_at(&mut canvas, &mut arrow_row, 0);
 
+    // Block events at position 0 (any block opening before the first
+    // message) land here, before the first message's label row.
+    apply_block_events(
+        &mut arrow_row,
+        0,
+        &mut block_top_rows,
+        &mut block_bottom_rows,
+        &mut branch_divider_rows,
+    );
+
     for (msg_idx, msg) in diag.messages.iter().enumerate() {
+        // Block events for this message-index boundary (skip msg_idx == 0
+        // because we already applied position 0 events above).
+        if msg_idx > 0 {
+            apply_block_events(
+                &mut arrow_row,
+                msg_idx,
+                &mut block_top_rows,
+                &mut block_bottom_rows,
+                &mut branch_divider_rows,
+            );
+        }
+
         // Apply any autonumber state changes whose `at_message` index
         // is now reached. Multiple changes at the same index land in
         // source order; the last wins.
@@ -674,6 +762,17 @@ pub fn render(diag: &SequenceDiagram) -> String {
         render_notes_at(&mut canvas, &mut arrow_row, msg_idx + 1);
     }
 
+    // Trailing block-close events: any block whose end_message + 1
+    // equals num_messages (i.e., closes after the last message) needs
+    // its bottom border drawn here.
+    apply_block_events(
+        &mut arrow_row,
+        num_messages,
+        &mut block_top_rows,
+        &mut block_bottom_rows,
+        &mut branch_divider_rows,
+    );
+
     // 4. Overlay activation bars on participant lifelines. Drawn last so
     //    they sit on top of the dashed lifeline glyph but skip cells
     //    already holding arrow / junction characters from messages.
@@ -708,7 +807,223 @@ pub fn render(diag: &SequenceDiagram) -> String {
         }
     }
 
+    // 5. Overlay block frames. Each block draws a labelled rectangle
+    //    spanning the column range of its inner messages, inset by one
+    //    cell per nesting level so nested blocks read distinctly. Drawn
+    //    last so side rails sit on top of lifelines / activation bars
+    //    (still skipping arrow / junction glyphs to read as "behind"
+    //    arrows).
+    for (i, b) in diag.blocks.iter().enumerate() {
+        // Empty block (no inner messages) — nothing to draw.
+        if b.start_message > b.end_message
+            || message_arrow_rows.get(b.start_message).is_none()
+        {
+            continue;
+        }
+        let Some((natural_left, natural_right)) =
+            block_column_range(b, diag, &layouts)
+        else {
+            continue;
+        };
+        // Depth-based horizontal inset so nested rectangles don't draw
+        // on the same columns as their enclosing block(s).
+        let depth = block_depth(i, &diag.blocks);
+        let max_inset = (natural_right - natural_left) / 4;
+        let inset = depth.min(max_inset);
+        let left = natural_left.saturating_add(inset);
+        let right = natural_right.saturating_sub(inset);
+        let top = block_top_rows[i];
+        let bottom = block_bottom_rows[i];
+        if top == 0 || bottom == 0 || top >= bottom {
+            continue;
+        }
+        let kind_label = block_kind_label(b.kind);
+        let opener_label = b.branches.first().map(|br| br.label.as_str()).unwrap_or("");
+        // Branch dividers (continuations only — first branch has no
+        // divider since it shares the top border).
+        let branches: Vec<(usize, &str)> = b
+            .branches
+            .iter()
+            .enumerate()
+            .skip(1)
+            .map(|(j, branch)| (branch_divider_rows[i][j], branch.label.as_str()))
+            .filter(|(row, _)| *row != 0)
+            .collect();
+        draw_block_frame(
+            &mut canvas,
+            top,
+            bottom,
+            left,
+            right,
+            kind_label,
+            opener_label,
+            &branches,
+        );
+    }
+
     canvas.into_string()
+}
+
+/// Nesting depth for `blocks[idx]` — the number of *other* blocks that
+/// strictly contain its message range. Used to inset nested rectangles
+/// so they read distinctly from their parents.
+fn block_depth(idx: usize, blocks: &[Block]) -> usize {
+    let me = &blocks[idx];
+    blocks
+        .iter()
+        .enumerate()
+        .filter(|(j, b)| {
+            *j != idx
+                && b.start_message <= me.start_message
+                && b.end_message >= me.end_message
+                && (b.start_message < me.start_message
+                    || b.end_message > me.end_message)
+        })
+        .count()
+}
+
+/// Compute the column range `(left, right)` spanned by all messages
+/// inside `block`. Returns `None` if no message in the block resolves
+/// to a known participant.
+fn block_column_range(
+    block: &Block,
+    diag: &SequenceDiagram,
+    layouts: &[ParticipantLayout],
+) -> Option<(usize, usize)> {
+    let mut min_idx: Option<usize> = None;
+    let mut max_idx: Option<usize> = None;
+    for msg in &diag.messages[block.start_message..=block.end_message] {
+        for id in [&msg.from, &msg.to] {
+            if let Some(p) = diag.participant_index(id) {
+                min_idx = Some(min_idx.map_or(p, |m| m.min(p)));
+                max_idx = Some(max_idx.map_or(p, |m| m.max(p)));
+            }
+        }
+    }
+    let lo = min_idx?;
+    let hi = max_idx?;
+    let left = layouts[lo].center.saturating_sub(layouts[lo].box_width / 2 + 1);
+    let right = layouts[hi].center + layouts[hi].box_width / 2 + 1;
+    Some((left, right))
+}
+
+/// Human-readable label for the block kind, used as a tag in the
+/// frame's top-left corner. Mirrors Mermaid's text labels.
+fn block_kind_label(kind: BlockKind) -> &'static str {
+    match kind {
+        BlockKind::Loop => "loop",
+        BlockKind::Alt => "alt",
+        BlockKind::Opt => "opt",
+        BlockKind::Par => "par",
+        BlockKind::Critical => "critical",
+        BlockKind::Break => "break",
+    }
+}
+
+/// Draw a labelled rectangular frame for a sequence-diagram block.
+///
+/// Uses the heavy double-line glyphs (`╔╗╚╝═║`) to differentiate from
+/// participant boxes (square `┌┐└┘`) and notes (rounded `╭╮╰╯`). The
+/// kind label and opener label appear inset from the top-left as
+/// `[loop: forever]`. Branch continuations draw a dashed divider
+/// (`┄`) with `[else: …]` style label.
+///
+/// Defensive: the frame paints into space (' '), lifeline (`┆`), and
+/// activation-bar (`┃`) cells only — never overwrites a message arrow
+/// or label glyph. This means heavily-populated rows may show partial
+/// rails, which is the same trade-off the activation overlay accepts.
+#[allow(clippy::too_many_arguments)]
+fn draw_block_frame(
+    canvas: &mut Canvas,
+    top: usize,
+    bottom: usize,
+    left: usize,
+    right: usize,
+    kind: &str,
+    opener_label: &str,
+    branches: &[(usize, &str)],
+) {
+    if right <= left || bottom <= top {
+        return;
+    }
+
+    let paintable = |ch: char| -> bool {
+        ch == ' ' || ch == LIFELINE || ch == ACTIVATION_BAR
+    };
+
+    // Top border with corners.
+    if paintable(canvas.grid[top][left]) {
+        canvas.put(top, left, '╔');
+    }
+    for c in (left + 1)..right {
+        if paintable(canvas.grid[top][c]) {
+            canvas.put(top, c, '═');
+        }
+    }
+    if paintable(canvas.grid[top][right]) {
+        canvas.put(top, right, '╗');
+    }
+
+    // Top label tag inset 2 cells from the left corner: `[kind: label]`.
+    let tag = if opener_label.is_empty() {
+        format!("[{kind}]")
+    } else {
+        format!("[{kind}: {opener_label}]")
+    };
+    let tag_col = left + 2;
+    canvas.put_str(top, tag_col, &tag);
+
+    // Branch dividers (multi-branch blocks only) — drawn BEFORE the
+    // side rails so the `╠`/`╣` junction glyphs claim the rail
+    // intersection cells; the rails loop below skips divider rows.
+    let divider_row_set: std::collections::HashSet<usize> =
+        branches.iter().map(|(r, _)| *r).collect();
+    for &(divider_row, branch_label) in branches {
+        if divider_row <= top || divider_row >= bottom {
+            continue;
+        }
+        // Side-rail intersections always claim ╠ / ╣ (these are
+        // junction glyphs that semantically replace the rail).
+        canvas.put(divider_row, left, '╠');
+        canvas.put(divider_row, right, '╣');
+        for c in (left + 1)..right {
+            if paintable(canvas.grid[divider_row][c]) {
+                canvas.put(divider_row, c, '┄');
+            }
+        }
+        // Continuation label tag.
+        if !branch_label.is_empty() {
+            let tag = format!("[{branch_label}]");
+            canvas.put_str(divider_row, left + 2, &tag);
+        }
+    }
+
+    // Side rails on every row in (top, bottom), skipping divider rows
+    // (already painted above with ╠/╣).
+    for r in (top + 1)..bottom {
+        if divider_row_set.contains(&r) {
+            continue;
+        }
+        if paintable(canvas.grid[r][left]) {
+            canvas.put(r, left, '║');
+        }
+        if paintable(canvas.grid[r][right]) {
+            canvas.put(r, right, '║');
+        }
+    }
+
+    // Bottom border with corners.
+    if paintable(canvas.grid[bottom][left]) {
+        canvas.put(bottom, left, '╚');
+    }
+    for c in (left + 1)..right {
+        if paintable(canvas.grid[bottom][c]) {
+            canvas.put(bottom, c, '═');
+        }
+    }
+    if paintable(canvas.grid[bottom][right]) {
+        canvas.put(bottom, right, '╝');
+    }
 }
 
 // ---------------------------------------------------------------------------
