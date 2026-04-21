@@ -5,6 +5,17 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.6] - 2026-04-22
+
+### Changed
+
+- **Mermaid TD/BT diagrams: arrow tips merge into destination box
+  borders** (via `mermaid-text` 0.9.6). Previously `▾` sat one row
+  above each `┌────┐` top border, creating a visible gap in TUI
+  display. Now renders as `┌─▾─┐` — the arrow visually connects
+  to the box. LR/RL flows already had no gap (cell adjacency).
+  Free upgrade — no markdown-reader code changes.
+
 ## [1.11.5] - 2026-04-22
 
 ### Fixed

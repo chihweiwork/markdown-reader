@@ -292,6 +292,28 @@ fn supervisor_bidirectional_in_subgraph() {
 //      *do* guard: subgraph borders aren't overwritten — `pass` lands at
 //      col 41 (immediately right of CI's `│`), not on it.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 17d. Arrow tip merges into destination box border (TD/BT).
+//      Regression guard: 0.9.6 changed `▾` from "floating one row above the
+//      box" to "merged into the top border row, replacing one ─". Verify
+//      the `▾` always lands on the same line as the destination box's
+//      `┌────┐` top border (and same for `▴` on the bottom border for BT).
+// ---------------------------------------------------------------------------
+#[test]
+fn arrow_tip_merges_into_destination_box_top_td() {
+    let out = mermaid_text::render("graph TD\nA --> B").unwrap();
+    let lines: Vec<&str> = out.lines().collect();
+    let top_row = lines
+        .iter()
+        .rposition(|l| l.contains('┌'))
+        .expect("destination top border not found");
+    assert!(
+        lines[top_row].contains('▾'),
+        "▾ should merge into the destination's top border row (the line with `┌`):\n{out}"
+    );
+    assert_snapshot!("arrow_tip_merges_into_destination_box_top_td", out);
+}
+
 #[test]
 fn cicd_parallel_styles_to_same_target() {
     let src = "graph LR

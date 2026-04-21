@@ -369,6 +369,19 @@ impl Grid {
         }
     }
 
+    /// Write `ch` at position `(col, row)` *unless* the cell is protected.
+    ///
+    /// Used by box-drawing primitives to lay down border glyphs without
+    /// overwriting cells already claimed by arrow tips, label text, or
+    /// other survive-edge-routing content. The unconditional [`set`]
+    /// variant is preserved for primitives that legitimately need to
+    /// stomp (corners, recomputed glyphs, etc.).
+    pub fn set_unless_protected(&mut self, col: usize, row: usize, ch: char) {
+        if row < self.height && col < self.width && !self.protected[row][col] {
+            self.cells[row][col] = ch;
+        }
+    }
+
     /// Read the character at `(col, row)`, returning `' '` for out-of-bounds.
     pub fn get(&self, col: usize, row: usize) -> char {
         if row < self.height && col < self.width {
@@ -506,18 +519,23 @@ impl Grid {
         if w < 2 || h < 2 {
             return;
         }
+        // Corners always go down — arrow tips never land on a corner cell.
         self.set(col, row, rect::TL);
         self.set(col + w - 1, row, rect::TR);
         self.set(col, row + h - 1, rect::BL);
         self.set(col + w - 1, row + h - 1, rect::BR);
 
+        // Edge cells use protection-respecting writes so an arrow tip
+        // (`▾`, `▴`, `◂`, `▸`) terminating ON the border survives the
+        // box redraw — the visible difference between "arrow floating
+        // one cell from the box" and "arrow merging into the box edge".
         for x in (col + 1)..(col + w - 1) {
-            self.set(x, row, rect::H);
-            self.set(x, row + h - 1, rect::H);
+            self.set_unless_protected(x, row, rect::H);
+            self.set_unless_protected(x, row + h - 1, rect::H);
         }
         for y in (row + 1)..(row + h - 1) {
-            self.set(col, y, rect::V);
-            self.set(col + w - 1, y, rect::V);
+            self.set_unless_protected(col, y, rect::V);
+            self.set_unless_protected(col + w - 1, y, rect::V);
         }
     }
 
@@ -526,18 +544,19 @@ impl Grid {
         if w < 2 || h < 2 {
             return;
         }
+        // Corners always go down — arrow tips never land on a corner cell.
         self.set(col, row, rounded::TL);
         self.set(col + w - 1, row, rounded::TR);
         self.set(col, row + h - 1, rounded::BL);
         self.set(col + w - 1, row + h - 1, rounded::BR);
 
         for x in (col + 1)..(col + w - 1) {
-            self.set(x, row, rect::H);
-            self.set(x, row + h - 1, rect::H);
+            self.set_unless_protected(x, row, rect::H);
+            self.set_unless_protected(x, row + h - 1, rect::H);
         }
         for y in (row + 1)..(row + h - 1) {
-            self.set(col, y, rect::V);
-            self.set(col + w - 1, y, rect::V);
+            self.set_unless_protected(col, y, rect::V);
+            self.set_unless_protected(col + w - 1, y, rect::V);
         }
     }
 

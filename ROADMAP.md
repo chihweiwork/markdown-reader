@@ -123,7 +123,7 @@ combined label widths.
 **Decision:** rolled into item #6 (sugiyama improvements) below.
 Don't try to solve this purely in the label-placement pass.
 
-#### 3. Arrow termination doesn't visually merge with destination box (targeted, ~1-2h) ★★
+#### 3. Arrow termination doesn't visually merge with destination box — **SHIPPED IN 0.9.6** ✓
 
 **Symptom (state machine):** `▾` lands on the row directly above
 each destination box's top border. In raw text they're adjacent;

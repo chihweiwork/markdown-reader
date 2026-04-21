@@ -165,6 +165,21 @@ fn exit_point(pos: GridPos, geom: NodeGeom, dir: Direction) -> Attach {
 }
 
 /// Compute the entry (destination) attachment point for a given edge direction.
+///
+/// **TD/BT (vertical flow):** the attach point lands *on* the box's
+/// top or bottom border row — the arrow tip glyph (`▾` / `▴`)
+/// replaces one `─` cell, visually merging the arrow into the box
+/// edge. The horizontal border has many `─` cells so dropping one
+/// preserves the border outline; protection on the tip plus
+/// [`Grid::set_unless_protected`] in the box-drawing primitives keeps
+/// the tip intact when the node box redraws in pass 3.
+///
+/// **LR/RL (horizontal flow):** the attach point stays one column
+/// outside the box's left/right border. The vertical border is a
+/// single `│` per row — replacing it with `▸`/`◂` removes the left
+/// (or right) edge of the box on that row, leaving the box visually
+/// open. Monospace cell-grid rendering already places `▸│` and `│◂`
+/// adjacent with zero gap, so the merge gain is moot here.
 fn entry_point(pos: GridPos, geom: NodeGeom, dir: Direction) -> Attach {
     let (c, r) = pos;
     match dir {
@@ -178,11 +193,11 @@ fn entry_point(pos: GridPos, geom: NodeGeom, dir: Direction) -> Attach {
         },
         Direction::TopToBottom => Attach {
             col: c + geom.cx(),
-            row: r.saturating_sub(1),
+            row: r, // ON the top border row (replaces one ─)
         },
         Direction::BottomToTop => Attach {
             col: c + geom.cx(),
-            row: r + geom.height,
+            row: r + geom.height - 1, // ON the bottom border row (replaces one ─)
         },
     }
 }
@@ -215,17 +230,24 @@ fn exit_point_back_edge(pos: GridPos, geom: NodeGeom, dir: Direction) -> Attach 
 ///
 /// Symmetric to [`exit_point_back_edge`]: back-edges enter from the bottom for
 /// LR/RL graphs, and from the right for TD/BT graphs.
+///
+/// LR/RL graphs use horizontal `─` for their bottom border (multiple
+/// cells), so the back-edge tip lands *on* the bottom border row,
+/// replacing one `─` with `▴`. TD/BT graphs use vertical `│` for the
+/// right border (single cell per row), so the back-edge tip stays one
+/// column outside to avoid removing the border on its row.
 fn entry_point_back_edge(pos: GridPos, geom: NodeGeom, dir: Direction) -> Attach {
     let (c, r) = pos;
     match dir {
-        // Horizontal flow: enter from the bottom centre.
+        // Horizontal flow: enter ON the bottom border row.
         Direction::LeftToRight | Direction::RightToLeft => Attach {
             col: c + geom.cx(),
-            row: r + geom.height, // one row below the bottom border
+            row: r + geom.height - 1,
         },
-        // Vertical flow: enter from the right centre.
+        // Vertical flow: enter one column past the right border (keeps
+        // the vertical `│` intact on the row where the tip lands).
         Direction::TopToBottom | Direction::BottomToTop => Attach {
-            col: c + geom.width, // one column past the right border
+            col: c + geom.width,
             row: r + geom.cy(),
         },
     }
@@ -720,14 +742,18 @@ fn render_inner(
     }
 
     // Pass 2a.5: Stamp back-edge connector glyphs at each back-edge's
-    // source/destination border so the perimeter path connects visibly.
-    // Pass 2 just redrew the node box's bottom/right border as a plain line,
-    // hiding the routed back-edge's exit/entry point.
+    // source border so the perimeter path connects visibly out of the
+    // source node. Destination joins already carry the arrow tip glyph
+    // (`▴`/`◂`) written by `draw_routed_path` and protected — stamping
+    // a `┬`/`├` over those would erase the arrowhead.
     let (border_junction, path_junction) = match graph.direction {
         Direction::LeftToRight | Direction::RightToLeft => ('┬', '┴'),
         Direction::TopToBottom | Direction::BottomToTop => ('├', '┤'),
     };
-    for (col, row, _is_dest) in &back_edge_border_joins {
+    for (col, row, is_dest) in &back_edge_border_joins {
+        if *is_dest {
+            continue;
+        }
         grid.set(*col, *row, border_junction);
     }
     for (col, row) in &back_edge_path_joins {

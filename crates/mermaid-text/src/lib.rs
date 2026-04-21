@@ -1570,22 +1570,22 @@ mod tests {
             out.contains('▸'),
             "no right-arrow tip for LR forward edge in:\n{out}"
         );
-        // The back-edge corridor runs below the nodes: the UP tip (▴) must
-        // appear on a row strictly below both node boxes. Find the last row of
-        // any node box (last line containing a box character) and verify ▴
-        // appears below it.
+        // The back-edge corridor runs below the nodes and the UP tip (▴)
+        // lands ON the destination box's bottom border row (replacing one
+        // `─` of the `└───┘`). 0.9.6 changed this from "tip floats one
+        // row below the box" to "tip merges into the box border" — the
+        // box reads as receiving the arrow rather than being adjacent to
+        // a disconnected glyph. Verify by finding the line with `└` and
+        // confirming `▴` appears on the same line.
         let lines: Vec<&str> = out.lines().collect();
-        let last_box_row = lines
+        let bottom_border_row = lines
             .iter()
-            .rposition(|l| l.contains('┌') || l.contains('└') || l.contains('┘') || l.contains('┐'))
-            .unwrap_or(0);
-        let up_arrow_row = lines
-            .iter()
-            .position(|l| l.contains('▴'))
-            .expect("▴ not found");
+            .position(|l| l.contains('└'))
+            .expect("no `└` corner found");
         assert!(
-            up_arrow_row > last_box_row,
-            "LR back-edge ▴ should appear below the node boxes (box ends row {last_box_row}, ▴ at row {up_arrow_row}):\n{out}"
+            lines[bottom_border_row].contains('▴'),
+            "LR back-edge ▴ should land on the destination box's bottom border row \
+             (the line with `└`), got line {bottom_border_row}:\n{out}"
         );
     }
 

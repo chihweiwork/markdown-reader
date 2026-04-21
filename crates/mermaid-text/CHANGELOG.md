@@ -3,6 +3,47 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.9.6 — 2026-04-22
+
+### Changed
+
+- **Arrow tips now merge into the destination box border for TD/BT
+  flows.** Previously the `▾` (or `▴` for BT and back-edges) sat
+  on the row directly above the box's `┌────┐` top border, creating
+  a visible gap in TUI display ("arrow not touching the box"). It
+  now lands *on* the border row, replacing one `─` with the arrow
+  glyph: `┌─▾─┐`. The horizontal border has plenty of `─` cells, so
+  dropping one preserves the outline.
+
+  LR/RL flows are unchanged: their box left/right borders are a
+  single `│` per row, and replacing it would visibly remove the
+  border. Monospace cell-grid rendering already places `▸│` and
+  `│◂` adjacent with zero gap, so the merge gain is moot there.
+
+  Back-edge tip placement follows the same rule by perpendicularity:
+  LR/RL back-edges enter from the bottom (horizontal `─` border) →
+  tip merges in. TD/BT back-edges enter from the right (vertical
+  `│` border) → tip stays one column outside.
+
+### Added
+
+- `Grid::set_unless_protected(col, row, ch)` — protection-respecting
+  variant of `set` so the box-drawing primitives don't overwrite
+  arrow tips that landed on the border in pass 2. The unconditional
+  `set` is preserved for primitives that legitimately need to stomp
+  (corners, recomputed glyphs).
+
+- New regression-guard snapshot test
+  `arrow_tip_merges_into_destination_box_top_td` plus an updated
+  `back_edge_lr_exits_bottom` unit test that asserts `▴` lands on
+  the same line as `└` (the destination box's bottom border row).
+
+### Notes
+
+- 11 existing flowchart/state snapshots updated — every change is
+  a visible improvement (arrows now read as connecting to boxes
+  rather than floating above them).
+
 ## 0.9.5 — 2026-04-22
 
 ### Fixed
