@@ -22,12 +22,10 @@ _Nothing actively in progress._
 ### Sequence diagram polish — `mermaid-text` (in progress)
 
 Four parser TODOs to retire. **0.9.0 shipped autonumber** plus the
-foundation data model on `SequenceDiagram` for the rest. Remaining:
+foundation data model on `SequenceDiagram` for the rest. **0.9.1
+shipped notes** (single-anchor + multi-anchor `over X,Y`, `<br>`
+line breaks, defensive `end note` error). Remaining:
 
-- **Notes** — `note left of X : text` / `note right of X : text` /
-  `note over X : text` / `note over X,Y : text`. Multi-line via
-  `<br>` (Mermaid's sequence parser has no `end note` form). Render
-  as rounded boxes anchored to participant columns. ~half day.
 - **Activation bars** — explicit `activate X` / `deactivate X` plus
   inline `A->>+B` / `A-->>-B` shorthand. Stack-based parser pairing.
   Renderer overlays `┃` on lifelines between the activate and
@@ -41,6 +39,16 @@ foundation data model on `SequenceDiagram` for the rest. Remaining:
 Defer `rect <colour>` background highlight blocks (Mermaid's
 grammar can't express hex colours and ANSI bg-tinting fights the
 rest of the layered colour system).
+
+#### Note follow-ups (deferred from 0.9.1)
+
+- **Width-aware canvas widening** when a note exceeds the
+  rightmost participant's column. Today the box clips silently at
+  the canvas right edge. Defer until someone reports clipping.
+- **Word-wrap for long note lines.** Today users add `<br>`
+  manually. Auto-wrap would need a width budget per anchor type.
+- `note over X,Y,Z` (3+ anchor) — Mermaid's grammar doesn't
+  actually support this; out by spec.
 
 ---
 
@@ -162,6 +170,12 @@ defer until someone files a real use case.
 
 ## Done since 1.7.1 (recent history — see CHANGELOGs for detail)
 
+- **0.9.1**: sequence-diagram notes — `note left of X : text`,
+  `note right of X`, `note over X`, and the multi-anchor
+  `note over X,Y` span form. `<br>` / `<br/>` in note text become
+  real line breaks. Defensive parse error if a state-diagram-style
+  `end note` is written, pointing the user at `<br>`. Note
+  interior is cleared so dashed lifelines don't bleed through.
 - **0.9.0**: sequence-diagram `autonumber` directive (bare,
   `autonumber N`, `autonumber off`, mid-diagram re-base). New
   foundation types on `SequenceDiagram` (`notes`, `activations`,

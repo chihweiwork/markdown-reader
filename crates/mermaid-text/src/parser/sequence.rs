@@ -18,9 +18,12 @@
 //! ```
 
 use crate::Error;
-use crate::parser::common::{strip_inline_comment, strip_keyword_prefix};
+use crate::parser::common::{
+    parse_sequence_note_anchor, strip_inline_comment, strip_keyword_prefix,
+};
 use crate::sequence::{
-    AutonumberChange, AutonumberState, Message, MessageStyle, Participant, SequenceDiagram,
+    AutonumberChange, AutonumberState, Message, MessageStyle, NoteEvent, Participant,
+    SequenceDiagram,
 };
 
 // ---------------------------------------------------------------------------
@@ -106,8 +109,40 @@ pub fn parse(src: &str) -> Result<SequenceDiagram, Error> {
             continue;
         }
 
-        // TODO: Note over/left of/right of — not implemented in MVP.
-        if line.to_lowercase().starts_with("note ") {
+        // Defensive: Mermaid's sequence-diagram grammar has NO `end note`
+        // form (state diagrams do — that's a different parser). A user
+        // coming from state diagrams might write it; give them a clear
+        // pointer rather than silently misparsing.
+        if line.eq_ignore_ascii_case("end note") {
+            return Err(Error::ParseError(
+                "sequence diagrams use `<br>` for multi-line notes, \
+                 not `end note` (which is a state-diagram form)"
+                    .to_string(),
+            ));
+        }
+
+        // `note left of X : text` / `note right of X : text` /
+        // `note over X : text` / `note over X,Y : text` (multi-anchor).
+        // `<br>` and `<br/>` in the text become `\n` so multi-line
+        // notes render via the existing line-splitting box helper.
+        if let Some(rest) = strip_keyword_prefix(line, "note") {
+            if let Some(colon_pos) = rest.find(':') {
+                let anchor_part = rest[..colon_pos].trim();
+                let text_part = rest[colon_pos + 1..].trim();
+                if let Some(anchor) = parse_sequence_note_anchor(anchor_part) {
+                    let text = text_part.replace("<br/>", "\n").replace("<br>", "\n");
+                    diag.notes.push(NoteEvent {
+                        anchor,
+                        text,
+                        after_message: diag.messages.len(),
+                    });
+                    continue;
+                }
+            }
+            // Unrecognised note form (floating `note "text" as N1` or
+            // a malformed anchor) — silently skip rather than error
+            // so the diagram still renders. Floating notes are out of
+            // scope per ROADMAP.
             continue;
         }
 
@@ -391,5 +426,90 @@ mod tests {
             diag.autonumber_changes[0].state,
             AutonumberState::On { next_value: 100 }
         );
+    }
+
+    // ---- notes (0.9.1) -----------------------------------------------
+
+    #[test]
+    fn parse_note_left_of_records_left_anchor() {
+        let diag = parse("sequenceDiagram\nA->>B: hi\nnote left of A : context").unwrap();
+        assert_eq!(diag.notes.len(), 1);
+        assert_eq!(
+            diag.notes[0].anchor,
+            crate::sequence::NoteAnchor::LeftOf("A".to_string())
+        );
+        assert_eq!(diag.notes[0].text, "context");
+        assert_eq!(diag.notes[0].after_message, 1, "after the only message");
+    }
+
+    #[test]
+    fn parse_note_right_of_records_right_anchor() {
+        let diag = parse("sequenceDiagram\nnote right of B : tip\nA->>B: hi").unwrap();
+        assert_eq!(
+            diag.notes[0].anchor,
+            crate::sequence::NoteAnchor::RightOf("B".to_string())
+        );
+        // Note appears BEFORE the message so after_message = 0.
+        assert_eq!(diag.notes[0].after_message, 0);
+    }
+
+    #[test]
+    fn parse_note_over_single_anchor() {
+        let diag = parse("sequenceDiagram\nA->>B: hi\nnote over A : single").unwrap();
+        assert_eq!(
+            diag.notes[0].anchor,
+            crate::sequence::NoteAnchor::Over("A".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_note_over_pair_anchor() {
+        let diag = parse("sequenceDiagram\nA->>B: hi\nnote over A,B : shared").unwrap();
+        assert_eq!(
+            diag.notes[0].anchor,
+            crate::sequence::NoteAnchor::OverPair("A".to_string(), "B".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_note_br_tags_become_newlines() {
+        let diag =
+            parse("sequenceDiagram\nA->>B: hi\nnote over A : line1<br>line2<br/>line3").unwrap();
+        assert_eq!(diag.notes[0].text, "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn parse_end_note_returns_helpful_error() {
+        let err = parse("sequenceDiagram\nA->>B: hi\nend note")
+            .expect_err("end note must be rejected with a helpful error");
+        let msg = format!("{err}");
+        assert!(
+            msg.contains("<br>") || msg.contains("not `end note`"),
+            "error must mention `<br>` or `not end note`, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn parse_floating_note_silently_skipped() {
+        // `note "text" as N1` — out of scope, parse without error
+        // and produce no NoteEvent.
+        let diag =
+            parse("sequenceDiagram\nA->>B: hi\nnote \"floating\" as N1").unwrap();
+        assert!(diag.notes.is_empty());
+    }
+
+    #[test]
+    fn parse_multiple_notes_track_message_position() {
+        let diag = parse(
+            "sequenceDiagram\n\
+             A->>B: first\n\
+             note right of B : after first\n\
+             B->>A: second\n\
+             note left of A : after second",
+        )
+        .unwrap();
+        assert_eq!(diag.notes.len(), 2);
+        assert_eq!(diag.notes[0].after_message, 1);
+        assert_eq!(diag.notes[1].after_message, 2);
     }
 }

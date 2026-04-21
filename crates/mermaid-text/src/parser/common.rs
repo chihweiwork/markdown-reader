@@ -6,6 +6,7 @@
 //! drift their own copies. Each helper is `pub(crate)` — these are
 //! parser-internal building blocks, not public crate API.
 
+use crate::sequence::NoteAnchor;
 use crate::types::{EdgeStyleColors, Graph, NodeStyle, Rgb};
 
 /// Strip a trailing `%% comment` if present, but only if the `%%` is
@@ -326,6 +327,60 @@ pub(crate) fn parse_note_anchor(s: &str) -> Option<(NoteSide, String)> {
     Some((side, id_str.to_string()))
 }
 
+/// Parse the anchor portion of a sequence-diagram `note` directive
+/// — the part between `note ` and the colon. Returns the parsed
+/// [`NoteAnchor`] (which can be a single-anchor [`NoteAnchor::Over`]
+/// / `LeftOf` / `RightOf` or the multi-anchor [`NoteAnchor::OverPair`]).
+///
+/// Sister of [`parse_note_anchor`] (state-diagram only); kept separate
+/// because state diagrams have no `over X,Y` form and the return
+/// types differ. The two helpers share the keyword-recognition
+/// pattern but produce different shapes; collapsing them into one
+/// would require a flags argument and a tagged-union return that
+/// adds more complexity than the modest duplication.
+///
+/// # Examples
+///
+/// ```ignore
+/// assert_eq!(parse_sequence_note_anchor("left of A"),
+///            Some(NoteAnchor::LeftOf("A".to_string())));
+/// assert_eq!(parse_sequence_note_anchor("over A,B"),
+///            Some(NoteAnchor::OverPair("A".to_string(), "B".to_string())));
+/// ```
+pub(crate) fn parse_sequence_note_anchor(s: &str) -> Option<NoteAnchor> {
+    let s = s.trim();
+    if let Some(rest) = s.strip_prefix("left of ") {
+        let id = rest.trim();
+        if id.is_empty() {
+            return None;
+        }
+        return Some(NoteAnchor::LeftOf(id.to_string()));
+    }
+    if let Some(rest) = s.strip_prefix("right of ") {
+        let id = rest.trim();
+        if id.is_empty() {
+            return None;
+        }
+        return Some(NoteAnchor::RightOf(id.to_string()));
+    }
+    if let Some(rest) = s.strip_prefix("over ") {
+        let body = rest.trim();
+        if body.is_empty() {
+            return None;
+        }
+        if let Some((a, b)) = body.split_once(',') {
+            let a = a.trim();
+            let b = b.trim();
+            if a.is_empty() || b.is_empty() {
+                return None;
+            }
+            return Some(NoteAnchor::OverPair(a.to_string(), b.to_string()));
+        }
+        return Some(NoteAnchor::Over(body.to_string()));
+    }
+    None
+}
+
 /// Resolve `(target_id, class_name)` pairs into concrete style entries
 /// on `graph.node_styles` or `graph.subgraph_styles`. Multiple classes
 /// per target stack via [`merge_node_style`] in source order. Class
@@ -517,6 +572,59 @@ mod tests {
     fn parse_note_anchor_empty_id_returns_none() {
         assert_eq!(parse_note_anchor("left of "), None);
         assert_eq!(parse_note_anchor("over"), None);
+    }
+
+    // ---- parse_sequence_note_anchor (sequence-diagram form) ----------
+
+    #[test]
+    fn parse_sequence_note_anchor_left_of() {
+        assert_eq!(
+            parse_sequence_note_anchor("left of Alice"),
+            Some(NoteAnchor::LeftOf("Alice".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_sequence_note_anchor_right_of() {
+        assert_eq!(
+            parse_sequence_note_anchor("right of Bob"),
+            Some(NoteAnchor::RightOf("Bob".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_sequence_note_anchor_over_single() {
+        assert_eq!(
+            parse_sequence_note_anchor("over Alice"),
+            Some(NoteAnchor::Over("Alice".to_string()))
+        );
+    }
+
+    #[test]
+    fn parse_sequence_note_anchor_over_pair() {
+        assert_eq!(
+            parse_sequence_note_anchor("over Alice,Bob"),
+            Some(NoteAnchor::OverPair(
+                "Alice".to_string(),
+                "Bob".to_string()
+            ))
+        );
+        // Whitespace around the comma is tolerated.
+        assert_eq!(
+            parse_sequence_note_anchor("over Alice , Bob"),
+            Some(NoteAnchor::OverPair(
+                "Alice".to_string(),
+                "Bob".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn parse_sequence_note_anchor_invalid_returns_none() {
+        assert_eq!(parse_sequence_note_anchor("left A"), None); // missing `of`
+        assert_eq!(parse_sequence_note_anchor("over"), None); // empty body
+        assert_eq!(parse_sequence_note_anchor(""), None);
+        assert_eq!(parse_sequence_note_anchor("over Alice,"), None); // empty pair half
     }
 
     #[test]

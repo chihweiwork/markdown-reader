@@ -5,6 +5,18 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.1] - 2026-04-19
+
+### Added
+
+- **Sequence-diagram notes** in markdown mermaid blocks (via
+  `mermaid-text` 0.9.1). `note left of X : text`,
+  `note right of X : text`, `note over X : text`, and the
+  multi-anchor `note over X,Y : text` form all render now —
+  rounded boxes anchored to participant columns. `<br>` /
+  `<br/>` in note text becomes a real line break. Free upgrade —
+  no markdown-reader code changes.
+
 ## [1.11.0] - 2026-04-20
 
 ### Added

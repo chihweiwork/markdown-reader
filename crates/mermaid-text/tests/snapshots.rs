@@ -656,3 +656,57 @@ A->>B: hundred";
     assert!(out.contains("silent") && !out.contains("[3] silent"));
     assert!(out.contains("[100] hundred"));
 }
+
+#[test]
+fn sequence_with_note_right_of() {
+    let src = "sequenceDiagram
+participant U as User
+participant API
+U->>API: POST /login
+note right of U : token cached for 1h
+API->>U: 200 OK";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("token cached for 1h"));
+    assert!(out.contains('╭') && out.contains('╯'));
+    assert_snapshot!("sequence_with_note_right_of", out);
+}
+
+#[test]
+fn sequence_with_note_over_pair() {
+    // Multi-anchor `note over A,B` spans both participant columns.
+    let src = "sequenceDiagram
+participant U as User
+participant API
+note over U,API : Authentication flow
+U->>API: POST /login";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("Authentication flow"));
+    assert_snapshot!("sequence_with_note_over_pair", out);
+}
+
+#[test]
+fn sequence_with_multiline_note() {
+    // `<br>` and `<br/>` in note text become newlines, producing a
+    // multi-line note box.
+    let src = "sequenceDiagram
+participant U as User
+participant API
+U->>API: POST /audit
+note left of API : audit log entry<br/>recorded async";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("audit log entry"));
+    assert!(out.contains("recorded async"));
+    assert_snapshot!("sequence_with_multiline_note", out);
+}
+
+#[test]
+fn sequence_end_note_returns_helpful_error() {
+    // Mermaid's sequence grammar has no `end note` form (state diagrams
+    // do; sequence uses `<br>`). Make sure the parser flags this with a
+    // pointer to the right syntax instead of silently misparsing.
+    let src = "sequenceDiagram
+participant U
+end note";
+    let err = mermaid_text::render(src).unwrap_err().to_string();
+    assert!(err.contains("<br>"), "error should point at <br> syntax: {err}");
+}

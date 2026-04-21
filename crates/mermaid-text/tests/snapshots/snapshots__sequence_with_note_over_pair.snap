@@ -1,0 +1,14 @@
+---
+source: crates/mermaid-text/tests/snapshots.rs
+expression: out
+---
+ ┌────────┐             ┌───────┐
+ │  User  │             │  API  │
+ └────────┘             └───────┘
+      ┆                     ┆
+     ╭───────────────────────╮
+     │ Authentication flow   │
+     ╰───────────────────────╯
+      ┆ POST /login         ┆
+      ──────────────────────▸
+      ┆                     ┆

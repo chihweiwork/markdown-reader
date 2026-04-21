@@ -24,7 +24,9 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::sequence::{AutonumberState, MessageStyle, SequenceDiagram};
+use crate::sequence::{
+    AutonumberState, MessageStyle, NoteAnchor, NoteEvent, SequenceDiagram,
+};
 
 // ---------------------------------------------------------------------------
 // Layout constants (mirroring termaid's naming conventions)
@@ -256,6 +258,123 @@ fn draw_participant_box(canvas: &mut Canvas, cx: usize, box_width: usize, label:
     canvas.put(2, right, '┘');
 }
 
+/// Draw a multi-line note box on the canvas with rounded corners.
+///
+/// `left` and `right` are the inclusive column bounds; `text` is the
+/// note's content (one logical line per `\n`). Box height is
+/// `text.lines().count() + 2` (top border + content rows + bottom
+/// border). Rounded corners (`╭ ╮ ╰ ╯`) distinguish notes from
+/// participant header boxes (which use square `┌ ┐ └ ┘` corners).
+///
+/// Lifelines are drawn in an earlier pass; the note's borders
+/// naturally overwrite the dashed `┆` glyphs in the columns it
+/// occupies, which reads as the note "covering" the lifeline at
+/// that point.
+fn draw_note_box(canvas: &mut Canvas, left: usize, right: usize, row: usize, text: &str) {
+    if right < left {
+        return;
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let height = lines.len() + 2;
+
+    // Top border.
+    canvas.put(row, left, '╭');
+    for c in (left + 1)..right {
+        canvas.put(row, c, '─');
+    }
+    canvas.put(row, right, '╮');
+
+    // Content rows. Lifelines (`┆`) drawn in an earlier pass may
+    // intrude on the interior columns; clear the interior to spaces
+    // first so the note reads as a solid box rather than a frame
+    // with dashed lines bleeding through.
+    let inner_left = left + 2; // 1 cell padding inside the border
+    for (i, line) in lines.iter().enumerate() {
+        let r = row + 1 + i;
+        canvas.put(r, left, '│');
+        for c in (left + 1)..right {
+            canvas.put(r, c, ' ');
+        }
+        canvas.put(r, right, '│');
+        canvas.put_str(r, inner_left, line);
+    }
+
+    // Bottom border.
+    let bottom = row + height - 1;
+    canvas.put(bottom, left, '╰');
+    for c in (left + 1)..right {
+        canvas.put(bottom, c, '─');
+    }
+    canvas.put(bottom, right, '╯');
+}
+
+/// Compute the inclusive `(left_col, right_col)` for a note box
+/// based on its anchor and the current participant layouts.
+///
+/// Returns `None` when the anchor names a participant that doesn't
+/// exist in the diagram (the parser auto-creates participants
+/// referenced by messages, but a note can name a never-mentioned id).
+fn note_columns(
+    anchor: &NoteAnchor,
+    layouts: &[ParticipantLayout],
+    diag: &SequenceDiagram,
+    text_w: usize,
+) -> Option<(usize, usize)> {
+    // Box width = text + 2 cells padding each side + 2 borders.
+    let box_w = text_w + 4;
+    match anchor {
+        NoteAnchor::LeftOf(id) => {
+            let i = diag.participant_index(id)?;
+            let right = layouts[i].center.saturating_sub(2);
+            let left = right.saturating_sub(box_w.saturating_sub(1));
+            Some((left, right))
+        }
+        NoteAnchor::RightOf(id) => {
+            let i = diag.participant_index(id)?;
+            let left = layouts[i].center + 2;
+            Some((left, left + box_w - 1))
+        }
+        NoteAnchor::Over(id) => {
+            let i = diag.participant_index(id)?;
+            let center = layouts[i].center;
+            let left = center.saturating_sub(box_w / 2);
+            Some((left, left + box_w - 1))
+        }
+        NoteAnchor::OverPair(a, b) => {
+            let i = diag.participant_index(a)?;
+            let j = diag.participant_index(b)?;
+            let (lo, hi) = if i <= j { (i, j) } else { (j, i) };
+            let span_left = layouts[lo].center;
+            let span_right = layouts[hi].center;
+            let span_w = span_right - span_left + 1;
+            // Widen the box to span both anchors + padding; if the
+            // text is wider than the span, the box extends to fit.
+            let needed_w = box_w.max(span_w + 2);
+            let centre = (span_left + span_right) / 2;
+            let left = centre.saturating_sub(needed_w / 2);
+            Some((left, left + needed_w - 1))
+        }
+    }
+}
+
+/// Compute the row stride for a single note in the message stream:
+/// top border + text rows + bottom border + 1 blank spacer below.
+///
+/// The spacer is necessary because [`draw_message`] places its label
+/// at `row - 1` of the arrow position; without the spacer, the next
+/// message's label would land on the note's bottom-border row.
+/// Used both by the canvas-height budget (so `Canvas::new` allocates
+/// enough rows) and by the render loop (so `arrow_row` advances by
+/// the same amount the budget reserved).
+fn note_height(note: &NoteEvent) -> usize {
+    note.text.lines().count().max(1) + 3
+}
+
+/// Compute the maximum display width across the lines of `text`.
+fn max_line_width(text: &str) -> usize {
+    text.lines().map(|l| l.width()).max().unwrap_or(0)
+}
+
 /// Draw the lifeline `┆` column from row `start` to row `end` (inclusive).
 fn draw_lifeline(canvas: &mut Canvas, cx: usize, start: usize, end: usize) {
     for r in start..=end {
@@ -409,7 +528,11 @@ pub fn render(diag: &SequenceDiagram) -> String {
         1 + regular_count * EVENT_ROW_H + self_msg_count * SELF_MSG_ROW_H
     };
 
-    let height = BOX_HEIGHT + body_rows;
+    // Notes consume their own rows in the message stream. Sum them
+    // into the height budget so `Canvas::new` allocates enough space.
+    let note_rows: usize = diag.notes.iter().map(note_height).sum();
+
+    let height = BOX_HEIGHT + body_rows + note_rows;
 
     // Canvas width: rightmost participant box right edge + 1 margin.
     let last = &layouts[n - 1];
@@ -455,6 +578,25 @@ pub fn render(diag: &SequenceDiagram) -> String {
     let mut arrow_row = BOX_HEIGHT + 1;
     let mut autonumber = AutonumberState::Off;
     let mut autonumber_cursor = 0usize;
+
+    // Helper closure: render any notes whose `after_message` matches
+    // `at`, advancing `arrow_row` by each note's height. Used both
+    // before the message loop (for notes with after_message == 0)
+    // and inside it (for notes positioned after each message).
+    let render_notes_at = |canvas: &mut Canvas, arrow_row: &mut usize, at: usize| {
+        for note in diag.notes.iter().filter(|n| n.after_message == at) {
+            let text_w = max_line_width(&note.text);
+            if let Some((l, r)) = note_columns(&note.anchor, &layouts, diag, text_w) {
+                draw_note_box(canvas, l, r, *arrow_row, &note.text);
+                *arrow_row += note_height(note);
+            }
+        }
+    };
+
+    // Notes positioned BEFORE any message (after_message == 0) land
+    // at the top of the body, before the first message label.
+    render_notes_at(&mut canvas, &mut arrow_row, 0);
+
     for (msg_idx, msg) in diag.messages.iter().enumerate() {
         // Apply any autonumber state changes whose `at_message` index
         // is now reached. Multiple changes at the same index land in
@@ -511,6 +653,11 @@ pub fn render(diag: &SequenceDiagram) -> String {
             );
             arrow_row += EVENT_ROW_H;
         }
+
+        // Render notes positioned AFTER this message (those whose
+        // `after_message` index equals this iteration's index + 1
+        // — see NoteEvent::after_message docs in src/sequence.rs).
+        render_notes_at(&mut canvas, &mut arrow_row, msg_idx + 1);
     }
 
     canvas.into_string()

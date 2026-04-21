@@ -3,6 +3,36 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.9.1 — 2026-04-19
+
+### Added
+
+- **Sequence-diagram notes** — `note left of X : text`,
+  `note right of X : text`, `note over X : text`, and the
+  multi-anchor span form `note over X,Y : text`. Notes appear at
+  their source position (after the preceding message) as rounded
+  boxes (`╭─╮ … ╰─╯`) anchored to the relevant participant column;
+  multi-anchor notes auto-widen to bridge both columns. The note
+  interior is cleared so dashed lifelines don't bleed through.
+- **`<br>` and `<br/>` in note text** become real line breaks,
+  producing a multi-line note box. Mermaid sequence diagrams have
+  no `end note` form (state diagrams do); writing one now returns
+  a clear `Error::ParseError` pointing the user at `<br>` instead
+  of silently misparsing.
+- **3 new snapshot tests** (`sequence_with_note_right_of`,
+  `sequence_with_note_over_pair`, `sequence_with_multiline_note`)
+  plus 8 new parser unit tests and 5 new helper tests in
+  `parser/common.rs` for `parse_sequence_note_anchor`.
+
+### Notes
+
+- Defers width-aware canvas widening (long notes that exceed the
+  rightmost participant column are still clipped by the existing
+  `Canvas::put_str` bounds check) and word-wrap (use `<br>`).
+  Both are tracked in ROADMAP follow-ups.
+- Floating notes (`note "text" as N1`) remain silently skipped —
+  Mermaid's rendering rules for them are ill-specified upstream.
+
 ## 0.9.0 — 2026-04-20
 
 ### Added
