@@ -586,7 +586,11 @@ impl MdRenderer {
                 self.push_blank_line();
             }
             TagEnd::CodeBlock => {
-                if self.code_block_lang.as_deref() == Some("mermaid") {
+                let lang = self.code_block_lang.as_deref();
+                let is_mermaid = lang == Some("mermaid")
+                    || (lang.is_none_or(str::is_empty)
+                        && looks_like_mermaid(&self.code_block_content));
+                if is_mermaid {
                     self.emit_mermaid_block();
                 } else {
                     self.render_code_block();
@@ -869,6 +873,85 @@ fn hash_bytes(b: &[u8]) -> u64 {
     h.finish()
 }
 
+/// Heuristic: does an untagged code block look like Mermaid source?
+///
+/// Triggered for ` ``` ` fences with no language tag (a common
+/// authoring mistake — the user expected `` ```mermaid `` to render
+/// the diagram). We match on the first non-empty line starting with
+/// one of Mermaid's diagram-declaration keywords AND followed by
+/// mermaid-typical syntax — for `graph`/`flowchart` that means a
+/// direction token (TD/TB/BT/LR/RL); for the others a colon or
+/// whitespace+identifier is enough. This avoids false positives on
+/// legitimate JS/TS lines like `graph = {};` or `import { graph }`.
+fn looks_like_mermaid(content: &[String]) -> bool {
+    let first = content
+        .iter()
+        .find(|line| !line.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
+
+    // Diagrams that take a flow direction as the next token.
+    const DIRECTIONAL: &[&str] = &["graph", "flowchart"];
+    const DIRECTIONS: &[&str] = &["TD", "TB", "BT", "LR", "RL"];
+    for kw in DIRECTIONAL {
+        if let Some(rest) = first.strip_prefix(kw) {
+            // After the keyword we expect whitespace + a direction
+            // (most common), or a semicolon (compact one-line form
+            // `graph LR; A --> B`). Reject anything else — `graph =`
+            // and friends fall through here.
+            let rest = rest.trim_start();
+            for dir in DIRECTIONS {
+                if rest == *dir
+                    || rest.starts_with(&format!("{dir} "))
+                    || rest.starts_with(&format!("{dir};"))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    // Diagrams whose declaration keyword stands alone on the first
+    // line. Strict equality (no trailing chars) to avoid catching
+    // English sentences like "sequenceDiagram is great". Users who
+    // write the rare single-line variants (e.g. `pie title Pets`)
+    // need to add the explicit ` ```mermaid ` tag — that's a fair
+    // ask for an unambiguous heuristic.
+    const STANDALONE: &[&str] = &[
+        "sequenceDiagram",
+        "stateDiagram-v2",
+        "stateDiagram",
+        "erDiagram",
+        "classDiagram",
+        "pie",
+        "gantt",
+        "journey",
+        "gitGraph",
+        "mindmap",
+        "timeline",
+        "quadrantChart",
+        "requirementDiagram",
+        "C4Context",
+        "C4Container",
+        "C4Component",
+        "C4Dynamic",
+    ];
+    if STANDALONE.iter().any(|kw| first == *kw) {
+        return true;
+    }
+    // For `pie`-style declarations that put the title on the same
+    // line, also accept the pattern `pie title "..."` and
+    // `pie showData ...` since those are common Mermaid forms.
+    if first.starts_with("pie title ")
+        || first.starts_with("pie showData")
+        || first.starts_with("gantt dateFormat ")
+    {
+        return true;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -889,6 +972,60 @@ mod tests {
         {
             Some(DocBlock::Text { text, .. }) => text.lines,
             _ => panic!("expected a Text block"),
+        }
+    }
+
+    /// Untagged ``` fence whose first non-empty line is a Mermaid
+    /// diagram-declaration should render as a Mermaid block, not a
+    /// plain code block. Catches the common authoring mistake of
+    /// writing ``` instead of ```mermaid.
+    ///
+    /// The heuristic is intentionally tight (see `looks_like_mermaid`):
+    /// `graph` / `flowchart` need an explicit direction token next;
+    /// the standalone declarations (`sequenceDiagram`, `erDiagram`,
+    /// etc.) need to be the entire first line. This avoids false
+    /// positives on English prose or JS.
+    #[test]
+    fn untagged_mermaid_syntax_renders_as_mermaid_block() {
+        let cases = [
+            "graph TD\n    A --> B",
+            "stateDiagram-v2\n    [*] --> Active",
+            "sequenceDiagram\n    Alice->>Bob: hi",
+            "erDiagram\n    A ||--o{ B : has",
+            "pie title Pets\n    \"Dogs\" : 10",
+            "pie showData title Pets\n    \"Dogs\" : 10",
+            "flowchart LR\n    A --> B",
+            "graph LR; A --> B", // semicolon-on-same-line form
+        ];
+        for src in cases {
+            let md = format!("```\n{src}\n```\n");
+            let blocks = render_markdown(&md, &default_palette(), Theme::Default);
+            assert!(
+                blocks.iter().any(|b| matches!(b, DocBlock::Mermaid { .. })),
+                "expected a Mermaid block for source:\n{src}\n\nblocks: {blocks:?}",
+            );
+        }
+    }
+
+    /// Plain code in an untagged fence must NOT be detected as Mermaid
+    /// — false positives would silently break legitimate code blocks.
+    #[test]
+    fn plain_code_in_untagged_fence_stays_a_code_block() {
+        let cases = [
+            "let x = 42;",                      // Rust
+            "fn main() {}",                     // Rust
+            "graph = {};",                      // JS object containing word "graph"
+            "sequenceDiagram is great",         // doc-style sentence
+            "// comment about graph TD",        // comment
+            "import { graph } from 'lib';",     // import statement
+        ];
+        for src in cases {
+            let md = format!("```\n{src}\n```\n");
+            let blocks = render_markdown(&md, &default_palette(), Theme::Default);
+            assert!(
+                !blocks.iter().any(|b| matches!(b, DocBlock::Mermaid { .. })),
+                "false positive: plain text was detected as Mermaid:\n{src}\n\nblocks: {blocks:?}",
+            );
         }
     }
 

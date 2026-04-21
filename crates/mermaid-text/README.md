@@ -207,7 +207,7 @@ ASCII fallback, width compaction — applies to them unchanged.
 
 **Example — circuit-breaker FSM:**
 
-```
+```mermaid
 stateDiagram-v2
     direction LR
     [*] --> CLOSED
@@ -220,6 +220,21 @@ stateDiagram-v2
     CLOSED : Counting consecutive failures
     OPEN : DB calls skipped
     HALF_OPEN : One probe call allowed
+```
+
+Rendered output:
+
+```
+╭─────╮      ╭────────────────────────╮                       probe succeeds           ╭───────────────────────────────╮
+│( ● )│─────┐│ One probe call allowed │───────────────────────probe fails─────────────┐│   All DB calls pass through   │
+╰─────╯     │╰────────────▴───────────╯──────────────────────────────────────────────┐▸│ Counting consecutive failures ││
+            └─────────────├──────────────────────────────────────────────────────────┼▸╰───────────────────────────────╯│
+                          │                                                          │                 5 consecutive failures
+                          │                                                          │┌─────────────────────────────────┘
+                          │                                                          ││╭──────────────────╮
+                          │                                                          │▸│ DB calls skipped │
+                          │                                  probe interval elapsed  └▸╰─────────┬────────╯
+                          └──────────────────────────────────────────────────────────────────────┴
 ```
 
 The `[*]` start marker renders as a small rounded circle with `●`; the
@@ -237,7 +252,7 @@ nesting works. External edges to / from a composite id are rewritten
 at parse time so the arrow visibly lands on the composite's inner
 start (incoming) or end (outgoing) marker:
 
-```
+```mermaid
 stateDiagram-v2
 [*] --> Active
 state Active {
@@ -246,6 +261,18 @@ state Active {
     Working --> Idle : done
 }
 Active --> [*]
+```
+
+Rendered output:
+
+```
+           ╭─Active─────────────────────────────────────────╮
+           │                                                │
+╭─────╮    │ ╭─────╮      ╭─────────╮      done    ╭──────╮ │
+│( ● )│────│▸│( ● )│─────┐│ Working │────────────┐▸│ Idle │ │
+╰─────╯    │ ╰─────╯     │╰────▴────╯            └▸╰───┬──╯ │
+           │             └─────├─────────start────┘┌───┴    │
+           ╰────────────────────────────────────────────────╯
 ```
 
 Each composite has its own `[*]` scope — `[*]` inside `Active` refers
@@ -331,6 +358,35 @@ graph TD
     Failed -->|retry| Idle
 ```
 
+Rendered output:
+
+```
+┌─────────┐
+│ Running │◂────────┐
+└─────────┘         │
+     │ │            │
+     │ │            │
+     │ │error       │
+     │done          │
+     │ │            │
+     │ │            │
+    ┌┘ └───────┐    │
+┌───▾──┐  ┌────▾───┐│
+│ Done │  │ Failed ││
+└──────┘  └────────┘│event
+               │    │
+               │    │
+               │    │
+               │retry
+               │    │
+               │    │
+    ┌──────────┘    │
+┌───▾──┐            │
+│ Idle ├┘           │
+└──────┘│           │
+        └───────────┘
+```
+
 ### Supervisor pattern
 
 ```mermaid
@@ -344,6 +400,23 @@ graph LR
     HB --> WD[Watchdog]
 ```
 
+Rendered output:
+
+```
+╭─Supervisor───────────╮
+│                      │
+│ ┌─────────┐          │    ┌───────────┐      ┌──────────┐
+│▸│ Factory ││         │   ▸│ Heartbeat │─────▸│ Watchdog │
+││└─────────┘│         │   │└───────────┘      └──────────┘
+│└─────creates         │   │
+│┌────panics┼┘         │   │
+││┌────────┐│          │   │
+│▸│ Worker ││      beat│   │
+│ └────────┘───────────│───┘
+│                      │
+╰──────────────────────╯
+```
+
 ### CI/CD pipeline with edge styles
 
 ```mermaid
@@ -353,6 +426,18 @@ graph LR
     end
     T ==>|pass| D[Deploy]
     T -.->|skip| D
+```
+
+Rendered output:
+
+```
+╭─CI────────────────────────────────────╮
+│                                       │
+│ ┌──────┐      ┌───────┐      ┌──────┐ │   pass   ┌────────┐
+│ │ Lint │━━━━━▸│ Build │━━━━━▸│ Test │━│━━━skip━━▸│ Deploy │
+│ └──────┘      └───────┘      └──────┘┄│┄┄┄┄┄┄┄┄┄▸└────────┘
+│                                       │
+╰───────────────────────────────────────╯
 ```
 
 (Thick `==>` = critical path; dotted `-.->` = optional path.)
@@ -368,6 +453,48 @@ graph LR
     Worker --> DB
 ```
 
+Rendered output (default backend):
+
+```
+┌─────┐─────┐╭───────╮         ┌────────┐      ╭────────────╮
+│ App │────┐│├───────┤        ▸│ Worker │─────┐├────────────┤
+└─────┘───┐└▸│ Redis │        │└────────┘     ▸│ PostgreSQL │
+          │ │╰───────╯        │     ──────────▸╰────────────╯
+          │ └─────────────────┼─────┘
+          │                   │
+          │  ╭──────────╮     │
+          │  ├──────────┤     │
+          └─▸│ RabbitMQ │─────┘
+             ╰──────────╯
+```
+
+The default backend's longest-path layering collapses `Worker` into
+the same layer as `Cache`/`RabbitMQ`. Pass `--sugiyama` (or set
+`RenderOptions::backend = LayoutBackend::Sugiyama`) to opt into the
+[`ascii-dag`]-backed layout — proper crossing minimisation and
+long-edge dummy nodes give a cleaner four-layer result on this kind
+of dependency graph:
+
+```
+            ╭───────╮
+            ├───────┤
+          ┌▸│ Redis │
+          │ ╰───────╯
+          │                  ┌────────┐
+          │                 ▸│ Worker │───┐
+          │                 │└────────┘   │ ╭────────────╮
+┌─────┐───┼┐╭──────────╮    │             │ ├────────────┤
+│ App │───┘│├──────────┤    │             │▸│ PostgreSQL │
+└─────┘────▸│ RabbitMQ │────┘             └▸╰────────────╯
+           │╰──────────╯         ──────────┘
+           │                     │
+           │                     │
+           │                     │
+           └─────────────────────┘
+```
+
+[`ascii-dag`]: https://crates.io/crates/ascii-dag
+
 ### Sequence diagram (autonumber + activations + alt)
 
 ```mermaid
@@ -382,6 +509,32 @@ sequenceDiagram
         API->>U: fresh token
     end
     API-->>-U: 200 + session
+```
+
+Rendered output:
+
+```
+ ┌────────┐               ┌───────┐
+ │  User  │               │  API  │
+ └────────┘               └───────┘
+      ┆ [1] POST /login       ┃
+      ────────────────────────▸
+      ┆                       ┃
+╔═[alt]══[cache hit]═══════════════╗
+║     ┆ [2] cached token      ┃    ║
+║     ◂────────────────────────    ║
+║     ┆                       ┃    ║
+╠┄[cache miss]┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄╣
+║     ┆ [3] fresh token       ┃    ║
+║     ◂────────────────────────    ║
+║     ┆                       ┃    ║
+╚══════════════════════════════════╝
+      ┆ [4] 200 + session     ┃
+      ◂┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄
+      ┆                       ┆
+ ┌────────┐               ┌───────┐
+ │  User  │               │  API  │
+ └────────┘               └───────┘
 ```
 
 The four sequence-diagram polish features (autonumber, notes, activation
@@ -405,6 +558,19 @@ erDiagram
     }
 ```
 
+Rendered output:
+
+```
+                       places
+┌───────────────────┐          ┌───────────────────────────┐
+│     CUSTOMER      ┤1────────*├           ORDER           │
+├───────────────────┤          ├───────────────────────────┤
+│  string name      │          │  int    orderNumber   PK  │
+│  string email PK  │          │  date   orderDate         │
+└───────────────────┘          │  string customerEmail FK  │
+                               └───────────────────────────┘
+```
+
 Entity boxes render with aligned attribute tables (type / name /
 keys). Relationship endpoints carry single-character cardinality
 glyphs: `1` (exactly one), `?` (zero or one), `+` (one or many),
@@ -418,6 +584,16 @@ pie showData title Pet Counts
     "Dogs" : 386
     "Cats" : 85
     "Rats" : 15
+```
+
+Rendered output:
+
+```
+                                   Pet Counts
+
+Dogs  ███████████████████████████████████████████████░░░░░░░░░░░░   79.4%  (386)
+Cats  ██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   17.5%   (85)
+Rats  ██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    3.1%   (15)
 ```
 
 Bar columns auto-scale to the `--width` budget (default 80). Without

@@ -5,6 +5,38 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] - 2026-04-22
+
+### Added
+
+- **Untagged ` ``` ` fences whose first line declares a Mermaid
+  diagram now auto-render as Mermaid blocks** (instead of falling
+  through to plain code-block display). The detection is tight to
+  avoid false positives:
+  - `graph` / `flowchart` must be followed by an explicit direction
+    token (`TD`, `TB`, `BT`, `LR`, `RL`).
+  - Other declarations (`sequenceDiagram`, `stateDiagram-v2`,
+    `erDiagram`, `pie`, `gantt`, `journey`, `mindmap`, `timeline`,
+    `quadrantChart`, `classDiagram`, `gitGraph`, `requirement`,
+    `C4*`) must be the entire first line, with documented
+    exceptions for `pie title`, `pie showData`, `gantt dateFormat`.
+  - Plain code with a leading `graph = {}` or natural prose like
+    `"sequenceDiagram is great"` stays a code block.
+
+  Catches the common authoring mistake of writing ` ``` ` instead
+  of ` ```mermaid `, which silently broke rendering of two diagrams
+  in `mermaid-text`'s own README until 1.16.0. Both readme blocks
+  now also have explicit `mermaid` tags as belt-and-suspenders.
+
+### Changed
+
+- **`mermaid-text` README ships with rendered text-output blocks
+  below every Mermaid example.** The README now eats its own dog
+  food — every diagram source is followed by the text-mode output
+  `mermaid-text` produces, so the README reads correctly in any
+  viewer (GitHub, terminal, plain-text grep) regardless of whether
+  the viewer renders Mermaid.
+
 ## [1.15.1] - 2026-04-22
 
 ### Fixed
