@@ -19,18 +19,28 @@ _Nothing actively in progress._
 
 ## Next up (ordered roughly by ROI)
 
-### Sequence diagram polish — `mermaid-text`
+### Sequence diagram polish — `mermaid-text` (in progress)
 
-Wire up the four parser TODOs that currently silently skip:
-- `autonumber` directive — number messages 1, 2, 3, …
-- `note over X` / `note left of X` / `note right of X` — render note
-  boxes anchored to lifelines.
-- `activate X` / `deactivate X` — draw activation bars on lifelines
-  (vertical thick lines indicating active periods).
-- Block statements (`loop`, `alt`, `opt`, `par`, `critical`, `break`,
-  `rect`) — render labelled bracket boxes around groups of messages.
+Four parser TODOs to retire. **0.9.0 shipped autonumber** plus the
+foundation data model on `SequenceDiagram` for the rest. Remaining:
 
-Each piece is contained but the pile is ~2-3 days total.
+- **Notes** — `note left of X : text` / `note right of X : text` /
+  `note over X : text` / `note over X,Y : text`. Multi-line via
+  `<br>` (Mermaid's sequence parser has no `end note` form). Render
+  as rounded boxes anchored to participant columns. ~half day.
+- **Activation bars** — explicit `activate X` / `deactivate X` plus
+  inline `A->>+B` / `A-->>-B` shorthand. Stack-based parser pairing.
+  Renderer overlays `┃` on lifelines between the activate and
+  deactivate rows. ~half day.
+- **Block statements** — `loop` / `alt`/`else` / `opt` / `par`/`and`
+  / `critical`/`option` / `break`. Stack-based parser tracking with
+  matched continuation keywords. Renderer draws labelled brackets
+  spanning the inner messages' participant columns. ~1 day, the
+  trickiest piece.
+
+Defer `rect <colour>` background highlight blocks (Mermaid's
+grammar can't express hex colours and ANSI bg-tinting fights the
+rest of the layered colour system).
 
 ---
 
@@ -152,6 +162,12 @@ defer until someone files a real use case.
 
 ## Done since 1.7.1 (recent history — see CHANGELOGs for detail)
 
+- **0.9.0**: sequence-diagram `autonumber` directive (bare,
+  `autonumber N`, `autonumber off`, mid-diagram re-base). New
+  foundation types on `SequenceDiagram` (`notes`, `activations`,
+  `blocks`, `autonumber_changes`) ready for the upcoming 0.9.x
+  releases. Lifted `strip_keyword_prefix` into `parser/common.rs`
+  to retire a duplicate.
 - **0.8.1**: notes anchored to states (`note left|right|over of X`,
   single + multi-line). Each note synthesises a `NodeShape::Note`
   connected by a dotted, no-arrow edge. Also fixed a latent bug in

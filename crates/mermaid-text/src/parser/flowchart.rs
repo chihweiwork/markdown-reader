@@ -1196,7 +1196,7 @@ mod tests {
             g.node_styles.get("B").and_then(|s| s.fill),
             Some(Rgb(0x22, 0x33, 0x44))
         );
-        assert!(g.node_styles.get("C").is_none(), "C wasn't in `class` list");
+        assert!(!g.node_styles.contains_key("C"), "C wasn't in `class` list");
     }
 
     #[test]
@@ -1242,7 +1242,7 @@ classDef overlay stroke:#999,color:#fff";
         // best-effort semantics: no error, no application.
         let src = "graph LR\nA-->B\nclass A undefined";
         let g = parse(src).unwrap();
-        assert!(g.node_styles.get("A").is_none());
+        assert!(!g.node_styles.contains_key("A"));
     }
 
     #[test]

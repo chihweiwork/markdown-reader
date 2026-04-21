@@ -5,6 +5,20 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.0] - 2026-04-20
+
+### Added
+
+- **`autonumber` directive in mermaid sequence diagrams** (via
+  `mermaid-text` 0.9.0). API call sequences in markdown files now
+  show `[1]`, `[2]`, `[3]` … prefixes when the source has
+  `autonumber`. Mid-diagram re-base (`autonumber 100`) and pause
+  (`autonumber off`) both honoured. Free upgrade — no
+  markdown-reader code changes.
+- Foundation data model for the rest of sequence-diagram polish
+  (notes, activation bars, block brackets); those features land
+  in subsequent `mermaid-text` 0.9.x releases.
+
 ## [1.10.1] - 2026-04-20
 
 ### Added

@@ -32,7 +32,7 @@ use crate::{
     parser::common::{
         NoteSide, apply_pending_classes, extract_class_modifier, matches_keyword,
         parse_class_def_directive, parse_class_directive, parse_link_style_directive,
-        parse_note_anchor, parse_style_directive, strip_inline_comment,
+        parse_note_anchor, parse_style_directive, strip_inline_comment, strip_keyword_prefix,
     },
     types::{BarOrientation, Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape, Subgraph},
 };
@@ -887,20 +887,6 @@ fn parse_composite_header(body: &str, lineno: usize) -> Result<(String, String),
     Ok((id, label))
 }
 
-fn strip_keyword_prefix<'a>(s: &'a str, kw: &str) -> Option<&'a str> {
-    let lower = s.to_lowercase();
-    let lower_kw = kw.to_lowercase();
-    if lower.starts_with(&lower_kw) {
-        let rest = &s[kw.len()..];
-        if rest.starts_with(char::is_whitespace) {
-            Some(rest.trim_start())
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -1194,7 +1180,7 @@ class Active accent";
             g.subgraph_styles.get("Active").and_then(|s| s.stroke),
             Some(crate::types::Rgb(0xaa, 0xbb, 0xcc))
         );
-        assert!(g.node_styles.get("Active").is_none());
+        assert!(!g.node_styles.contains_key("Active"));
     }
 
     #[test]

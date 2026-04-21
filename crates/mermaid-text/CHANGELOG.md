@@ -3,6 +3,55 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.9.0 — 2026-04-20
+
+### Added
+
+- **Sequence-diagram `autonumber` directive.** Forms supported:
+  bare `autonumber` (start at 1), `autonumber <N>` (start at N),
+  and `autonumber off` (halt numbering mid-diagram). Multiple
+  directives in one diagram re-base or toggle. The renderer
+  prefixes message labels with `[N] ` when numbering is active —
+  `[1] POST /order`, `[2] 201 Created`, etc. Notes and block
+  markers do not increment the counter (matches Mermaid).
+- **Foundation data model for sequence-diagram polish.** New
+  public types on `SequenceDiagram`:
+  `notes: Vec<NoteEvent>`, `activations: Vec<Activation>`,
+  `blocks: Vec<Block>`, `autonumber_changes: Vec<AutonumberChange>`,
+  plus their associated enums (`NoteAnchor`, `BlockKind`,
+  `BlockBranch`, `AutonumberState`). Only `autonumber_changes` is
+  populated in 0.9.0; the others are wired in subsequent 0.9.x
+  releases (notes, activations, block brackets — see ROADMAP for
+  the planned ordering).
+- **Snapshot tests for sequence diagrams** (the first such tests
+  in the project). `sequence_minimal` establishes the baseline;
+  `sequence_with_autonumber` verifies prefixes; an additional
+  test covers the off/re-base flow.
+
+### Changed
+
+- **Lifted `strip_keyword_prefix` into `parser/common.rs`.** The
+  sequence and state parsers had drifted-but-equivalent copies;
+  the canonical version uses the ASCII-fast path
+  (`eq_ignore_ascii_case`) rather than allocating via
+  `to_lowercase()`. No behavioural difference for ASCII keywords.
+- **Sequence parser now uses shared `strip_inline_comment`** so
+  inline `%% comment` after a directive is properly stripped (the
+  prior naive `starts_with("%%")` check missed inline cases).
+
+### Notes
+
+- This is the first of several sequence-diagram polish releases.
+  Order per ROADMAP: 0.9.0 = autonumber + foundation; subsequent
+  0.9.x = notes, activation bars, block brackets. Each lands as
+  soon as it's stable.
+- Adding fields to `pub` `SequenceDiagram` is mildly
+  source-breaking for external consumers that use struct-literal
+  construction. The only known consumer (`markdown-tui-explorer`)
+  goes through `SequenceDiagram::default()` and is unaffected.
+  If you see a "missing field" error after upgrading, switch to
+  `SequenceDiagram::default()` and mutate.
+
 ## 0.8.1 — 2026-04-20
 
 ### Added

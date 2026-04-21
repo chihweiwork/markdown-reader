@@ -28,6 +28,28 @@ pub(crate) fn strip_inline_comment(line: &str) -> &str {
     line
 }
 
+/// Strip a case-insensitive keyword prefix that is followed by at least
+/// one whitespace character. Returns the trimmed remainder, or `None`
+/// if the prefix doesn't match or there's no whitespace after it.
+///
+/// Used in both the sequence and state parsers for `participant <Id>`,
+/// `actor <Id>`, `as <Id>`, `note left of <Id>`, etc. Lifted into
+/// `common` in 0.9.0 to eliminate the duplicate definitions that had
+/// drifted slightly (the sequence version used `eq_ignore_ascii_case`,
+/// the state version did `to_lowercase().starts_with` which allocates
+/// per call). This canonical implementation is the ASCII-fast one.
+pub(crate) fn strip_keyword_prefix<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
+    let len = keyword.len();
+    if line.len() > len
+        && line[..len].eq_ignore_ascii_case(keyword)
+        && line.as_bytes()[len].is_ascii_whitespace()
+    {
+        Some(line[len..].trim())
+    } else {
+        None
+    }
+}
+
 /// Returns true if `stmt` starts with `keyword` followed by whitespace,
 /// a colon, or end-of-string. Used by the silent-skip dispatch in both
 /// parsers to recognise directives like `accTitle:` / `classDef foo`.
@@ -345,6 +367,16 @@ mod tests {
             strip_inline_comment(r#"state "A %% B" as X"#),
             r#"state "A %% B" as X"#
         );
+    }
+
+    #[test]
+    fn strip_keyword_prefix_basic() {
+        assert_eq!(strip_keyword_prefix("note left of A", "note"), Some("left of A"));
+        assert_eq!(strip_keyword_prefix("Note left of A", "note"), Some("left of A"));
+        assert_eq!(strip_keyword_prefix("note", "note"), None); // no whitespace after
+        assert_eq!(strip_keyword_prefix("notes", "note"), None); // not whitespace
+        assert_eq!(strip_keyword_prefix("class A foo", "class"), Some("A foo"));
+        assert_eq!(strip_keyword_prefix("", "note"), None);
     }
 
     #[test]

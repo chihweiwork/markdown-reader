@@ -18,7 +18,10 @@
 //! ```
 
 use crate::Error;
-use crate::sequence::{Message, MessageStyle, Participant, SequenceDiagram};
+use crate::parser::common::{strip_inline_comment, strip_keyword_prefix};
+use crate::sequence::{
+    AutonumberChange, AutonumberState, Message, MessageStyle, Participant, SequenceDiagram,
+};
 
 // ---------------------------------------------------------------------------
 // Arrow token table — ordered longest-first so the greediest match wins.
@@ -58,10 +61,13 @@ pub fn parse(src: &str) -> Result<SequenceDiagram, Error> {
     let mut diag = SequenceDiagram::default();
 
     for raw in src.lines() {
-        let line = raw.trim();
+        // Strip inline `%% comment` (outside quoted strings) before
+        // trimming. The shared helper handles the in-quote case the
+        // naive `starts_with("%%")` check used to miss.
+        let line = strip_inline_comment(raw).trim();
 
-        // Skip blank lines and comments.
-        if line.is_empty() || line.starts_with("%%") {
+        // Skip blank lines and full-line comments.
+        if line.is_empty() {
             continue;
         }
 
@@ -70,8 +76,33 @@ pub fn parse(src: &str) -> Result<SequenceDiagram, Error> {
             continue;
         }
 
-        // TODO: `autonumber` directive — not implemented in MVP.
+        // `autonumber` directive — supported forms:
+        //   - bare `autonumber`: numbering on, start at 1
+        //   - `autonumber <N>`: numbering on, start at N
+        //   - `autonumber off`: numbering off (mid-diagram allowed)
+        // Multiple directives in one diagram are honoured (re-base or
+        // toggle off/on at any point). Decimal start values and the
+        // `<start> <step>` form are deferred (see ROADMAP).
         if line.eq_ignore_ascii_case("autonumber") {
+            diag.autonumber_changes.push(AutonumberChange {
+                at_message: diag.messages.len(),
+                state: AutonumberState::On { next_value: 1 },
+            });
+            continue;
+        }
+        if let Some(rest) = strip_keyword_prefix(line, "autonumber") {
+            let state = if rest.eq_ignore_ascii_case("off") {
+                AutonumberState::Off
+            } else {
+                let start: u32 = rest.split_whitespace().next()
+                    .and_then(|s| s.parse().ok())
+                    .unwrap_or(1);
+                AutonumberState::On { next_value: start }
+            };
+            diag.autonumber_changes.push(AutonumberChange {
+                at_message: diag.messages.len(),
+                state,
+            });
             continue;
         }
 
@@ -146,20 +177,6 @@ pub fn parse(src: &str) -> Result<SequenceDiagram, Error> {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Strip a case-insensitive keyword prefix followed by at least one space.
-/// Returns the trimmed remainder, or `None` if the prefix does not match.
-fn strip_keyword_prefix<'a>(line: &'a str, keyword: &str) -> Option<&'a str> {
-    let len = keyword.len();
-    if line.len() > len
-        && line[..len].eq_ignore_ascii_case(keyword)
-        && line.as_bytes()[len].is_ascii_whitespace()
-    {
-        Some(line[len..].trim())
-    } else {
-        None
-    }
-}
 
 /// Parse the part of a participant/actor declaration that follows the keyword.
 ///
@@ -332,6 +349,47 @@ mod tests {
             "expected 7 messages, got {}: {:?}",
             diag.messages.len(),
             diag.messages.iter().map(|m| &m.text).collect::<Vec<_>>()
+        );
+    }
+
+    // ---- autonumber (0.9.0) ------------------------------------------
+
+    #[test]
+    fn parse_autonumber_bare_enables_at_start_one() {
+        let diag = parse("sequenceDiagram\nautonumber\nA->>B: hi").unwrap();
+        assert_eq!(diag.autonumber_changes.len(), 1);
+        assert_eq!(diag.autonumber_changes[0].at_message, 0);
+        assert_eq!(
+            diag.autonumber_changes[0].state,
+            AutonumberState::On { next_value: 1 }
+        );
+    }
+
+    #[test]
+    fn parse_autonumber_with_start_value() {
+        let diag = parse("sequenceDiagram\nautonumber 5\nA->>B: hi").unwrap();
+        assert_eq!(
+            diag.autonumber_changes[0].state,
+            AutonumberState::On { next_value: 5 }
+        );
+    }
+
+    #[test]
+    fn parse_autonumber_off() {
+        let diag = parse("sequenceDiagram\nautonumber\nA->>B: hi\nautonumber off\nB->>A: bye")
+            .unwrap();
+        assert_eq!(diag.autonumber_changes.len(), 2);
+        assert_eq!(diag.autonumber_changes[1].at_message, 1);
+        assert_eq!(diag.autonumber_changes[1].state, AutonumberState::Off);
+    }
+
+    #[test]
+    fn parse_autonumber_mid_diagram_rebase() {
+        let diag = parse("sequenceDiagram\nA->>B: a\nautonumber 100\nB->>A: b").unwrap();
+        assert_eq!(diag.autonumber_changes[0].at_message, 1);
+        assert_eq!(
+            diag.autonumber_changes[0].state,
+            AutonumberState::On { next_value: 100 }
         );
     }
 }

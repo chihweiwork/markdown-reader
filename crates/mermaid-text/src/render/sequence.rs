@@ -24,7 +24,7 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::sequence::{MessageStyle, SequenceDiagram};
+use crate::sequence::{AutonumberState, MessageStyle, SequenceDiagram};
 
 // ---------------------------------------------------------------------------
 // Layout constants (mirroring termaid's naming conventions)
@@ -453,7 +453,37 @@ pub fn render(diag: &SequenceDiagram) -> String {
     // top leg and a bottom leg — placing the next message's label on
     // `row+1` would overlap the self-loop's bottom leg.
     let mut arrow_row = BOX_HEIGHT + 1;
-    for msg in &diag.messages {
+    let mut autonumber = AutonumberState::Off;
+    let mut autonumber_cursor = 0usize;
+    for (msg_idx, msg) in diag.messages.iter().enumerate() {
+        // Apply any autonumber state changes whose `at_message` index
+        // is now reached. Multiple changes at the same index land in
+        // source order; the last wins.
+        while autonumber_cursor < diag.autonumber_changes.len()
+            && diag.autonumber_changes[autonumber_cursor].at_message <= msg_idx
+        {
+            autonumber = diag.autonumber_changes[autonumber_cursor].state;
+            autonumber_cursor += 1;
+        }
+
+        // Prefix the label with `[N] ` when autonumber is active.
+        // Bumps `next_value` after each numbered message.
+        let label_owned;
+        let label: &str = match autonumber {
+            AutonumberState::On { next_value } => {
+                label_owned = if msg.text.is_empty() {
+                    format!("[{next_value}]")
+                } else {
+                    format!("[{next_value}] {}", msg.text)
+                };
+                autonumber = AutonumberState::On {
+                    next_value: next_value + 1,
+                };
+                &label_owned
+            }
+            AutonumberState::Off => &msg.text,
+        };
+
         let Some(si) = diag.participant_index(&msg.from) else {
             continue;
         };
@@ -466,7 +496,7 @@ pub fn render(diag: &SequenceDiagram) -> String {
                 &mut canvas,
                 layouts[si].center,
                 arrow_row,
-                &msg.text,
+                label,
                 msg.style,
             );
             arrow_row += SELF_MSG_ROW_H;
@@ -476,7 +506,7 @@ pub fn render(diag: &SequenceDiagram) -> String {
                 layouts[si].center,
                 layouts[ti].center,
                 arrow_row,
-                &msg.text,
+                label,
                 msg.style,
             );
             arrow_row += EVENT_ROW_H;

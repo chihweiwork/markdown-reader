@@ -606,3 +606,53 @@ fn color_plus_ascii_composes() {
     };
     assert!(stripped.is_ascii(), "post-strip output is pure ASCII");
 }
+
+// ---------------------------------------------------------------------------
+// Sequence diagrams — first snapshots in the project (none existed before
+// 0.9.0). Establishes the regression baseline for the sequence renderer.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn sequence_minimal() {
+    let src = "sequenceDiagram\nA->>B: hello\nB-->>A: hi back";
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("sequence_minimal", out);
+}
+
+#[test]
+fn sequence_with_autonumber() {
+    let src = "sequenceDiagram
+autonumber
+participant U as User
+participant API
+U->>API: POST /order
+API->>U: 201 Created
+U->>API: GET /order/123
+API->>U: 200 OK";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(
+        out.contains("[1] POST /order") && out.contains("[4] 200 OK"),
+        "autonumber prefixes must appear in label text"
+    );
+    assert_snapshot!("sequence_with_autonumber", out);
+}
+
+#[test]
+fn sequence_autonumber_off_then_on_rebases() {
+    // Mermaid: `autonumber off` halts numbering; a subsequent
+    // `autonumber 100` re-bases. Verify the renderer follows the
+    // active state at each message position.
+    let src = "sequenceDiagram
+autonumber
+A->>B: one
+B->>A: two
+autonumber off
+A->>B: silent
+autonumber 100
+A->>B: hundred";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("[1] one"));
+    assert!(out.contains("[2] two"));
+    assert!(out.contains("silent") && !out.contains("[3] silent"));
+    assert!(out.contains("[100] hundred"));
+}
