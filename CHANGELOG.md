@@ -5,6 +5,18 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.1] - 2026-04-22
+
+### Changed
+
+- **Crossing-minimisation hardening** in flowchart and state
+  diagrams (via `mermaid-text` 0.10.1). Adds median + transpose
+  passes alongside the existing barycenter sweep — no visible
+  change on the current gallery (barycenter alone was already
+  optimal on these diagrams) but produces tighter layouts on
+  pathologically dense graphs that older code would settle into
+  sub-optimal local minima. Free upgrade.
+
 ## [1.12.0] - 2026-04-22
 
 ### Changed

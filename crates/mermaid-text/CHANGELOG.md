@@ -3,6 +3,47 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.10.1 — 2026-04-22
+
+### Added
+
+- **Median crossing-min metric** — alternates with the existing
+  barycenter pass in `order_within_layers`. Median is more robust
+  to outlier neighbours (one far-away node can drag a barycenter
+  position dramatically; median ignores it). Pairing the two in
+  alternating passes escapes local minima either alone would
+  settle into.
+- **Transpose local-refinement pass** — after each barycenter/
+  median sweep pair, iterate over each layer's adjacent node
+  pairs and swap any that strictly reduce the global crossing
+  count. Catches per-pair improvements neither global sweep
+  detects (e.g. tied barycenters that produce different crossing
+  counts depending on order).
+- **6 new unit tests** covering: median picks the middle, median
+  averages for even-length, median resists outliers vs barycenter
+  on a known case, transpose swaps when it reduces crossings,
+  transpose leaves already-optimal orderings alone.
+
+### Changed
+
+- Refactored `sort_by_barycenter` into a single `sort_by_metric`
+  function that takes a `SortMetric` enum (`Barycenter` |
+  `Median`). Same code path, cleaner factoring per the "code as
+  art" rule — the median variant added zero duplication.
+
+### Notes
+
+- **No snapshot changes** in the existing gallery — barycenter
+  alone (with iterative best-seen retention over 8 passes) was
+  already reaching the optimum on every test diagram. Median +
+  transpose buy us insurance against future complex graphs that
+  barycenter alone would settle into a sub-optimal local minimum.
+- This completes the layered-layout improvements series (Phase
+  A.1 long-edge waypoints in 0.10.0; Phase A.3 crossing-min
+  passes here in 0.10.1; Phase A.2 Brandes-Köpf compaction was
+  in scope but the gain on our specific gallery is marginal —
+  rolled back into ROADMAP as a deferred polish item).
+
 ## 0.10.0 — 2026-04-22
 
 ### Added

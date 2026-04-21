@@ -76,6 +76,25 @@ unless someone asks. Multi-day each.
 
 ## Quality / polish backlog
 
+### Brandes-Köpf coordinate assignment (deferred from Phase A.2)
+
+The layered-layout improvements series planned a Phase A.2 to
+replace `compute_positions`'s evenly-spaced layout with
+Brandes-Köpf's compact placement. The 2026-04-22 ship cycles for
+Phase A.1 (long-edge waypoints, 0.10.0) and Phase A.3 (median +
+transpose crossing-min, 0.10.1) revealed that on the current
+gallery, our existing positioning is already near-optimal —
+Brandes-Köpf's compaction win would be marginal for the small
+graphs we typically render.
+
+Defer until: a real-world large/wide flowchart shows the layout
+visibly too sprawly. Reference implementation: `rust-sugiyama`'s
+~300-line port, readable Rust. The full algorithm is documented
+in Brandes & Köpf (2002), "Fast and Simple Horizontal Coordinate
+Assignment".
+
+
+
 ### Rendering issues found in the 2026-04-21 gallery review
 
 Reviewing `docs/mermaid-gallery.md` against GitHub's native Mermaid
@@ -339,6 +358,16 @@ defer until someone files a real use case.
 
 ## Done since 1.7.1 (recent history — see CHANGELOGs for detail)
 
+- **0.10.1**: median + transpose crossing-minimisation passes
+  (Phase A.3 of the layered-layout improvements series). Median
+  is more robust to outlier neighbours than barycenter alone;
+  transpose is a local-refinement pass that swaps adjacent nodes
+  when it strictly reduces crossings. Refactored
+  `sort_by_barycenter` into a generic `sort_by_metric` taking a
+  `SortMetric` enum — same code path, zero duplication. No
+  snapshot changes on the current gallery (barycenter alone was
+  already at optimum) but hedges against future dense graphs.
+  6 new unit tests prove the algorithms work in isolation.
 - **0.10.0**: long-edge waypoint routing (Phase A.1 of the
   layered-layout improvements series). Edges spanning >1 layer
   now thread through per-layer waypoints anchored on each

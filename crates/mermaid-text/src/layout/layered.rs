@@ -583,9 +583,12 @@ fn order_within_layers(
     // latter during sweep passes.
     let node_layer: HashMap<&str, usize> = layers.iter().map(|(id, &l)| (id.as_str(), l)).collect();
 
-    // Iterative refinement. Termaid's implementation caps at 8 passes with
-    // early termination after 4 non-improving passes; the same constants
-    // work well here.
+    // Iterative refinement: alternate barycenter and median sweeps,
+    // then a transpose local-refinement pass. Pairing barycenter +
+    // median escapes local minima either alone would settle into;
+    // transpose mops up adjacent-pair improvements neither sweep
+    // catches. Best-seen retention guarantees we never ship a worse
+    // ordering than what we found mid-loop.
     const MAX_PASSES: usize = 8;
     const NO_IMPROVEMENT_CAP: usize = 4;
 
@@ -593,9 +596,17 @@ fn order_within_layers(
     let mut best_crossings = count_crossings(edges, &node_layer, &best);
     let mut no_improvement = 0usize;
 
-    for _ in 0..MAX_PASSES {
-        sort_by_barycenter(&mut buckets, &predecessors, SweepDirection::Forward);
-        sort_by_barycenter(&mut buckets, &successors, SweepDirection::Backward);
+    // Alternate the metric per outer iteration so consecutive passes
+    // sample both heuristics' search trajectories.
+    let metrics = [SortMetric::Barycenter, SortMetric::Median];
+
+    for pass in 0..MAX_PASSES {
+        let metric = metrics[pass % metrics.len()];
+        sort_by_metric(&mut buckets, &predecessors, SweepDirection::Forward, metric);
+        sort_by_metric(&mut buckets, &successors, SweepDirection::Backward, metric);
+        // Transpose runs after each sweep pair — cheaper than another
+        // global sweep and tends to fix the last 1–2 local crossings.
+        transpose_pass(&mut buckets, edges, &node_layer);
 
         let c = count_crossings(edges, &node_layer, &buckets);
         if c < best_crossings {
@@ -700,16 +711,38 @@ enum SweepDirection {
     Backward,
 }
 
-/// Sort each layer in `buckets` by the barycenter of its neighbors in the
-/// adjacent layer, as selected by `dir`.
+/// Sort metric used by [`sort_by_metric`] to pick each node's position
+/// from its neighbour positions.
 ///
-/// `neighbors` maps each node to its predecessors (for Forward) or successors
-/// (for Backward). Nodes without neighbors keep their current position via a
-/// stable sort — this prevents the heuristic from shuffling isolated nodes.
-fn sort_by_barycenter(
+/// **Barycenter**: arithmetic mean. Smooth, fast, but skewed by
+/// outliers (one far-away neighbour can drag the position).
+///
+/// **Median**: middle value of sorted neighbours (or average of the
+/// two middle values for even counts). More robust to outliers; in
+/// practice often beats barycenter on crossing count, especially on
+/// dense graphs where some nodes have many far-flung neighbours.
+///
+/// We run both passes alternately in [`order_within_layers`] and keep
+/// the best-seen ordering — pairing them tends to escape local minima
+/// that either metric alone would settle into.
+#[derive(Copy, Clone)]
+enum SortMetric {
+    Barycenter,
+    Median,
+}
+
+/// Sort each layer in `buckets` by `metric` applied to each node's
+/// neighbours in the adjacent layer (predecessors for `Forward`,
+/// successors for `Backward`).
+///
+/// Nodes without neighbours keep their current position via a stable
+/// sort — this prevents the heuristic from shuffling isolated nodes
+/// to position 0.
+fn sort_by_metric(
     buckets: &mut [Vec<String>],
     neighbors: &HashMap<&str, Vec<&str>>,
     dir: SweepDirection,
+    metric: SortMetric,
 ) {
     let num_layers = buckets.len();
     if num_layers < 2 {
@@ -733,30 +766,103 @@ fn sort_by_barycenter(
             .map(|(i, id)| (id.as_str(), i as f64))
             .collect();
 
-        // Pair each node with its current position, so nodes with no neighbors
-        // can fall back to it (preserves stability and prevents isolated nodes
-        // from drifting to 0).
         let mut keyed: Vec<(String, f64)> = buckets[l]
             .iter()
             .enumerate()
             .map(|(i, id)| {
-                let neigh = neighbors.get(id.as_str()).cloned().unwrap_or_default();
-                let bc = if neigh.is_empty() {
+                let mut positions: Vec<f64> = neighbors
+                    .get(id.as_str())
+                    .map(|ns| {
+                        ns.iter()
+                            .map(|n| ref_positions.get(n).copied().unwrap_or(i as f64))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let key = if positions.is_empty() {
+                    // Fallback to current position so isolated nodes
+                    // don't drift to 0.
                     i as f64
                 } else {
-                    let sum: f64 = neigh
-                        .iter()
-                        .map(|n| ref_positions.get(n).copied().unwrap_or(i as f64))
-                        .sum();
-                    sum / neigh.len() as f64
+                    match metric {
+                        SortMetric::Barycenter => {
+                            let sum: f64 = positions.iter().sum();
+                            sum / positions.len() as f64
+                        }
+                        SortMetric::Median => median_of_sorted({
+                            positions.sort_by(|a, b| {
+                                a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+                            });
+                            &positions
+                        }),
+                    }
                 };
-                (id.clone(), bc)
+                (id.clone(), key)
             })
             .collect();
 
         keyed.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         buckets[l] = keyed.into_iter().map(|(id, _)| id).collect();
     }
+}
+
+/// Median of a slice that's already sorted in ascending order. Returns
+/// `0.0` for an empty slice (the caller filters that case out before
+/// calling). For even-length slices, averages the two middle values
+/// per the standard definition.
+fn median_of_sorted(sorted: &[f64]) -> f64 {
+    debug_assert!(!sorted.is_empty(), "median of empty slice is undefined");
+    let n = sorted.len();
+    if n % 2 == 0 {
+        (sorted[n / 2 - 1] + sorted[n / 2]) / 2.0
+    } else {
+        sorted[n / 2]
+    }
+}
+
+/// Local-refinement pass: for each pair of adjacent nodes within each
+/// layer, try swapping them; keep the swap if it strictly reduces the
+/// total crossing count. Repeats per-layer until no swap improves.
+///
+/// This catches local minima that the global barycenter/median sweeps
+/// settle into — e.g. two nodes whose individual barycenters tie but
+/// where one ordering produces fewer crossings than the other.
+///
+/// Returns `true` if any swap was kept (lets the outer loop know
+/// progress was made).
+fn transpose_pass(
+    buckets: &mut [Vec<String>],
+    edges: &[(String, String)],
+    node_layer: &HashMap<&str, usize>,
+) -> bool {
+    let mut any_improved = false;
+    let mut current_crossings = count_crossings(edges, node_layer, buckets);
+
+    let mut improved_this_pass = true;
+    let mut passes_remaining = 4usize; // bound — typically converges in 1–2
+    while improved_this_pass && passes_remaining > 0 {
+        improved_this_pass = false;
+        passes_remaining -= 1;
+
+        for layer_idx in 0..buckets.len() {
+            let layer_len = buckets[layer_idx].len();
+            if layer_len < 2 {
+                continue;
+            }
+            for i in 0..(layer_len - 1) {
+                buckets[layer_idx].swap(i, i + 1);
+                let after = count_crossings(edges, node_layer, buckets);
+                if after < current_crossings {
+                    current_crossings = after;
+                    any_improved = true;
+                    improved_this_pass = true;
+                } else {
+                    // Revert the swap.
+                    buckets[layer_idx].swap(i, i + 1);
+                }
+            }
+        }
+    }
+    any_improved
 }
 
 /// Count the number of edge crossings implied by the given layer ordering.
@@ -1341,5 +1447,86 @@ mod tests {
     fn nearest_clear_handles_consecutive_ranges() {
         // Two adjacent ranges: target snaps into the gap.
         assert_eq!(nearest_clear(1, &[(0, 2), (4, 6)]), 3);
+    }
+
+    // ---- Median + transpose crossing-min passes (Phase A.3) ------------
+
+    #[test]
+    fn median_of_sorted_picks_middle() {
+        assert_eq!(median_of_sorted(&[1.0, 2.0, 3.0]), 2.0);
+        assert_eq!(median_of_sorted(&[5.0]), 5.0);
+    }
+
+    #[test]
+    fn median_of_sorted_averages_two_middle_for_even_length() {
+        assert_eq!(median_of_sorted(&[1.0, 2.0, 3.0, 4.0]), 2.5);
+        assert_eq!(median_of_sorted(&[1.0, 1.0, 5.0, 5.0]), 3.0);
+    }
+
+    #[test]
+    fn median_resists_outliers_better_than_barycenter() {
+        // Demonstrates the algorithmic difference: a single far-out
+        // neighbour shifts barycenter dramatically but doesn't move
+        // the median. This is the property median exploits to escape
+        // crossings barycenter can't.
+        let xs = [0.0, 1.0, 2.0, 100.0]; // one wild outlier
+        let median = median_of_sorted(&xs);
+        let barycenter: f64 = xs.iter().sum::<f64>() / xs.len() as f64;
+        assert!((median - 1.5).abs() < 0.01); // tight on the cluster
+        assert!(barycenter > 25.0); // dragged way out by the outlier
+    }
+
+    #[test]
+    fn transpose_swaps_when_it_reduces_crossings() {
+        // Construct a deliberate crossing: edges A→C and B→D with
+        // layer 0 = [A, B] and layer 1 = [D, C]. EITHER swapping
+        // layer 0 to [B, A] OR layer 1 to [C, D] eliminates the
+        // crossing — verify by outcome (zero crossings), not by
+        // which specific swap won.
+        let mut buckets = vec![
+            vec!["A".to_string(), "B".to_string()],
+            vec!["D".to_string(), "C".to_string()],
+        ];
+        let edges = vec![
+            ("A".to_string(), "C".to_string()),
+            ("B".to_string(), "D".to_string()),
+        ];
+        let mut node_layer: HashMap<&str, usize> = HashMap::new();
+        node_layer.insert("A", 0);
+        node_layer.insert("B", 0);
+        node_layer.insert("C", 1);
+        node_layer.insert("D", 1);
+
+        let before = count_crossings(&edges, &node_layer, &buckets);
+        assert_eq!(before, 1, "scenario should start with 1 crossing");
+
+        let improved = transpose_pass(&mut buckets, &edges, &node_layer);
+        let after = count_crossings(&edges, &node_layer, &buckets);
+
+        assert!(improved, "transpose should report improvement");
+        assert_eq!(after, 0, "crossing should be eliminated by the swap");
+    }
+
+    #[test]
+    fn transpose_leaves_already_optimal_orderings_alone() {
+        // [A, B] → [C, D] with edges A→C, B→D has no crossings.
+        // Transpose should not swap.
+        let mut buckets = vec![
+            vec!["A".to_string(), "B".to_string()],
+            vec!["C".to_string(), "D".to_string()],
+        ];
+        let edges = vec![
+            ("A".to_string(), "C".to_string()),
+            ("B".to_string(), "D".to_string()),
+        ];
+        let mut node_layer: HashMap<&str, usize> = HashMap::new();
+        node_layer.insert("A", 0);
+        node_layer.insert("B", 0);
+        node_layer.insert("C", 1);
+        node_layer.insert("D", 1);
+
+        let improved = transpose_pass(&mut buckets, &edges, &node_layer);
+        assert!(!improved, "no swap should be reported when already optimal");
+        assert_eq!(buckets[1], vec!["C".to_string(), "D".to_string()]);
     }
 }
