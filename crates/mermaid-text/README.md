@@ -8,13 +8,14 @@ Unicode box-drawing text — no browser, no image protocol, pure Rust.
 
 ## Demo
 
-**Input**
+**Input** (Mermaid source — kept as text on purpose so this side
+shows the literal input, not a second rendering):
 
-```
+```text
 graph LR; A[Build] --> B[Test] --> C[Deploy]
 ```
 
-**Output**
+**Output**:
 
 ```
 ┌───────┐      ┌──────┐      ┌────────┐

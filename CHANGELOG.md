@@ -5,6 +5,18 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.2] - 2026-04-22
+
+### Fixed
+
+- **`mermaid-text` README's "Demo" Input/Output section no longer
+  double-renders the same diagram.** 1.16.0's auto-detect was
+  catching the Input block (`graph LR; A → B → C → D`) and
+  rendering it as Mermaid even though it was meant to display the
+  literal source. Tagged the Input as ` ```text ` so it stays raw,
+  paired with the existing Output block that shows the rendered
+  result.
+
 ## [1.16.1] - 2026-04-22
 
 ### Removed
