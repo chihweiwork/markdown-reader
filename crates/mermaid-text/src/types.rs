@@ -726,4 +726,160 @@ impl Graph {
         }
         result
     }
+
+    /// Group edge indices by their unordered endpoint pair, returning
+    /// only the groups containing more than one edge.
+    ///
+    /// Two edges are "parallel" iff they share the same unordered
+    /// `(from, to)` endpoints — so `F → W` and `W → F` belong to the
+    /// same group, as do `T ==>|pass| D` and `T -.->|skip| D`.
+    /// Self-loops (`A → A`) are kept as singleton groups; they're
+    /// included in the output only when an entity has multiple
+    /// self-loops, which is rare but possible.
+    ///
+    /// Used by the renderer's parallel-channel allocation pass
+    /// (Phase 2 of the layout-pass widening work — see
+    /// `docs/scope-parallel-edges.md`) to give each edge in a group
+    /// its own row (LR) or column (TD) so labels stack cleanly
+    /// instead of competing for one inter-layer cell.
+    ///
+    /// Returns `Vec<Vec<usize>>` where each inner Vec contains edge
+    /// indices in source order (edges at lower index render first).
+    /// Each inner Vec has length ≥ 2; non-parallel edges are absent
+    /// from the output entirely.
+    pub fn parallel_edge_groups(&self) -> Vec<Vec<usize>> {
+        // Bucket edges by their unordered endpoint pair.
+        let mut groups: std::collections::BTreeMap<(String, String), Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for (idx, edge) in self.edges.iter().enumerate() {
+            let key = if edge.from <= edge.to {
+                (edge.from.clone(), edge.to.clone())
+            } else {
+                (edge.to.clone(), edge.from.clone())
+            };
+            groups.entry(key).or_default().push(idx);
+        }
+        // Filter to actual parallel groups (≥2 edges) and return in
+        // a stable order (source order of the lowest-index edge per
+        // group) so downstream consumers see deterministic output.
+        let mut out: Vec<Vec<usize>> = groups
+            .into_values()
+            .filter(|indices| indices.len() >= 2)
+            .collect();
+        out.sort_by_key(|g| g[0]);
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rect(id: &str) -> Node {
+        Node::new(id, id, NodeShape::Rectangle)
+    }
+
+    fn graph_with_edges(edges: &[(&str, &str)]) -> Graph {
+        let mut g = Graph::new(Direction::LeftToRight);
+        let mut seen = std::collections::HashSet::new();
+        for (from, to) in edges {
+            for id in [from, to] {
+                if seen.insert(*id) {
+                    g.nodes.push(rect(id));
+                }
+            }
+            g.edges.push(Edge::new(*from, *to, None));
+        }
+        g
+    }
+
+    // ---- parallel_edge_groups -----------------------------------------
+
+    #[test]
+    fn parallel_groups_empty_for_single_edge() {
+        let g = graph_with_edges(&[("A", "B")]);
+        assert!(g.parallel_edge_groups().is_empty());
+    }
+
+    #[test]
+    fn parallel_groups_empty_for_unrelated_edges() {
+        let g = graph_with_edges(&[("A", "B"), ("C", "D"), ("E", "F")]);
+        assert!(g.parallel_edge_groups().is_empty());
+    }
+
+    #[test]
+    fn parallel_groups_detects_two_same_direction() {
+        // T ==>|pass| D and T -.->|skip| D — the CI/CD case.
+        let g = graph_with_edges(&[("T", "D"), ("T", "D")]);
+        let groups = g.parallel_edge_groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0], vec![0, 1]);
+    }
+
+    #[test]
+    fn parallel_groups_detects_bidirectional_pair() {
+        // F→W and W→F — the Supervisor case.
+        let g = graph_with_edges(&[("F", "W"), ("W", "F")]);
+        let groups = g.parallel_edge_groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0], vec![0, 1]);
+    }
+
+    #[test]
+    fn parallel_groups_detects_three_between_same_pair() {
+        let g = graph_with_edges(&[("A", "B"), ("A", "B"), ("B", "A")]);
+        let groups = g.parallel_edge_groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0], vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn parallel_groups_separates_distinct_pairs() {
+        let g = graph_with_edges(&[
+            ("A", "B"),
+            ("C", "D"),
+            ("A", "B"), // parallel with edge 0
+            ("C", "D"), // parallel with edge 1
+        ]);
+        let groups = g.parallel_edge_groups();
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0], vec![0, 2]);
+        assert_eq!(groups[1], vec![1, 3]);
+    }
+
+    #[test]
+    fn parallel_groups_self_loop_alone_excluded() {
+        // A single self-loop is NOT parallel with anything.
+        let g = graph_with_edges(&[("A", "A")]);
+        assert!(g.parallel_edge_groups().is_empty());
+    }
+
+    #[test]
+    fn parallel_groups_multiple_self_loops_grouped() {
+        // Two self-loops on the same node DO form a parallel group.
+        let g = graph_with_edges(&[("A", "A"), ("A", "A")]);
+        let groups = g.parallel_edge_groups();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0], vec![0, 1]);
+    }
+
+    #[test]
+    fn parallel_groups_returned_in_source_order() {
+        // Groups appear sorted by the lowest edge index they contain,
+        // so callers see deterministic output regardless of HashMap
+        // iteration order.
+        let g = graph_with_edges(&[
+            ("X", "Y"),
+            ("A", "B"),
+            ("X", "Y"), // parallel with edge 0
+            ("A", "B"), // parallel with edge 1
+        ]);
+        let groups = g.parallel_edge_groups();
+        assert_eq!(groups[0][0], 0); // first group starts at edge 0
+        assert_eq!(groups[1][0], 1); // second group starts at edge 1
+    }
 }
