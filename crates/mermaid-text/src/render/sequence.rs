@@ -228,38 +228,53 @@ fn compute_layout(diag: &SequenceDiagram) -> Vec<ParticipantLayout> {
 // Drawing helpers
 // ---------------------------------------------------------------------------
 
-/// Draw a single-line participant box centered on `cx` in row 0.
+/// Draw a single-line participant box centered on `cx`, with the top
+/// border on `top_row`. The box occupies three consecutive rows:
+/// `top_row` (top border), `top_row + 1` (label), `top_row + 2`
+/// (bottom border).
 ///
 /// ```text
 /// ┌──────┐
 /// │ Alice│
 /// └──────┘
 /// ```
-fn draw_participant_box(canvas: &mut Canvas, cx: usize, box_width: usize, label: &str) {
+///
+/// Used twice per render: once at `top_row = 0` for the header and
+/// once at `top_row = canvas.height - BOX_HEIGHT` for the mirrored
+/// footer (matches Mermaid's convention of bracketing lifelines).
+fn draw_participant_box(
+    canvas: &mut Canvas,
+    cx: usize,
+    box_width: usize,
+    label: &str,
+    top_row: usize,
+) {
     let left = cx.saturating_sub(box_width / 2);
     let right = left + box_width - 1; // inclusive column of right border
+    let label_row = top_row + 1;
+    let bottom_row = top_row + 2;
 
     // Top border
-    canvas.put(0, left, '┌');
+    canvas.put(top_row, left, '┌');
     for c in (left + 1)..right {
-        canvas.put(0, c, '─');
+        canvas.put(top_row, c, '─');
     }
-    canvas.put(0, right, '┐');
+    canvas.put(top_row, right, '┐');
 
     // Label row — center the label inside the box.
     let label_w = label.width();
     let inner_w = box_width.saturating_sub(2); // space between borders
     let label_start = left + 1 + (inner_w.saturating_sub(label_w)) / 2;
-    canvas.put(1, left, '│');
-    canvas.put_str(1, label_start, label);
-    canvas.put(1, right, '│');
+    canvas.put(label_row, left, '│');
+    canvas.put_str(label_row, label_start, label);
+    canvas.put(label_row, right, '│');
 
     // Bottom border
-    canvas.put(2, left, '└');
+    canvas.put(bottom_row, left, '└');
     for c in (left + 1)..right {
-        canvas.put(2, c, '─');
+        canvas.put(bottom_row, c, '─');
     }
-    canvas.put(2, right, '┘');
+    canvas.put(bottom_row, right, '┘');
 }
 
 /// Draw a multi-line note box on the canvas with rounded corners.
@@ -546,7 +561,10 @@ pub fn render(diag: &SequenceDiagram) -> String {
         .map(|b| 4 + 2 * b.branches.len().saturating_sub(1))
         .sum();
 
-    let height = BOX_HEIGHT + body_rows + note_rows + block_rows;
+    // Mirror the header participant boxes at the bottom of the canvas
+    // (Mermaid convention — lifelines are bracketed top *and* bottom).
+    // Add another `BOX_HEIGHT` rows for the footer.
+    let height = BOX_HEIGHT + body_rows + note_rows + block_rows + BOX_HEIGHT;
 
     // Canvas width: rightmost participant box right edge + 1 margin.
     let last = &layouts[n - 1];
@@ -565,19 +583,22 @@ pub fn render(diag: &SequenceDiagram) -> String {
 
     let mut canvas = Canvas::new(width, height);
 
-    // 1. Draw participant boxes.
+    // 1. Draw participant boxes — header (top) and footer (bottom)
+    //    mirror, matching Mermaid's bracketed-lifeline convention.
+    let footer_top = height - BOX_HEIGHT;
     for (i, p) in diag.participants.iter().enumerate() {
-        draw_participant_box(
-            &mut canvas,
-            layouts[i].center,
-            layouts[i].box_width,
-            &p.label,
-        );
+        let cx = layouts[i].center;
+        let w = layouts[i].box_width;
+        draw_participant_box(&mut canvas, cx, w, &p.label, 0);
+        draw_participant_box(&mut canvas, cx, w, &p.label, footer_top);
     }
 
-    // 2. Draw lifelines from bottom of boxes to end of canvas.
-    let lifeline_start = BOX_HEIGHT; // row 3 (0-indexed)
-    let lifeline_end = height - 1;
+    // 2. Draw lifelines between the header and footer boxes — they
+    //    must terminate one row above the footer's top border so the
+    //    box outline reads as a clean bracket (lifeline glyphs would
+    //    otherwise punch through the `┌────┐`).
+    let lifeline_start = BOX_HEIGHT; // row right below the header
+    let lifeline_end = footer_top.saturating_sub(1);
     for layout in &layouts {
         draw_lifeline(&mut canvas, layout.center, lifeline_start, lifeline_end);
     }
@@ -920,13 +941,32 @@ fn block_kind_label(kind: BlockKind) -> &'static str {
     }
 }
 
+/// Draw a `[label]` tag at the given position, inset 2 cells from the
+/// left edge of the block frame so it sits cleanly off the corner.
+/// Returns the column past the tag (caller can chain another tag).
+/// No-op when `label` is empty — keeps callers free of guard noise.
+fn draw_tag(canvas: &mut Canvas, row: usize, anchor_left: usize, label: &str) -> usize {
+    if label.is_empty() {
+        return anchor_left + 2;
+    }
+    let col = anchor_left + 2;
+    let tag = format!("[{label}]");
+    let width = tag.chars().count();
+    canvas.put_str(row, col, &tag);
+    col + width
+}
+
 /// Draw a labelled rectangular frame for a sequence-diagram block.
 ///
 /// Uses the heavy double-line glyphs (`╔╗╚╝═║`) to differentiate from
-/// participant boxes (square `┌┐└┘`) and notes (rounded `╭╮╰╯`). The
-/// kind label and opener label appear inset from the top-left as
-/// `[loop: forever]`. Branch continuations draw a dashed divider
-/// (`┄`) with `[else: …]` style label.
+/// participant boxes (square `┌┐└┘`) and notes (rounded `╭╮╰╯`).
+///
+/// **Tag layout (matches Mermaid):** the kind name and the opener
+/// branch's condition are rendered as **two separate** `[…]` tags on
+/// the top border row, e.g. `╔═[alt]══[cache hit]═══════╗`, mirroring
+/// Mermaid's badge-plus-condition style. Branch continuations
+/// (`else`/`and`/`option`) carry their condition as a `[…]` tag on
+/// the dashed divider row.
 ///
 /// Defensive: the frame paints into space (' '), lifeline (`┆`), and
 /// activation-bar (`┃`) cells only — never overwrites a message arrow
@@ -964,14 +1004,16 @@ fn draw_block_frame(
         canvas.put(top, right, '╗');
     }
 
-    // Top label tag inset 2 cells from the left corner: `[kind: label]`.
-    let tag = if opener_label.is_empty() {
-        format!("[{kind}]")
-    } else {
-        format!("[{kind}: {opener_label}]")
-    };
-    let tag_col = left + 2;
-    canvas.put_str(top, tag_col, &tag);
+    // Two-tag top border: `[kind]` badge then `[opener_label]` condition,
+    // separated by `═` characters. Mermaid renders the kind as a small
+    // corner badge with the condition floating beside it; this
+    // monospace approximation preserves the same semantic split.
+    let after_kind = draw_tag(canvas, top, left, kind);
+    if !opener_label.is_empty() {
+        // Inset the opener label 2 cells past the kind tag so an `═`
+        // separator reads between them (e.g. `[alt]══[cache hit]`).
+        draw_tag(canvas, top, after_kind, opener_label);
+    }
 
     // Branch dividers (multi-branch blocks only) — drawn BEFORE the
     // side rails so the `╠`/`╣` junction glyphs claim the rail
@@ -991,11 +1033,10 @@ fn draw_block_frame(
                 canvas.put(divider_row, c, '┄');
             }
         }
-        // Continuation label tag.
-        if !branch_label.is_empty() {
-            let tag = format!("[{branch_label}]");
-            canvas.put_str(divider_row, left + 2, &tag);
-        }
+        // Continuation label tag — same `draw_tag` helper as the top
+        // border keeps the visual style consistent across all label
+        // sites in the frame.
+        draw_tag(canvas, divider_row, left, branch_label);
     }
 
     // Side rails on every row in (top, bottom), skipping divider rows

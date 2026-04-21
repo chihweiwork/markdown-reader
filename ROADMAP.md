@@ -150,7 +150,7 @@ destination box's top border, replacing one `─` with `▾`:
 benefits every diagram type. Risk: changes existing snapshots
 broadly — need to bulk-update.
 
-#### 4. Sequence-block tag style mismatches Mermaid (targeted, ~2h) ★★
+#### 4. Sequence-block tag style mismatches Mermaid — **SHIPPED IN 0.9.7** ✓
 
 **Symptom (sequence with alt block):** we render
 `╔═[alt: cache hit]═══...═╗` (kind name and first-branch label
@@ -178,7 +178,7 @@ all existing data-model and parse logic; pure renderer change.
 **Why ★★:** matches user expectation from real Mermaid, sequence
 diagrams are heavily used.
 
-#### 5. Missing bottom participant boxes in sequence diagrams (~3-4h) ★★
+#### 5. Missing bottom participant boxes in sequence diagrams — **SHIPPED IN 0.9.7** ✓
 
 **Symptom:** real Mermaid renders the participant boxes at BOTH
 top AND bottom of the lifelines. We only render the top boxes.

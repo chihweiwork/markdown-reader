@@ -830,7 +830,7 @@ loop forever
 A->>B: tick
 end";
     let out = mermaid_text::render(src).unwrap();
-    assert!(out.contains("[loop: forever]"));
+    assert!(out.contains("[loop]") && out.contains("[forever]"));
     assert!(out.contains('╔') && out.contains('╝'));
     assert_snapshot!("sequence_with_loop_block", out);
 }
@@ -848,7 +848,7 @@ else failure
 A->>B: fail
 end";
     let out = mermaid_text::render(src).unwrap();
-    assert!(out.contains("[alt: success]"));
+    assert!(out.contains("[alt]") && out.contains("[success]"));
     assert!(out.contains("[failure]"));
     assert!(out.contains('╠') && out.contains('╣'));
     assert_snapshot!("sequence_with_alt_else_block", out);
@@ -862,7 +862,7 @@ opt cache hit
 B->>A: cached
 end";
     let out = mermaid_text::render(src).unwrap();
-    assert!(out.contains("[opt: cache hit]"));
+    assert!(out.contains("[opt]") && out.contains("[cache hit]"));
     assert_snapshot!("sequence_with_opt_block", out);
 }
 
@@ -881,8 +881,8 @@ A->>B: b
 end
 end";
     let out = mermaid_text::render(src).unwrap();
-    assert!(out.contains("[loop: outer]"));
-    assert!(out.contains("[alt: branch a]"));
+    assert!(out.contains("[loop]") && out.contains("[outer]"));
+    assert!(out.contains("[alt]") && out.contains("[branch a]"));
     assert_snapshot!("sequence_with_nested_loop_alt", out);
 }
 
@@ -903,9 +903,9 @@ option failure
 A->>B: retry
 end";
     let out = mermaid_text::render(src).unwrap();
-    assert!(out.contains("[par: first]"));
+    assert!(out.contains("[par]") && out.contains("[first]"));
     assert!(out.contains("[second]"));
-    assert!(out.contains("[critical: primary]"));
+    assert!(out.contains("[critical]") && out.contains("[primary]"));
     assert!(out.contains("[failure]"));
     assert_snapshot!("sequence_with_par_and_critical_blocks", out);
 }

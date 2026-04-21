@@ -5,6 +5,18 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.11.7] - 2026-04-22
+
+### Changed
+
+- **Sequence-diagram polish** in markdown mermaid blocks (via
+  `mermaid-text` 0.9.7): bottom participant boxes mirror the top
+  (matches Mermaid's bracketed-lifeline convention), and block
+  tags split into two `[…]` brackets (`╔═[alt]══[cache hit]═══╗`
+  instead of `╔═[alt: cache hit]═══╗`) to match Mermaid's
+  badge-plus-condition style. Free upgrade — no markdown-reader
+  code changes.
+
 ## [1.11.6] - 2026-04-22
 
 ### Changed

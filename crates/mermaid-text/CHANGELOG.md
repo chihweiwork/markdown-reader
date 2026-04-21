@@ -3,6 +3,45 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.9.7 — 2026-04-22
+
+### Changed
+
+- **Sequence-diagram block tags split into two `[…]` brackets**
+  matching Mermaid's badge-plus-condition style. The kind name
+  (`alt`, `loop`, `opt`, `par`, `critical`, `break`) renders as a
+  small corner badge and the opener-branch condition floats beside
+  it, separated by `═`. Was `╔═[alt: cache hit]═══╗`; is
+  `╔═[alt]══[cache hit]═══╗`. Continuation labels (`else`/`and`/
+  `option`) keep their existing `╠┄[label]┄┄┄╣` placement on the
+  divider row — same `draw_tag` helper used everywhere for
+  consistency.
+
+### Added
+
+- **Bottom participant boxes** in sequence diagrams (Mermaid
+  convention — lifelines are bracketed *both* top and bottom).
+  `draw_participant_box` now takes a `top_row` parameter and is
+  called twice per render (header at row 0, footer at
+  `height - BOX_HEIGHT`). Lifelines terminate one row above the
+  footer so the box outline reads as a clean bracket.
+
+- **`draw_tag` helper** in `render/sequence.rs` — single source of
+  truth for the `[label]` glyph format used by block top borders,
+  block branch dividers, and any future label site. Returns the
+  column past the tag so callers can chain (e.g. block top border
+  draws `[kind]` then `[opener]` adjacent).
+
+### Notes
+
+- All 13 sequence snapshots updated. Every change is either the
+  bottom-box mirror (additive) or the new two-tag style (visible
+  improvement). No regressions.
+- ROADMAP items #4 and #5 from the 2026-04-21 gallery review are
+  now retired. Items #6 (sugiyama improvements) and #7 (back-edge
+  perimeter routing) remain — both are deeper rework that needs
+  its own design pass.
+
 ## 0.9.6 — 2026-04-22
 
 ### Changed
