@@ -5,6 +5,21 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.1] - 2026-04-22
+
+### Removed
+
+- **Dropped the per-block "Rendered output" dogfood code blocks
+  from `crates/mermaid-text/README.md`.** They were added in 1.16.0
+  to make the README readable in viewers without Mermaid support,
+  but in viewers that do render Mermaid (the TUI's auto-detect, our
+  own image pipeline, GitHub web) every diagram appeared twice —
+  once rendered, once as text below. The dogfood goal is better
+  served by the existing CLI quickstart (`mermaid-text < diagram.mmd`)
+  and the architecture-diagram comparison block (which stays — it
+  showcases the sugiyama backend's alternative output, not a
+  duplicate of the mermaid source).
+
 ## [1.16.0] - 2026-04-22
 
 ### Added
