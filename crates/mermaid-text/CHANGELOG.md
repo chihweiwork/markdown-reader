@@ -3,6 +3,42 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.9.5 — 2026-04-22
+
+### Fixed
+
+- **Edge labels no longer overwrite node border rows or subgraph
+  borders.** Two related bugs from the 0.9.4 gallery review:
+  - The Supervisor pattern's `panics` label sat on Factory's bottom
+    border row between `└` and `┘`, rendering as `└──panics──┘` —
+    visually part of Factory rather than labelling the back-edge.
+  - State-diagram labels (`EvNumLockPressed`, `start`, `done`,
+    `positive`, `negative`, `retry`) frequently landed on adjacent
+    nodes' border rows or subgraph border cells, breaking the box
+    outlines.
+
+  The label-placement guard now treats node top/bottom border rows
+  and subgraph border cells (`╭╮╰╯─│`) as protected regions in
+  Pass A. Pass B (last-resort relaxation) still allows them so
+  labels never disappear entirely. Two new helpers in
+  `render/unicode.rs`: `overlaps_node_border_row` and
+  `overlaps_subgraph_border` — 10 new unit tests cover each.
+
+- **TD/BT label candidate range expanded** from 5 row offsets
+  (`[0, ±1, ±2]`) to 8 (`[0, ±1, ±2, ±3, -4]`) to match LR/RL.
+  Gives the placer more breathing room when Pass A's stricter
+  guards filter near positions.
+
+### Notes
+
+- Five existing state-diagram snapshots updated — every change is
+  a box-integrity improvement (labels moved away from borders).
+- Two new snapshot tests guard against regression:
+  `supervisor_bidirectional_in_subgraph` (the `panics` bug) and
+  `cicd_parallel_styles_to_same_target` (the parallel-edge case;
+  this one stays cramped — the underlying layout-level fix to
+  widen gaps for parallel edges is tracked in ROADMAP item #6).
+
 ## 0.9.4 — 2026-04-21
 
 ### Added

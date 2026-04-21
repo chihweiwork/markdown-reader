@@ -85,58 +85,43 @@ rework last). Most of these were discovered together and share
 some underlying machinery, so picking the right order of attack
 matters.
 
-#### 1. Bidirectional edges share label space (targeted, ~2-3h) ★★★
+#### 1. Bidirectional edges share label space — **SHIPPED IN 0.9.5** ✓
 
 **Symptom (Supervisor pattern):** `F[Factory] -->|creates| W[Worker]`
-plus `W -->|panics| F` produces a render where "creates" and
-"panics" both sit inside the narrow channel between Factory and
-Worker, and "panics" overwrites Factory's bottom border:
-```
-│ ┌─────────┐ │
-│▸│ Factory │││
-││└───panics┘││   ← "panics" written ON Factory's bottom border
-│└─────creates│
-```
+plus `W -->|panics| F` rendered as `└──panics──┘` *inside*
+Factory's bottom border, with `creates` bleeding through the
+subgraph border.
 
-**Root cause:** the label-placement pass picks each edge's
-geometric midpoint without checking either (a) whether another
-parallel edge already claimed that channel or (b) whether the
-chosen row collides with a box border or subgraph border.
+**Fix shipped:** label-placement Pass A now treats node top/bottom
+border rows AND subgraph border cells (`╭╮╰╯─│`) as protected
+regions. Two new helpers in `render/unicode.rs`:
+`overlaps_node_border_row` and `overlaps_subgraph_border`.
+Pass B (last-resort relaxation) still allows them so labels
+never disappear. Five existing state-diagram snapshots updated
+with box-integrity improvements; 10 new unit tests + 2 reproducer
+snapshots (`supervisor_bidirectional_in_subgraph` and
+`cicd_parallel_styles_to_same_target`).
 
-**Fix scope:**
-- Detect parallel edges (same node pair, opposite direction OR
-  same direction with different style/label) and route them in
-  separate columns/rows.
-- Extend the existing label-vs-node-interior collision guard
-  (shipped in 0.7.1) to also cover box borders and subgraph
-  borders. If the chosen row collides, shift up/down to the
-  nearest non-border row.
+#### 2. Multiple labelled edges between same node pair — **PARTIAL FIX in 0.9.5; full fix needs layout-pass work**
 
-**Why ★★★:** small bounded change, fixes the visually worst bug
-in the gallery, and unlocks the same fix for case #2 below.
+**What 0.9.5 fixed:** subgraph borders no longer get punctured —
+in the CI/CD case `pass` lands at col 41 (immediately right of
+CI's `│` at col 40) instead of overwriting the border. Box
+outlines stay intact.
 
-#### 2. Multiple labelled edges between same node pair (targeted, ~1-2h) ★★★
+**What's still cramped:** the labels themselves remain visually
+glued to nearby chrome because the layout pipeline doesn't widen
+the gap between `T` (inside CI subgraph) and `D` (outside) to
+account for parallel labels. Empirical finding from the 0.9.5
+development cycle: trying a label-placement-only patch with
+1-cell padding around protected regions just detaches labels
+from their edges entirely. Real fix needs layout-pass work —
+during layered layout, detect parallel-edge pairs and add
+column/row spacing between their endpoints proportional to the
+combined label widths.
 
-**Symptom (CI/CD pipeline):** `T ==>|pass| D` plus `T -.->|skip| D`
-produces a render where both labels stack vertically into a
-single-column gap between Test and Deploy:
-```
-... ┌──────┐ │pass┌────────┐
-... │ Test │━│skip│ Deploy │
-... └──────┘┄│┄┄┄▸└────────┘
-```
-
-**Root cause:** same as #1 — parallel edges share a channel.
-Different visual symptom because LR direction collapses the
-shared channel to a tiny vertical gap.
-
-**Fix scope:** lifts directly out of fix #1. When two edges
-connect the same source/target, route the second on a separate
-horizontal lane (above or below the first) with its own label
-row. The dotted style (`-.->`) is already preserved; just needs
-its own routing channel.
-
-**Why ★★★:** trivial once #1 is done; shares the same code path.
+**Decision:** rolled into item #6 (sugiyama improvements) below.
+Don't try to solve this purely in the label-placement pass.
 
 #### 3. Arrow termination doesn't visually merge with destination box (targeted, ~1-2h) ★★
 

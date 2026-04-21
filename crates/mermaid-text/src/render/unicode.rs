@@ -676,8 +676,14 @@ fn render_inner(
 
         // Compute edge label position using the actual routed path.
         if let (Some(lbl), Some(path)) = (&edge.label, &path)
-            && let Some((lbl_col, lbl_row)) =
-                label_position(path, lbl, graph.direction, &mut placed_labels, &node_rects)
+            && let Some((lbl_col, lbl_row)) = label_position(
+                path,
+                lbl,
+                graph.direction,
+                &mut placed_labels,
+                &node_rects,
+                sg_bounds,
+            )
         {
             // Pick edge label color (`linkStyle … color:#…`), falling back to
             // the edge stroke color when only `stroke:` is set, so labels
@@ -1279,6 +1285,7 @@ fn label_position(
     dir: Direction,
     placed: &mut Vec<(usize, usize, usize, usize)>,
     node_rects: &[(usize, usize, usize, usize)],
+    sg_bounds: &[SubgraphBounds],
 ) -> Option<(usize, usize)> {
     if path.len() < 2 {
         return None;
@@ -1293,18 +1300,28 @@ fn label_position(
         return None;
     }
 
-    // Pass A: prefer positions that avoid both other labels and node interiors.
+    // Pass A: avoid every visually-protected region — other labels,
+    // node interiors, node border rows (the `┌──┐` / `└──┘` rows), and
+    // subgraph border cells (`╭╮╰╯─│`). Border rows and subgraph
+    // borders are protected because labels there read as part of the
+    // box outline — the Supervisor pattern's `panics` label inside
+    // Factory's bottom border (`└──panics──┘`) and the CI/CD pipeline's
+    // `pass` label puncturing CI's right `│` are the visible bugs this
+    // guard prevents.
     for &(c, r) in &candidates {
-        if !collides(c, r, lbl_w, placed) && !overlaps_node_interior(c, r, lbl_w, node_rects) {
+        if !collides(c, r, lbl_w, placed)
+            && !overlaps_node_interior(c, r, lbl_w, node_rects)
+            && !overlaps_node_border_row(c, r, lbl_w, node_rects)
+            && !overlaps_subgraph_border(c, r, lbl_w, sg_bounds)
+        {
             placed.push((c, r, lbl_w, 1));
             return Some((c, r));
         }
     }
-    // Pass B: relax the node-overlap constraint as a last resort. Two
-    // labels on top of each other is unreadable, so we still respect
-    // `placed`; a label sitting on a node's border row is awkward but
-    // strictly better than the previous "overwrite the node interior
-    // silently" behaviour.
+    // Pass B: relax the structural-overlap constraints as a last resort.
+    // Two labels on top of each other is unreadable, so we still respect
+    // `placed`; a label sitting on a node border row or a subgraph edge
+    // is awkward but strictly better than dropping the label entirely.
     for &(c, r) in &candidates {
         if !collides(c, r, lbl_w, placed) {
             placed.push((c, r, lbl_w, 1));
@@ -1350,7 +1367,10 @@ fn candidate_positions(path: &[(usize, usize)], dir: Direction) -> Vec<(usize, u
                 None => return Vec::new(),
             };
             let col_anchors = [seg_col + 1, seg_col.saturating_sub(1), seg_col + 2];
-            let row_offsets: [isize; 5] = [0, -1, 1, -2, 2];
+            // Match LR/RL's 8-offset range so labels in tight TD/BT
+            // diagrams (e.g. nested subgraphs) have more breathing room
+            // when corner / subgraph-border guards filter near positions.
+            let row_offsets: [isize; 8] = [0, -1, 1, -2, 2, -3, 3, -4];
             let mut out = Vec::with_capacity(col_anchors.len() * row_offsets.len());
             for &c in &col_anchors {
                 for &dr in &row_offsets {
@@ -1494,6 +1514,108 @@ fn overlaps_node_interior(
     false
 }
 
+/// Test whether the 1-row label rect at `(col, row)` of width `w`
+/// would land on any node's top or bottom border row *and* overlap
+/// that node's column range.
+///
+/// The previous renderer rule was that border rows were acceptable
+/// — labels would overwrite the `─` glyphs of the node border, and
+/// `draw_node_box` would redraw them. In practice the label is
+/// written *after* the box (pass 2b > pass 2), so the label *does*
+/// overwrite the `─` cells, leaving the visible result `└──panics──┘`
+/// — the label reads as part of the node. Visible bug example: the
+/// Supervisor pattern's `panics` label sitting on Factory's bottom
+/// border row.
+///
+/// Labels need to leave the entire border row alone, not just the
+/// corner glyphs, for the box outline to read as a contiguous
+/// rectangle.
+fn overlaps_node_border_row(
+    col: usize,
+    row: usize,
+    w: usize,
+    node_rects: &[(usize, usize, usize, usize)],
+) -> bool {
+    let label_end = col + w; // exclusive
+    for &(nc, nr, nw, nh) in node_rects {
+        if nw == 0 || nh == 0 {
+            continue;
+        }
+        let bottom = nr + nh - 1;
+        // Only the top or bottom border row of this node is protected.
+        if row != nr && row != bottom {
+            continue;
+        }
+        let right_excl = nc + nw; // exclusive
+        // Standard rect overlap (no padding): the label sits on the
+        // border row only if any of its cells fall within the node's
+        // column extent.
+        let col_overlaps = !(label_end <= nc || right_excl <= col);
+        if col_overlaps {
+            return true;
+        }
+    }
+    false
+}
+
+/// Test whether the 1-row label rect at `(col, row)` of width `w`
+/// would overlap any cell of any subgraph border perimeter
+/// (`╭╮╰╯─│`).
+///
+/// Subgraph borders are drawn early (pass 0a) and protected against
+/// edge routing, but the label-placement pass had no awareness of
+/// them. A label written on a subgraph border cell punctures the
+/// border outline — the CI/CD pipeline's `pass` label landing on
+/// `CI`'s right `│` is the canonical example.
+///
+/// "Border perimeter" = the four edges of the rect: top row, bottom
+/// row, left column, right column. Interior cells are fine — those
+/// belong to nodes/edges inside the subgraph.
+///
+/// This guard uses tight cell-level overlap (no padding) so labels
+/// can sit *immediately* adjacent to a subgraph border when no other
+/// position fits — the alternative (padding) pushes labels too far
+/// from their edges in tight diagrams, detaching them from the line
+/// they label.
+fn overlaps_subgraph_border(
+    col: usize,
+    row: usize,
+    w: usize,
+    sg_bounds: &[SubgraphBounds],
+) -> bool {
+    let label_end = col + w; // exclusive
+    for sg in sg_bounds {
+        if sg.width == 0 || sg.height == 0 {
+            continue;
+        }
+        let right = sg.col + sg.width - 1;
+        let bottom = sg.row + sg.height - 1;
+
+        // Top or bottom border row: label collides if its column range
+        // overlaps the subgraph's column range at all.
+        if row == sg.row || row == bottom {
+            let col_overlaps = !(label_end <= sg.col || right < col);
+            if col_overlaps {
+                return true;
+            }
+            continue;
+        }
+
+        // Interior rows of the subgraph: only the left and right
+        // border columns are protected.
+        let row_in_height = row > sg.row && row < bottom;
+        if !row_in_height {
+            continue;
+        }
+        let hits_left = col <= sg.col && sg.col < label_end;
+        let hits_right = col <= right && right < label_end;
+        if hits_left || hits_right {
+            return true;
+        }
+    }
+    false
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1592,5 +1714,103 @@ mod tests {
         // 1×1 box: no interior cells exist.
         let boxes = vec![(10, 10, 1, 1)];
         assert!(!overlaps_node_interior(10, 10, 1, &boxes));
+    }
+
+    // ---- overlaps_node_border_row -------------------------------------
+
+    fn factory_box() -> Vec<(usize, usize, usize, usize)> {
+        // Box at col 2, row 3, width 11, height 3. Top row = 3, bottom = 5.
+        // Columns span [2, 12] inclusive (i.e. nc..nc+nw = 2..13).
+        vec![(2, 3, 11, 3)]
+    }
+
+    #[test]
+    fn label_on_node_border_row_overlapping_columns_is_protected() {
+        // The Supervisor `panics` bug: a label between the corners on
+        // the same border row reads as part of the box.
+        let label_w = 6; // "panics"
+        assert!(overlaps_node_border_row(6, 5, label_w, &factory_box())); // bottom row
+        assert!(overlaps_node_border_row(6, 3, label_w, &factory_box())); // top row
+    }
+
+    #[test]
+    fn label_on_border_row_outside_node_columns_is_fine() {
+        // A label on the same row but to the left or right of the box
+        // doesn't punch the box outline — let it through.
+        let label_w = 4;
+        assert!(!overlaps_node_border_row(20, 5, label_w, &factory_box()));
+        assert!(!overlaps_node_border_row(0, 5, 1, &factory_box()));
+    }
+
+    #[test]
+    fn label_on_node_interior_row_passes_border_check() {
+        // Border-row check ignores rows that aren't top/bottom borders;
+        // the (existing) `overlaps_node_interior` check is what catches
+        // labels inside the box.
+        let label_w = 4;
+        assert!(!overlaps_node_border_row(6, 4, label_w, &factory_box())); // mid row
+    }
+
+    #[test]
+    fn label_on_node_border_row_outside_canvas_extent_is_fine() {
+        // Edge case: empty rect list, zero-width rect, etc.
+        assert!(!overlaps_node_border_row(0, 0, 5, &[]));
+        assert!(!overlaps_node_border_row(0, 0, 5, &[(0, 0, 0, 3)]));
+    }
+
+    // ---- overlaps_subgraph_border -------------------------------------
+
+    fn ci_subgraph() -> Vec<SubgraphBounds> {
+        vec![SubgraphBounds {
+            id: "CI".to_string(),
+            label: "CI".to_string(),
+            col: 0,
+            row: 0,
+            width: 41, // right border at col 40
+            height: 7, // bottom border at row 6
+            depth: 0,
+        }]
+    }
+
+    #[test]
+    fn label_on_subgraph_top_or_bottom_border_is_protected() {
+        let w = 4; // "pass"
+        // Row 0 = top border, row 6 = bottom border.
+        assert!(overlaps_subgraph_border(5, 0, w, &ci_subgraph()));
+        assert!(overlaps_subgraph_border(5, 6, w, &ci_subgraph()));
+    }
+
+    #[test]
+    fn label_overlapping_subgraph_left_or_right_border_column_is_protected() {
+        // Interior height row, label column range crosses the border col.
+        let w = 4;
+        // Right border at col 40; label spanning [40, 44) overlaps it.
+        assert!(overlaps_subgraph_border(40, 3, w, &ci_subgraph()));
+        // Left border at col 0; label spanning [0, 4) overlaps it.
+        assert!(overlaps_subgraph_border(0, 3, w, &ci_subgraph()));
+    }
+
+    #[test]
+    fn label_immediately_outside_subgraph_border_is_allowed() {
+        // The CI/CD `pass` case: label at col 41 (immediately right of
+        // CI's `│` at col 40). We accept this — pad=0 keeps labels
+        // close to their edges. Cosmetic margin would push them too
+        // far in tight diagrams.
+        let w = 4;
+        assert!(!overlaps_subgraph_border(41, 3, w, &ci_subgraph()));
+    }
+
+    #[test]
+    fn label_well_outside_subgraph_is_fine() {
+        let w = 4;
+        // Way to the right.
+        assert!(!overlaps_subgraph_border(100, 3, w, &ci_subgraph()));
+        // Above the subgraph entirely.
+        assert!(!overlaps_subgraph_border(5, 100, w, &ci_subgraph()));
+    }
+
+    #[test]
+    fn empty_sg_bounds_never_overlaps() {
+        assert!(!overlaps_subgraph_border(0, 0, 100, &[]));
     }
 }

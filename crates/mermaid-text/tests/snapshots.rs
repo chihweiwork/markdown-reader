@@ -258,6 +258,55 @@ fn back_edge_lr() {
 }
 
 // ---------------------------------------------------------------------------
+// 17b. Bidirectional edges in a subgraph (Supervisor pattern).
+//      Regression guard: when two edges connect the same node pair (here
+//      Factory ↔ Worker, with both labels), the labels must NOT overwrite
+//      either node's border row — `└──panics──┘` reads as part of Factory,
+//      which is what 0.9.5 fixed via the `overlaps_node_border_row` guard.
+// ---------------------------------------------------------------------------
+#[test]
+fn supervisor_bidirectional_in_subgraph() {
+    let src = "graph LR
+    subgraph Supervisor
+        direction TB
+        F[Factory] -->|creates| W[Worker]
+        W -->|panics| F
+    end
+    W -->|beat| HB[Heartbeat]
+    HB --> WD[Watchdog]";
+    let out = mermaid_text::render(src).unwrap();
+    // Factory and Worker box outlines must be intact — labels must not
+    // appear between the corner glyphs on the same border row.
+    assert!(
+        !out.contains("└───panics┘") && !out.contains("└─────creates─────┘"),
+        "labels overwrote node border rows:\n{out}"
+    );
+    assert_snapshot!("supervisor_bidirectional_in_subgraph", out);
+}
+
+// ---------------------------------------------------------------------------
+// 17c. Parallel edges between same node pair with different styles
+//      (CI/CD pipeline). The `pass`/`skip` labels are necessarily cramped
+//      because the layout pipeline doesn't yet widen the gap for parallel
+//      edges (a layout-level follow-up — see ROADMAP item #6). What we
+//      *do* guard: subgraph borders aren't overwritten — `pass` lands at
+//      col 41 (immediately right of CI's `│`), not on it.
+// ---------------------------------------------------------------------------
+#[test]
+fn cicd_parallel_styles_to_same_target() {
+    let src = "graph LR
+    subgraph CI
+        L[Lint] ==> B[Build] ==> T[Test]
+    end
+    T ==>|pass| D[Deploy]
+    T -.->|skip| D";
+    let out = mermaid_text::render(src).unwrap();
+    // No `│pass` (label puncturing CI's right border).
+    assert!(!out.contains("│pass│"), "pass label punctured subgraph border:\n{out}");
+    assert_snapshot!("cicd_parallel_styles_to_same_target", out);
+}
+
+// ---------------------------------------------------------------------------
 // 18. ANSI color regression guard — running through `render_with_options`
 //     with `color: false` must produce the exact same bytes as `render`.
 //     This is the structural promise that ANSI is opt-in.
