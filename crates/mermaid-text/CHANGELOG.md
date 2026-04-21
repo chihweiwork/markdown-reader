@@ -3,6 +3,55 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.11.2 — 2026-04-22
+
+### Fixed
+
+- **Back-edge perimeter routing no longer fragments forward edges**
+  (ROADMAP item #7 — flagged in the gallery review and finally
+  resolved). Previously, in cyclic diagrams (most TD state
+  machines), the back-edge would A* the shortest path between
+  source and target — which often cut through the diagram body
+  between forward-edge target nodes, inserting a vertical `│`
+  column that crammed the forward-edge labels (`done`/`error`/
+  etc.) into narrow channels.
+
+  Now the renderer marks the convex hull of node bounding boxes
+  as a new `Obstacle::InnerArea` classification, and back-edge
+  A* charges an extra cost (~2× `EDGE_SOFT_COST`) for crossing
+  these cells. The back-edge takes the perimeter corridor that
+  `compute_canvas_bounds` already reserves, leaving the diagram
+  interior clean for forward edges.
+
+  Visible win on the canonical 4-state state machine (`Idle →
+  Running → Done/Failed → Idle`): forward edges to `Done`/`Failed`
+  now have unobstructed vertical channels; the `done`/`error`
+  labels read cleanly; the back-edge routes around the right
+  side and re-enters from outside.
+
+### Changed
+
+- Refactored `Grid::route_edge` to share its A* core with the new
+  `Grid::route_back_edge` via a private `route_edge_with_inner_cost`
+  helper. The two public methods differ only by the
+  `inner_area_cost` they pass — same code path, no duplication.
+- `Grid::mark_inner_area(col, row, w, h)` is the new public method
+  the renderer uses to flag the convex-hull cells.
+
+### Notes
+
+- 1 existing state-diagram snapshot updated (`state_composite_keyboard_lock`)
+  — back-edges in that diagram also now route around the perimeter
+  rather than through the box-row interior. Verified as a visible
+  improvement (cleaner separation between the two NumLock /
+  CapsLock state pairs).
+- 1 new snapshot test guards against regression
+  (`back_edge_avoids_diagram_interior_in_td_cycle`).
+- This fix took the InnerArea-obstacle approach diagnosed in the
+  ROADMAP entry — the simpler "push exit point further" approach
+  tried earlier today only shifted the fragmenting column by 1-2
+  cells.
+
 ## 0.11.1 — 2026-04-22
 
 ### Added

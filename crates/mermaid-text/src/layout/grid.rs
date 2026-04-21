@@ -148,6 +148,12 @@ enum Obstacle {
     NodeBox,
     /// Cell already has a routed edge. Crossings are allowed at extra cost.
     EdgeOccupied,
+    /// Cell is *between* node boxes — inside the convex hull of all
+    /// node positions but not on any node itself, not yet edge-occupied.
+    /// Routed at standard cost in normal mode; back-edge routing pays a
+    /// hefty extra penalty so the perimeter route is preferred over a
+    /// shortcut through the diagram body.
+    InnerArea,
 }
 
 // ---------------------------------------------------------------------------
@@ -324,6 +330,30 @@ impl Grid {
     pub fn mark_obstacle(&mut self, col: usize, row: usize) {
         if row < self.height && col < self.width {
             self.obstacles[row][col] = Obstacle::NodeBox;
+        }
+    }
+
+    /// Mark every currently-`Free` cell inside the rectangular area
+    /// `[col, col+w) × [row, row+h)` as `InnerArea`. Cells already
+    /// classified as `NodeBox` or `EdgeOccupied` are left untouched
+    /// (their classifications are stronger). Used by the renderer to
+    /// flag the bounding-box interior so back-edge A* routing knows
+    /// to prefer the perimeter outside this rectangle.
+    pub fn mark_inner_area(&mut self, col: usize, row: usize, w: usize, h: usize) {
+        for dy in 0..h {
+            let r = row + dy;
+            if r >= self.height {
+                break;
+            }
+            for dx in 0..w {
+                let c = col + dx;
+                if c >= self.width {
+                    break;
+                }
+                if self.obstacles[r][c] == Obstacle::Free {
+                    self.obstacles[r][c] = Obstacle::InnerArea;
+                }
+            }
         }
     }
 
@@ -974,6 +1004,67 @@ impl Grid {
         horizontal_first: bool,
         arrow_direction: char,
     ) -> Option<Vec<(usize, usize)>> {
+        // Forward edges treat InnerArea cells as free space — the
+        // shortest path through the diagram body is fine when the
+        // edge naturally lives there.
+        self.route_edge_with_inner_cost(
+            col1,
+            row1,
+            col2,
+            row2,
+            horizontal_first,
+            arrow_direction,
+            0.0,
+        )
+    }
+
+    /// Route a back-edge that should prefer the perimeter over a
+    /// shortcut through the diagram body. Same parameters as
+    /// [`route_edge`] but charges a hefty penalty for crossing
+    /// `InnerArea` cells (the bounding-box interior between nodes),
+    /// steering the path outward to the corridor reserved by the
+    /// canvas-bounds calculation.
+    pub fn route_back_edge(
+        &mut self,
+        col1: usize,
+        row1: usize,
+        col2: usize,
+        row2: usize,
+        horizontal_first: bool,
+        arrow_direction: char,
+    ) -> Option<Vec<(usize, usize)>> {
+        // Tuned high enough to push back-edges to the perimeter when
+        // a clean path exists, but not so high that A* refuses to
+        // take a shortcut when no perimeter route is reachable.
+        // 8.0 is roughly 2× `EDGE_SOFT_COST` so an InnerArea cell
+        // crossing costs about the same as crossing two existing
+        // edges — meaningful but not prohibitive.
+        const BACK_EDGE_INNER_COST: f32 = 8.0;
+        self.route_edge_with_inner_cost(
+            col1,
+            row1,
+            col2,
+            row2,
+            horizontal_first,
+            arrow_direction,
+            BACK_EDGE_INNER_COST,
+        )
+    }
+
+    /// Shared A* core for [`route_edge`] and [`route_back_edge`].
+    /// `inner_area_cost` is added per cell when the path crosses an
+    /// `Obstacle::InnerArea` (zero for forward edges).
+    #[allow(clippy::too_many_arguments)]
+    fn route_edge_with_inner_cost(
+        &mut self,
+        col1: usize,
+        row1: usize,
+        col2: usize,
+        row2: usize,
+        horizontal_first: bool,
+        arrow_direction: char,
+        inner_area_cost: f32,
+    ) -> Option<Vec<(usize, usize)>> {
         // Cost constants.
         //
         // `EDGE_SOFT_COST` is the penalty added when A* enters a cell that
@@ -1043,6 +1134,12 @@ impl Grid {
                 // Soft obstacle: crossing an existing edge costs more.
                 if self.obstacles[nr][nc] == Obstacle::EdgeOccupied {
                     step += EDGE_SOFT_COST;
+                }
+                // InnerArea penalty (back-edges only; zero for forward
+                // edges): biases A* to prefer the perimeter corridor
+                // over a shortcut through the diagram body.
+                if self.obstacles[nr][nc] == Obstacle::InnerArea {
+                    step += inner_area_cost;
                 }
                 // Corner penalty: direction change from previous step.
                 if dir_idx as u8 != current.dir {

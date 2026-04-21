@@ -597,6 +597,28 @@ fn render_inner(
         node_rects.push((col, row, geom.width, geom.height));
     }
 
+    // Pass 0c: Mark the cells *between* node boxes as `InnerArea`
+    // — the bounding-box convex hull of all real nodes, minus the
+    // node cells themselves. Back-edge routing pays an extra cost
+    // for crossing these cells, biasing A* to take the perimeter
+    // corridor (added by `compute_canvas_bounds` for back-edged
+    // graphs) rather than a shortcut through the diagram body that
+    // would fragment forward-edge channels.
+    if !node_rects.is_empty() {
+        let hull_min_col = node_rects.iter().map(|r| r.0).min().unwrap_or(0);
+        let hull_min_row = node_rects.iter().map(|r| r.1).min().unwrap_or(0);
+        let hull_max_col = node_rects.iter().map(|r| r.0 + r.2).max().unwrap_or(0);
+        let hull_max_row = node_rects.iter().map(|r| r.1 + r.3).max().unwrap_or(0);
+        if hull_max_col > hull_min_col && hull_max_row > hull_min_row {
+            grid.mark_inner_area(
+                hull_min_col,
+                hull_min_row,
+                hull_max_col - hull_min_col,
+                hull_max_row - hull_min_row,
+            );
+        }
+    }
+
     // Compute spread-adjusted attach points for all edges before drawing.
     // Both exit and entry points are spread so that multiple edges sharing
     // the same border cell each get their own distinct row/column.
@@ -696,6 +718,19 @@ fn render_inner(
                 src,
                 dst,
                 &waypoints.waypoints,
+                horizontal_first,
+                fwd_tip,
+            )
+        } else if edge_is_back {
+            // Back-edges go through `route_back_edge` so A* charges
+            // an extra cost for crossing `InnerArea` cells (the
+            // bounding-box interior between nodes), steering them to
+            // the perimeter corridor.
+            grid.route_back_edge(
+                src.col,
+                src.row,
+                dst.col,
+                dst.row,
                 horizontal_first,
                 fwd_tip,
             )

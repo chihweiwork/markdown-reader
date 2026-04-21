@@ -5,6 +5,16 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.2] - 2026-04-22
+
+### Fixed
+
+- **State diagrams with back-edges read much more clearly** (via
+  `mermaid-text` 0.11.2). The back-edge in cyclic diagrams (most
+  TD state machines) now routes around the perimeter instead of
+  threading through the diagram body — forward edges and their
+  labels stay in clean channels. Free upgrade.
+
 ## [1.13.1] - 2026-04-22
 
 ### Changed

@@ -921,6 +921,31 @@ end";
 // and grid layout.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Back-edge perimeter routing (ROADMAP item #7, fixed in 0.11.2).
+// Regression guard: when a TD diagram has a back-edge in a cycle,
+// the back-edge route must NOT thread through the gap between
+// forward-edge target nodes. The 0.11.2 fix biases A* against
+// `InnerArea` cells (the bounding-box interior between nodes).
+// ---------------------------------------------------------------------------
+#[test]
+fn back_edge_avoids_diagram_interior_in_td_cycle() {
+    // Idle → Running → Done / Failed → Idle: the cycle pulls Idle's
+    // layer down, making Idle → Running a back-edge that the old A*
+    // would route through the channel between Done and Failed.
+    let src = "graph TD
+        Idle -->|event| Running
+        Running -->|done| Done
+        Running -->|error| Failed
+        Failed -->|retry| Idle";
+    let out = mermaid_text::render(src).unwrap();
+    // The forward-edge labels `done` and `error` must each be on
+    // a row whose Done/Failed columns are NOT split by a back-edge
+    // `│`. Easier to check via snapshot — visual inspection is the
+    // ground truth here.
+    assert_snapshot!("back_edge_avoids_diagram_interior_in_td_cycle", out);
+}
+
 #[test]
 fn er_minimal_two_entities() {
     let src = "erDiagram\nCUSTOMER ||--o{ ORDER : places";

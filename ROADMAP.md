@@ -386,6 +386,14 @@ defer until someone files a real use case.
 
 ## Done since 1.7.1 (recent history — see CHANGELOGs for detail)
 
+- **0.11.2**: back-edge perimeter routing fix (ROADMAP item #7).
+  Cyclic state diagrams now route their back-edges around the
+  perimeter instead of threading through the diagram body — forward
+  edges keep their clean channels, labels read uncrammed. New
+  `Obstacle::InnerArea` cell classification + a `route_back_edge`
+  variant that charges extra for crossing it. Closes the visible
+  state-machine fragmentation reported in the 2026-04-21 gallery
+  review.
 - **0.11.1**: erDiagram Phase 2 — entity attribute tables render
   inside the boxes with aligned type/name/keys columns and a
   header divider; relationship endpoints carry single-character
