@@ -263,28 +263,40 @@ already half-work. Already on roadmap as "Edge-routing
 improvements" (see below) — this section is the detailed
 diagnosis.
 
-#### 7. Back-edge perimeter routing fragments forward edges (medium, ~half day) ★
+#### 7. Back-edge perimeter routing fragments forward edges (needs deeper A* work — investigated 2026-04-22)
 
 **Symptom (state machine):** the back-edge `Failed → Idle` (going
 UP in TD direction) routes via the right perimeter, inserting a
-vertical `│` column that threads between Done and Failed. The
-forward edges `Running → Done` and `Running → Failed` then have
-to share narrow channels in the middle, and labels like
-`done`/`error` get crammed into tight rows that read as
-disconnected.
+vertical `│` column that threads between Done and Failed.
 
-**Root cause:** perimeter routing for back-edges (shipped in
-0.6.0) inserts columns/rows greedily without considering the
-visual impact on forward edges through the same area.
+**Investigation finding (2026-04-22):** tried the simplest fix —
+pushing `exit_point_back_edge` / `entry_point_back_edge` further
+from the source/target so A* would prefer the far-right corridor.
+This only shifts the fragmenting column by 1-2 cells; A* still
+picks the shortest path through the diagram body because it has
+no cost signal to avoid the "node-dense region."
 
-**Fix scope:** during perimeter routing, prefer perimeter slots
-that are FURTHER from the dense-forward-edge area; if no slot is
-clean, route the back-edge through a fresh added column at the
-canvas edge rather than through the active diagram body.
+**Proper fix (deferred):** introduce a new `Obstacle::InnerArea`
+variant that marks cells inside the convex hull of real node
+bounding boxes (but not ON a node box itself, not edge-occupied).
+When routing back-edges specifically, give A* a cost penalty for
+`InnerArea` cells so it routes around the outside. Requires:
+1. A pre-pass in `render_inner` that marks `InnerArea` cells.
+2. A back-edge-aware variant of `route_edge` (or a per-call
+   cost-modifier hint) that charges extra for `InnerArea`.
+3. Tuning the penalty relative to `EDGE_SOFT_COST` so back-edges
+   take the outside route WITHOUT refusing to take shortcuts
+   when a clean corridor doesn't exist.
 
-**Why ★:** mostly affects the visual quality of mixed-direction
-diagrams. Diagnosis should prove out before committing to the
-fix.
+Estimated effort: 1-1.5 days (bigger than the "~half day" the
+original ROADMAP entry suggested). The complexity surfaced once
+the simple fix was tried — reversing out as a lesson about
+picking the right level of intervention.
+
+**Why deferred:** visible only in specific TD/BT cyclic diagrams;
+doesn't regress the typical user's experience. The proven-
+complexity note here lets a future session pick it up with the
+right scope from the start.
 
 ---
 
