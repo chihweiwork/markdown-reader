@@ -22,6 +22,10 @@ line.
   (explicit + inline `+`/`-`), block statements (`loop`/`alt`/`opt`/
   `par`/`critical`/`break` with arbitrary nesting), and bracketed
   lifelines (boxes top AND bottom).
+- **Entity-relationship diagrams** (`erDiagram`) with attribute
+  tables inside each entity box, single-character cardinality glyphs
+  at endpoints (`1`, `?`, `+`, `*`), and identifying vs
+  non-identifying line styles.
 - **Pie charts** rendered as horizontal bar charts (more legible in
   monospace than any ASCII pie attempt).
 
@@ -265,6 +269,61 @@ activation bars + block statements in a single diagram.
 
 ---
 
+## Entity-relationship diagrams
+
+### Canonical customer/order schema
+
+```mermaid
+erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    ORDER ||--|{ LINE-ITEM : contains
+    CUSTOMER {
+        string name
+        string email PK
+    }
+    ORDER {
+        int    orderNumber   PK
+        date   orderDate
+        string customerEmail FK
+    }
+    LINE-ITEM {
+        string productCode
+        int    quantity
+        float  unitPrice
+    }
+```
+
+Entities render as boxes with attribute tables (type / name / keys
+columns). Relationships carry single-character cardinality glyphs at
+each endpoint:
+
+- `1` — exactly one
+- `?` — zero or one
+- `+` — one or many
+- `*` — zero or many
+
+The connector is solid (`─`) for identifying relationships (`--` in
+Mermaid) and dashed (`┄`) for non-identifying (`..`).
+
+### Optional (non-identifying) relationship
+
+```mermaid
+erDiagram
+    PARENT ||..o{ CHILD : optional
+    PARENT {
+        int id PK
+    }
+    CHILD {
+        int id PK
+        int parentId FK
+    }
+```
+
+The `||..o{` connector renders as a dashed line to mark it as
+non-identifying — the child could exist independently of the parent.
+
+---
+
 ## Pie charts
 
 ### Basic pie
@@ -301,9 +360,6 @@ percentage. Decimal values are supported.
 These Mermaid diagram types fall back to showing source text rather
 than rendering:
 
-- `erDiagram` — most-requested missing type; **active work in
-  progress** per the [ROADMAP](../ROADMAP.md). Tracked across the
-  0.11.x release series.
 - `gantt`, `journey`, `classDiagram` — lower priority; may land if
   a real use case shows up.
 - `rect <colour>` colour-highlight blocks inside sequence diagrams

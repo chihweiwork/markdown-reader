@@ -76,6 +76,22 @@ unless someone asks. Multi-day each.
 
 ## Quality / polish backlog
 
+### erDiagram grid layout (deferred from Phase 3)
+
+erDiagram ships in 0.11.0 / 0.11.1 with a single-row source-order
+layout. For diagrams with >5 entities the row gets too wide for a
+typical 80-column terminal. The planned Phase 3 (a
+`ceil(sqrt(n))`-column grid layout) was deferred because
+cross-row relationship routing is substantially more complex than
+the visible win justifies — the single-row layout already works
+cleanly when the terminal is wide enough, and users with large
+ER diagrams can widen their terminal or scroll horizontally.
+
+Pick this up when someone reports the wide-ER problem with a real
+schema. Reference: `layout::subgraph` already handles nested
+bounding boxes; a similar per-row "sub-grid" abstraction could
+carry the box coordinates through the current single-row renderer.
+
 ### Brandes-Köpf coordinate assignment (deferred from Phase A.2)
 
 The layered-layout improvements series planned a Phase A.2 to

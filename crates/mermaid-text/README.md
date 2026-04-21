@@ -122,7 +122,8 @@ mermaid-text --width 80 my_diagram.mmd
 | `stateDiagram` / `stateDiagram-v2` | yes (transformed to flowchart) |
 | `sequenceDiagram` (incl. `autonumber`, notes, activation bars, block statements `loop`/`alt`/`opt`/`par`/`critical`/`break`) | yes (separate pipeline) |
 | `pie` (with optional `showData`, `title`) | yes (renders as horizontal bar chart) |
-| `gantt`, `journey`, `erDiagram`, `classDiagram`, etc. | not supported |
+| `erDiagram` (entities + attributes + cardinality) | yes (attribute tables, 1/?/+/* glyphs, identifying vs non-identifying) |
+| `gantt`, `journey`, `classDiagram`, etc. | not supported |
 
 ---
 
@@ -387,6 +388,28 @@ The four sequence-diagram polish features (autonumber, notes, activation
 bars, block statements) all compose. See
 [`docs/mermaid-gallery.md`](https://github.com/leboiko/markdown-reader/blob/master/docs/mermaid-gallery.md)
 for one example of each.
+
+### Entity-relationship diagram
+
+```mermaid
+erDiagram
+    CUSTOMER ||--o{ ORDER : places
+    CUSTOMER {
+        string name
+        string email PK
+    }
+    ORDER {
+        int    orderNumber   PK
+        date   orderDate
+        string customerEmail FK
+    }
+```
+
+Entity boxes render with aligned attribute tables (type / name /
+keys). Relationship endpoints carry single-character cardinality
+glyphs: `1` (exactly one), `?` (zero or one), `+` (one or many),
+`*` (zero or many). Identifying relationships use solid `─` lines;
+non-identifying (`..`) use dashed `┄`.
 
 ### Pie chart
 
