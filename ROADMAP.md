@@ -232,7 +232,7 @@ budgets.
 **Why ★★:** matches Mermaid convention; visually completes
 sequence diagrams.
 
-#### 6. Edge crossings not minimised in dense graphs (deep rework, multi-day) ★
+#### 6. Edge crossings not minimised in dense graphs — **PHASE 1 SHIPPED IN 0.14.0 (opt-in)** ★
 
 **Symptom (Dependency graph):** App→PostgreSQL, App→RabbitMQ,
 RabbitMQ→Worker, Worker→PostgreSQL all cross each other in
@@ -263,6 +263,28 @@ payoff shows up on the gallery's complex examples but those
 already half-work. Already on roadmap as "Edge-routing
 improvements" (see below) — this section is the detailed
 diagnosis.
+
+**Phase 1 (shipped in 0.14.0):** opt-in `LayoutBackend::Sugiyama`
+that wraps the [`ascii-dag`] crate. Gives clean 4-layer output on
+the README architecture case (App | Cache+Queue | Worker | DB)
+with the long App→DB edge routed through dummy nodes — exactly
+what the diagnosis above prescribed. CLI: `--sugiyama`. Embedded:
+`RenderOptions { backend: Sugiyama, ..Default::default() }`.
+
+**Phase 2 (deferred):** flip the default once the wrapper grows:
+- Subgraph cluster support (so opt-in isn't required for diagrams
+  with `subgraph ... end` blocks).
+- Parallel-edge group passthrough (so #2/#4 work survives the
+  switch — today the wrapper would lose Phase 2a's widening).
+- Direction overrides on nested clusters (TB-inside-LR etc.).
+- Tunable spacing (ascii-dag uses hardcoded 3-cell separation
+  regardless of our `node_gap`/`layer_gap`; would inflate or
+  shrink ~all snapshots when flipped).
+- Snapshot triage of the 26 cases that change when sugiyama is
+  used unconditionally for non-subgraph graphs (most are likely
+  improvements; a few simple cases regress on spacing).
+
+[`ascii-dag`]: https://crates.io/crates/ascii-dag
 
 #### 7. Back-edge perimeter routing fragments forward edges (needs deeper A* work — investigated 2026-04-22)
 

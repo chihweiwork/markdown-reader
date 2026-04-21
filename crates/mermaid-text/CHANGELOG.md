@@ -3,6 +3,59 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.14.0 — 2026-04-22
+
+### Added
+
+- **Sugiyama layout backend (opt-in)** — first phase of ROADMAP item
+  #6 ("Edge crossings on dependency graphs"). The existing in-house
+  layered layout collapses long edges into the wrong layer (Worker
+  ends up beside Cache/RabbitMQ in the README architecture example,
+  with App→PostgreSQL drawn as zig-zag detours). The new
+  [`LayoutBackend::Sugiyama`] backend adapts the [`ascii-dag`] crate
+  (0.9.1, MIT/Apache-2.0, zero-dep, `no_std`-compatible) to give us:
+  - Proper crossing minimisation (median + adjacent-exchange).
+  - Brandes-Köpf coordinate assignment (compact straight long edges).
+  - Long-edge dummy nodes with multi-segment waypoint routing — our
+    long-edge router threads the existing A* through ascii-dag's
+    waypoints, so paths stay clean across multiple layers.
+  - Proper layering (App, then Cache+Queue, then Worker, then DB —
+    4 distinct columns instead of 3).
+
+  Wired everywhere `RenderOptions` reaches: `RenderOptions::backend`
+  defaults to `Native` (no behaviour change for existing callers).
+  CLI gains `--sugiyama` flag for one-shot rendering.
+
+  ```text
+  Native (default):                        Sugiyama:
+  ┌─────┐─────┐╭───────╮         ┌────────┐                ╭───────╮
+  │ App │────┐│├───────┤        ▸│ Worker │              ┌▸│ Redis │
+  └─────┘───┐└▸│ Redis │        │└────────┘              │ ╰───────╯
+            │ │╰───────╯        │     ──────────▸               ┌──────────┐
+            │ └─────────────────┼─────┘             ┌─────┐    ▸│ Worker   │
+            │                   │                   │ App │    │└──────────┘
+            │  ╭──────────╮     │                   └─────┘─▸… │
+            │  ├──────────┤     │                              ▸│ PostgreSQL│
+            └─▸│ RabbitMQ │─────┘
+               ╰──────────╯
+  ```
+
+  Coverage gaps the wrapper does NOT yet handle (the in-house
+  layered backend remains the right choice when you hit any of
+  these): subgraph clusters, parallel-edge groups, direction
+  overrides on nested clusters, tunable spacing (ascii-dag uses
+  hardcoded 3-cell separation regardless of our `node_gap`/`layer_gap`).
+
+- `LayoutBackend` enum + `LayoutConfig::with_gaps(layer_gap, node_gap)`
+  convenience constructor for forward-compatible struct initialisation.
+
+### Changed
+
+- **MSRV bumped to 1.92** to match `ascii-dag`'s requirement. (Previous
+  floor was 1.85 from edition 2024.)
+
+[`ascii-dag`]: https://crates.io/crates/ascii-dag
+
 ## 0.13.0 — 2026-04-22
 
 ### Fixed

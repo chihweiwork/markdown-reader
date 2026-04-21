@@ -3,7 +3,9 @@
 pub mod grid;
 pub mod layered;
 pub mod subgraph;
+pub mod sugiyama;
 
 pub use grid::Grid;
-pub use layered::{LayoutConfig, layout};
+pub use layered::{LayoutBackend, LayoutConfig, layout};
 pub use subgraph::{SubgraphBounds, compute_subgraph_bounds};
+pub use sugiyama::sugiyama_layout;

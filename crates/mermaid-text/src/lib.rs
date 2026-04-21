@@ -115,7 +115,7 @@ pub use sequence::{Message, MessageStyle, Participant, SequenceDiagram};
 pub use types::{Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape};
 
 use detect::DiagramKind;
-use layout::layered::LayoutConfig;
+use layout::layered::{LayoutBackend, LayoutConfig};
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -271,18 +271,9 @@ pub fn render_with_width(input: &str, max_width: Option<usize>) -> Result<String
     //    Each step reduces both the inter-layer gap and the label padding.
     //    We try four levels; the last one is the most compact.
     const COMPACT_CONFIGS: &[LayoutConfig] = &[
-        LayoutConfig {
-            layer_gap: 4,
-            node_gap: 2,
-        },
-        LayoutConfig {
-            layer_gap: 2,
-            node_gap: 1,
-        },
-        LayoutConfig {
-            layer_gap: 1,
-            node_gap: 0,
-        },
+        LayoutConfig::with_gaps(4, 2),
+        LayoutConfig::with_gaps(2, 1),
+        LayoutConfig::with_gaps(1, 0),
     ];
 
     // Keep the most compact output in case nothing fits.
@@ -389,6 +380,14 @@ pub struct RenderOptions {
     /// `linkStyle` directives. Off by default so existing callers see no
     /// behaviour change.
     pub color: bool,
+    /// Choose the layered-layout backend. Defaults to
+    /// [`LayoutBackend::Native`] (the in-house layered layout that
+    /// supports every feature we ship). Set to
+    /// [`LayoutBackend::Sugiyama`] to opt into the `ascii-dag`-backed
+    /// Sugiyama layout for cleaner crossing-minimised output on
+    /// flat dependency graphs (see [`LayoutBackend`] docs for the
+    /// trade-offs and current coverage gaps).
+    pub backend: LayoutBackend,
 }
 
 /// Render a Mermaid diagram with the full set of opt-in knobs.
@@ -439,13 +438,13 @@ pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, 
         }
         DiagramKind::Flowchart => {
             let graph = parser::parse(input)?;
-            render_flowchart_with_color(&graph, opts.max_width, opts.color)
+            render_flowchart_with_color(&graph, opts.max_width, opts.color, opts.backend)
         }
         DiagramKind::State => {
             // State diagrams become a flowchart Graph at parse time, so the
             // same compaction + color pipeline applies.
             let graph = parser::state::parse(input)?;
-            render_flowchart_with_color(&graph, opts.max_width, opts.color)
+            render_flowchart_with_color(&graph, opts.max_width, opts.color, opts.backend)
         }
     };
 
@@ -464,23 +463,16 @@ fn render_flowchart_with_color(
     graph: &crate::types::Graph,
     max_width: Option<usize>,
     with_color: bool,
+    backend: LayoutBackend,
 ) -> String {
-    const COMPACT_CONFIGS: &[LayoutConfig] = &[
-        LayoutConfig {
-            layer_gap: 4,
-            node_gap: 2,
-        },
-        LayoutConfig {
-            layer_gap: 2,
-            node_gap: 1,
-        },
-        LayoutConfig {
-            layer_gap: 1,
-            node_gap: 0,
-        },
+    let with_backend = |c: LayoutConfig| LayoutConfig { backend, ..c };
+    let compact_configs: [LayoutConfig; 3] = [
+        with_backend(LayoutConfig::with_gaps(4, 2)),
+        with_backend(LayoutConfig::with_gaps(2, 1)),
+        with_backend(LayoutConfig::with_gaps(1, 0)),
     ];
 
-    let default_cfg = LayoutConfig::default();
+    let default_cfg = with_backend(LayoutConfig::default());
 
     // No width constraint — natural-size rendering.
     let Some(budget) = max_width else {
@@ -497,7 +489,7 @@ fn render_flowchart_with_color(
         };
     }
 
-    for cfg in COMPACT_CONFIGS {
+    for cfg in &compact_configs {
         let candidate = render_with_config(graph, cfg);
         if max_line_width(&candidate) <= budget {
             return if with_color {
@@ -508,7 +500,7 @@ fn render_flowchart_with_color(
         }
     }
     // Nothing fit; emit the most compact candidate.
-    let last = COMPACT_CONFIGS.last().expect("non-empty");
+    let last = compact_configs.last().expect("non-empty");
     render_with_config_color(graph, last, with_color)
 }
 
@@ -609,7 +601,10 @@ fn render_with_config_color(
     let layout::layered::LayoutResult {
         mut positions,
         mut edge_waypoints,
-    } = layout::layered::layout(graph, config);
+    } = match config.backend {
+        LayoutBackend::Native => layout::layered::layout(graph, config),
+        LayoutBackend::Sugiyama => layout::sugiyama::sugiyama_layout(graph, config),
+    };
 
     if !graph.subgraphs.is_empty() {
         let (col_offset, row_offset) = subgraph_position_offset(graph, &positions);

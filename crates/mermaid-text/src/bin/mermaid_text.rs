@@ -35,6 +35,7 @@ fn main() {
     let mut max_width: Option<usize> = None;
     let mut ascii_mode = false;
     let mut color_mode = false;
+    let mut backend_mode = mermaid_text::layout::LayoutBackend::Native;
     let mut path: Option<String> = None;
 
     while let Some(arg) = args.next() {
@@ -55,8 +56,11 @@ fn main() {
             "--color" | "-c" => {
                 color_mode = true;
             }
+            "--sugiyama" => {
+                backend_mode = mermaid_text::layout::LayoutBackend::Sugiyama;
+            }
             "--help" | "-h" => {
-                println!("Usage: mermaid-text [--width N] [--ascii] [--color] [FILE]");
+                println!("Usage: mermaid-text [--width N] [--ascii] [--color] [--sugiyama] [FILE]");
                 println!();
                 println!("Render a Mermaid graph/flowchart diagram as text.");
                 println!();
@@ -73,6 +77,9 @@ fn main() {
                 println!("  --color, -c Emit ANSI 24-bit color SGR sequences using the");
                 println!("              `style` / `linkStyle` directives in the source.");
                 println!("              Off by default; composes with --ascii.");
+                println!("  --sugiyama  Use the ascii-dag-backed Sugiyama layout. Better");
+                println!("              crossing minimisation on flat dependency graphs;");
+                println!("              gaps in subgraph and parallel-edge support today.");
                 println!("  --help      Print this help message");
                 process::exit(0);
             }
@@ -110,6 +117,7 @@ fn main() {
             max_width,
             ascii: ascii_mode,
             color: color_mode,
+            backend: backend_mode,
         },
     );
 

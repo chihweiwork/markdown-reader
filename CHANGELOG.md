@@ -5,6 +5,25 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] - 2026-04-22
+
+### Added
+
+- **Sugiyama layout backend (opt-in)** for flat dependency graphs
+  (via `mermaid-text` 0.14.0). The mermaid-text CLI gains a
+  `--sugiyama` flag and `RenderOptions::backend` for embedded
+  callers. Better crossing minimisation + Brandes-Köpf coordinate
+  assignment + long-edge dummy nodes via the [`ascii-dag`] crate.
+  Default behaviour unchanged — `Native` remains the default
+  backend until subgraph and parallel-edge support land in the
+  Sugiyama wrapper.
+
+### Changed
+
+- MSRV bumped to 1.92 to match `ascii-dag`'s minimum.
+
+[`ascii-dag`]: https://crates.io/crates/ascii-dag
+
 ## [1.14.0] - 2026-04-22
 
 ### Fixed

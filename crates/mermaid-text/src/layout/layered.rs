@@ -48,7 +48,7 @@ const SG_GAP_PER_BOUNDARY: usize = SG_BORDER_PAD + 1;
 /// assert_eq!(default_cfg.layer_gap, 6);
 /// assert_eq!(default_cfg.node_gap, 2);
 ///
-/// let compact = LayoutConfig { layer_gap: 2, node_gap: 1 };
+/// let compact = LayoutConfig::with_gaps(2, 1);
 /// assert!(compact.layer_gap < default_cfg.layer_gap);
 /// ```
 #[derive(Debug, Clone, Copy)]
@@ -60,6 +60,9 @@ pub struct LayoutConfig {
     pub layer_gap: usize,
     /// Minimum gap (in characters) between sibling nodes in the same layer.
     pub node_gap: usize,
+    /// Which layout algorithm to use. See [`LayoutBackend`] for the
+    /// trade-offs.
+    pub backend: LayoutBackend,
 }
 
 impl Default for LayoutConfig {
@@ -67,6 +70,50 @@ impl Default for LayoutConfig {
         Self {
             layer_gap: 6,
             node_gap: 2,
+            backend: LayoutBackend::default(),
+        }
+    }
+}
+
+/// Selects which layered-layout backend computes node positions.
+///
+/// - [`Native`](LayoutBackend::Native) — the in-house Sugiyama-inspired
+///   layered layout. Stable defaults; respects every feature we ship
+///   (subgraphs, parallel-edge widening, direction overrides, edge
+///   styles). The current default — every existing snapshot tracks
+///   this output.
+///
+/// - [`Sugiyama`](LayoutBackend::Sugiyama) — opt-in adapter around the
+///   `ascii-dag` crate. Produces noticeably better layouts for
+///   acyclic flowcharts with long-spanning edges (e.g. App→DB
+///   skipping the `Cache`/`Worker` layers in the README architecture
+///   example #4 — clean 4-level layout with dummy nodes routing the
+///   long edge instead of zig-zags). Coverage gaps today: subgraphs,
+///   parallel-edge groups, direction overrides on nested clusters,
+///   tunable spacing (ascii-dag uses hardcoded 3-cell separation).
+///   Use it for flat dependency graphs; stay on `Native` for
+///   subgraph-heavy diagrams.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LayoutBackend {
+    /// Native layered layout (default).
+    #[default]
+    Native,
+    /// `ascii-dag`-backed Sugiyama layout (opt-in).
+    Sugiyama,
+}
+
+impl LayoutConfig {
+    /// Build a [`LayoutConfig`] with explicit `layer_gap`/`node_gap` and
+    /// the default backend ([`LayoutBackend::Native`]).
+    ///
+    /// Convenience for callers that just want to tune spacing:
+    /// `LayoutConfig::with_gaps(4, 2)` is shorter than the struct
+    /// literal and forward-compatible with new fields.
+    pub const fn with_gaps(layer_gap: usize, node_gap: usize) -> Self {
+        Self {
+            layer_gap,
+            node_gap,
+            backend: LayoutBackend::Native,
         }
     }
 }
@@ -930,7 +977,7 @@ fn count_crossings(
 /// Compute the display width of a node (its box width in characters).
 ///
 /// Must stay in sync with `NodeGeom::for_node` in `render/unicode.rs`.
-fn node_box_width(graph: &Graph, id: &str) -> usize {
+pub(crate) fn node_box_width(graph: &Graph, id: &str) -> usize {
     if let Some(node) = graph.node(id) {
         // Multi-line labels are sized by the widest line — line breaks make
         // the box taller, not wider.
@@ -967,7 +1014,7 @@ fn node_box_width(graph: &Graph, id: &str) -> usize {
 /// Compute the display height of a node (its box height in characters).
 ///
 /// Must stay in sync with `NodeGeom::for_node` in `render/unicode.rs`.
-fn node_box_height(graph: &Graph, id: &str) -> usize {
+pub(crate) fn node_box_height(graph: &Graph, id: &str) -> usize {
     if let Some(node) = graph.node(id) {
         // Each additional label line adds one interior row to the box.
         let extra = node.label_line_count().saturating_sub(1);

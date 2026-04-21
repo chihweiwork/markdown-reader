@@ -329,7 +329,30 @@ fn cicd_parallel_styles_to_same_target() {
 }
 
 // ---------------------------------------------------------------------------
-// 18. ANSI color regression guard — running through `render_with_options`
+// 18. Sugiyama (ascii-dag) backend on the README architecture case.
+//     Native layered layout collapses Worker into the Cache/RabbitMQ row
+//     and routes App→PostgreSQL through awkward zig-zags. Sugiyama gives
+//     the topologically correct 4-layer layout with the long edge routed
+//     via dummy nodes.
+// ---------------------------------------------------------------------------
+#[test]
+fn architecture_diagram_with_sugiyama_backend() {
+    let src = "graph LR
+    App --> DB[(PostgreSQL)]
+    App --> Cache[(Redis)]
+    App --> Queue[(RabbitMQ)]
+    Queue --> Worker[Worker]
+    Worker --> DB";
+    let opts = mermaid_text::RenderOptions {
+        backend: mermaid_text::layout::LayoutBackend::Sugiyama,
+        ..Default::default()
+    };
+    let out = mermaid_text::render_with_options(src, &opts).unwrap();
+    assert_snapshot!("architecture_diagram_with_sugiyama_backend", out);
+}
+
+// ---------------------------------------------------------------------------
+// 19. ANSI color regression guard — running through `render_with_options`
 //     with `color: false` must produce the exact same bytes as `render`.
 //     This is the structural promise that ANSI is opt-in.
 // ---------------------------------------------------------------------------
