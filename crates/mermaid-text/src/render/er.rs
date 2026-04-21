@@ -1,10 +1,15 @@
 //! Renderer for [`ErDiagram`] (entity-relationship diagrams).
 //!
-//! **Phase 2** (this version): multi-row entity boxes with attribute
-//! tables (header + divider + per-attribute rows), plus cardinality
-//! glyphs at each relationship endpoint (`1` exactly one, `?` zero
-//! or one, `+` one or many, `*` zero or many). Identifying
-//! relationships use solid `─` lines; non-identifying use dashed `┄`.
+//! **Phase 2.1** (this version): the relationship line now visually
+//! connects the two entity boxes — drawn at the entity-name row,
+//! with `┤` / `├` tee glyphs replacing the source/target side
+//! borders, cardinality glyphs adjacent to each border, and the
+//! label (when present) centred on a row above the boxes.
+//!
+//! Identifying relationships use solid `─` lines; non-identifying
+//! use dashed `┄`. Entity boxes carry attribute tables (header +
+//! divider + per-attribute rows) with cardinality glyphs (`1`
+//! exactly one, `?` zero or one, `+` one or many, `*` zero or many).
 //!
 //! Phase 3 (planned) replaces the single-row layout with a grid for
 //! diagrams with more than ~4 entities.
@@ -13,11 +18,10 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::er::{AttributeKey, Cardinality, ErDiagram, Relationship};
 
-/// Cells of horizontal padding between adjacent entity boxes in the
-/// single-row layout. Big enough that relationship arrows have room
-/// to label themselves between boxes; small enough that the row
-/// fits comfortably in a typical terminal.
-const ENTITY_GAP: usize = 4;
+/// Minimum cells of horizontal padding between adjacent entity boxes
+/// when no relationship runs between them. Just wide enough that
+/// boxes don't visually merge.
+const MIN_ENTITY_GAP: usize = 4;
 
 /// Cells of padding inside the entity box on each side of content
 /// (the entity name in the header, the type/name/keys columns in
@@ -38,14 +42,21 @@ pub fn render(chart: &ErDiagram, _max_width: Option<usize>) -> String {
         chart.entities.iter().map(entity_box_height).collect();
     let tallest = *entity_heights.iter().max().unwrap_or(&HEADER_ROWS);
 
-    // Entities lay out left-to-right in source order with
-    // `ENTITY_GAP` cells between each.
+    // Per-pair gap: widen to fit the relationship label when one
+    // exists between this entity and its left neighbour, plus the
+    // two cardinality glyphs and one cell of breathing room each
+    // side.
+    let pair_gaps = compute_pair_gaps(chart);
+
+    // Entities lay out left-to-right in source order with the per-
+    // pair gap to the right of each (gap[i] sits between entity i
+    // and entity i+1).
     let entity_left: Vec<usize> = {
         let mut out = Vec::with_capacity(chart.entities.len());
         let mut col = 0usize;
-        for &w in &entity_widths {
+        for (i, &w) in entity_widths.iter().enumerate() {
             out.push(col);
-            col += w + ENTITY_GAP;
+            col += w + pair_gaps.get(i).copied().unwrap_or(MIN_ENTITY_GAP);
         }
         out
     };
@@ -56,13 +67,21 @@ pub fn render(chart: &ErDiagram, _max_width: Option<usize>) -> String {
         .map(|(&left, &w)| left + w)
         .unwrap_or(0);
 
-    // Canvas: tallest entity + 1 spacer + (2 rows per relationship).
-    let relationship_rows = if chart.relationships.is_empty() {
-        0
-    } else {
-        1 + chart.relationships.len() * 2
-    };
-    let height = tallest + relationship_rows;
+    // The relationship line lives on the entity-name row of every
+    // entity (always the second row of any entity box). When any
+    // relationship has a label, reserve one row above the boxes so
+    // the label has somewhere to sit without overwriting the top
+    // border. Same for the source/target cardinality fallbacks
+    // when the line can't merge with the box border (rare).
+    let has_labels = chart
+        .relationships
+        .iter()
+        .any(|r| r.label.as_deref().is_some_and(|s| !s.is_empty()));
+    let top_pad: usize = if has_labels { 1 } else { 0 };
+
+    // Canvas: optional top label row + tallest entity. Relationships
+    // are now drawn ON the entity grid, not in extra rows below.
+    let height = top_pad + tallest;
     let width = last_right.max(1);
 
     let mut grid: Vec<Vec<char>> = vec![vec![' '; width]; height];
@@ -71,35 +90,75 @@ pub fn render(chart: &ErDiagram, _max_width: Option<usize>) -> String {
     for (i, entity) in chart.entities.iter().enumerate() {
         let left = entity_left[i];
         let right = left + entity_widths[i] - 1;
-        draw_entity_box(&mut grid, left, right, entity);
+        draw_entity_box(&mut grid, top_pad, left, right, entity);
     }
 
-    // Pass 2: draw each relationship as a labelled arrow below the
-    // entity row, with cardinality glyphs at both endpoints.
-    for (rel_idx, rel) in chart.relationships.iter().enumerate() {
+    // Pass 2: connect each relationship's two entities with a
+    // visible line through the side borders. The line sits on the
+    // entity-name row (always present in every box) and meets the
+    // border via `┤` / `├` tee glyphs.
+    for rel in &chart.relationships {
         let (Some(from_idx), Some(to_idx)) = (
             chart.entity_index(&rel.from),
             chart.entity_index(&rel.to),
         ) else {
             continue;
         };
-        // Each relationship consumes two rows: label above, arrow
-        // below, starting after the entity-row plus a 1-row spacer.
-        let row_label = tallest + rel_idx * 2;
-        let row_arrow = row_label + 1;
+        if from_idx == to_idx {
+            // Self-relationships need a different visual (loop) —
+            // skip for now; a future phase can route a self-loop
+            // around the entity perimeter.
+            continue;
+        }
         draw_relationship_line(
             &mut grid,
+            top_pad,
             entity_left[from_idx],
             entity_widths[from_idx],
             entity_left[to_idx],
             entity_widths[to_idx],
-            row_label,
-            row_arrow,
             rel,
         );
     }
 
     grid_to_string(&grid)
+}
+
+/// Compute the inter-entity gap for every adjacent pair (i, i+1).
+/// `gaps[i]` is the gap between entity `i` and entity `i+1`, sized
+/// to fit the widest relationship label that runs between them and
+/// the cardinality glyphs at each end.
+fn compute_pair_gaps(chart: &ErDiagram) -> Vec<usize> {
+    let n = chart.entities.len();
+    if n < 2 {
+        return vec![MIN_ENTITY_GAP; n];
+    }
+    let mut gaps = vec![MIN_ENTITY_GAP; n];
+    for rel in &chart.relationships {
+        let Some(from_idx) = chart.entity_index(&rel.from) else { continue };
+        let Some(to_idx) = chart.entity_index(&rel.to) else { continue };
+        if from_idx == to_idx {
+            continue;
+        }
+        let (lo_idx, hi_idx) = if from_idx <= to_idx {
+            (from_idx, to_idx)
+        } else {
+            (to_idx, from_idx)
+        };
+        // Required gap = label width + 2 cardinality glyphs + 2 cells
+        // of breathing room between the glyphs and the label/borders.
+        let label_w = rel.label.as_deref().map(|s| s.width()).unwrap_or(0);
+        let needed = label_w.max(2) + 4;
+        // Distribute across consecutive pairs the relationship
+        // spans (so a relationship between non-adjacent entities
+        // widens every gap it crosses). For now we widen each
+        // crossed pair to the same `needed` value — simple and
+        // produces a clean line on the README two-entity case.
+        for gap in gaps.iter_mut().take(hi_idx).skip(lo_idx) {
+            *gap = (*gap).max(needed);
+        }
+    }
+    gaps
 }
 
 /// Rows consumed by the entity-name header: top border + name +
@@ -158,9 +217,12 @@ fn entity_box_height(entity: &crate::er::Entity) -> usize {
 }
 
 /// Draw the full entity box: top border + centred name + divider (if
-/// attributes) + one row per attribute + bottom border.
+/// attributes) + one row per attribute + bottom border. The box
+/// starts at `top_pad`; rows above are reserved for relationship
+/// labels.
 fn draw_entity_box(
     grid: &mut [Vec<char>],
+    top_pad: usize,
     left: usize,
     right: usize,
     entity: &crate::er::Entity,
@@ -170,39 +232,39 @@ fn draw_entity_box(
     let name_start = left + 1 + (interior_w.saturating_sub(name_w)) / 2;
 
     // Top border.
-    put(grid, 0, left, '┌');
+    put(grid, top_pad, left, '┌');
     for c in (left + 1)..right {
-        put(grid, 0, c, '─');
+        put(grid, top_pad, c, '─');
     }
-    put(grid, 0, right, '┐');
+    put(grid, top_pad, right, '┐');
 
     // Name row — centre horizontally.
-    put(grid, 1, left, '│');
-    put_str(grid, 1, name_start, &entity.name);
-    put(grid, 1, right, '│');
+    put(grid, top_pad + 1, left, '│');
+    put_str(grid, top_pad + 1, name_start, &entity.name);
+    put(grid, top_pad + 1, right, '│');
 
     if entity.attributes.is_empty() {
         // Bare entity — just a 3-row box (no divider, no rows).
-        put(grid, 2, left, '└');
+        put(grid, top_pad + 2, left, '└');
         for c in (left + 1)..right {
-            put(grid, 2, c, '─');
+            put(grid, top_pad + 2, c, '─');
         }
-        put(grid, 2, right, '┘');
+        put(grid, top_pad + 2, right, '┘');
         return;
     }
 
     // Divider between header and attribute table.
-    put(grid, 2, left, '├');
+    put(grid, top_pad + 2, left, '├');
     for c in (left + 1)..right {
-        put(grid, 2, c, '─');
+        put(grid, top_pad + 2, c, '─');
     }
-    put(grid, 2, right, '┤');
+    put(grid, top_pad + 2, right, '┤');
 
     // Attribute rows. Left-align each column; pad the row to the
     // box's interior width so the right border lines up.
     let cols = attr_columns(entity);
     for (i, attr) in entity.attributes.iter().enumerate() {
-        let row = HEADER_ROWS + i;
+        let row = top_pad + HEADER_ROWS + i;
         put(grid, row, left, '│');
         let mut col = left + 1 + NAME_PAD;
         put_str(grid, row, col, &pad_right(&attr.type_name, cols.type_w));
@@ -215,7 +277,7 @@ fn draw_entity_box(
     }
 
     // Bottom border.
-    let bottom = HEADER_ROWS + entity.attributes.len();
+    let bottom = top_pad + HEADER_ROWS + entity.attributes.len();
     put(grid, bottom, left, '└');
     for c in (left + 1)..right {
         put(grid, bottom, c, '─');
@@ -251,69 +313,108 @@ fn format_keys(keys: &[AttributeKey]) -> String {
         .join(",")
 }
 
-/// Draw a single relationship line with cardinality glyphs at each
-/// endpoint. The arrow row sits below the entity boxes; the label
-/// (user text only — cardinalities are in the endpoint glyphs now)
-/// sits on the row just above the arrow.
+/// Draw a relationship as a horizontal line connecting the two
+/// entity boxes. The line sits on the entity-name row (always row
+/// `top_pad + 1`), passes THROUGH the side borders via `┤` / `├`
+/// tee glyphs, and carries cardinality markers immediately past
+/// each border. The optional label sits centred on the gap row
+/// just above the boxes (`top_pad - 1`, i.e. row 0 — only present
+/// when `top_pad >= 1`).
 #[allow(clippy::too_many_arguments)]
 fn draw_relationship_line(
     grid: &mut [Vec<char>],
+    top_pad: usize,
     from_left: usize,
     from_width: usize,
     to_left: usize,
     to_width: usize,
-    row_label: usize,
-    row_arrow: usize,
     rel: &Relationship,
 ) {
-    let from_right_edge = from_left + from_width;
-    let to_left_edge = to_left;
-    let going_right = from_right_edge < to_left_edge;
-    let (lo, hi) = if going_right {
-        (from_right_edge, to_left_edge.saturating_sub(1))
+    // Line lives on the entity-name row, always present in every
+    // entity (even bare ones — it's the centre row of the 3-row
+    // header). Both boxes share this row.
+    let line_row = top_pad + 1;
+
+    // Source/target border columns. `going_right` captures whether
+    // the source entity sits to the left of the target — picks
+    // which side border to merge into.
+    let from_right_border = from_left + from_width - 1;
+    let to_left_border = to_left;
+    let from_left_border = from_left;
+    let to_right_border = to_left + to_width - 1;
+    let going_right = from_right_border < to_left_border;
+
+    // `lo` and `hi` are the cells of the gap immediately past each
+    // border (where cardinality glyphs land). The line fills the
+    // cells between them.
+    let (left_border, right_border, source_at_left, line_lo, line_hi) = if going_right {
+        let lo = from_right_border + 1;
+        let hi = to_left_border.saturating_sub(1);
+        (from_right_border, to_left_border, true, lo, hi)
     } else {
-        (to_left + to_width, from_left.saturating_sub(1))
+        let lo = to_right_border + 1;
+        let hi = from_left_border.saturating_sub(1);
+        (to_right_border, from_left_border, false, lo, hi)
     };
-    if hi <= lo + 2 {
-        return; // not enough room for glyphs + line
+
+    if line_hi <= line_lo {
+        return; // entities touch or overlap; can't draw a line
     }
 
     let line_glyph = if rel.line_style.is_dashed() { '┄' } else { '─' };
 
-    // Draw the connecting line across the gap.
-    for c in lo..=hi {
-        put(grid, row_arrow, c, line_glyph);
+    // 1. Merge the side borders with tee glyphs so the line meets
+    //    each box visually. Don't merge dashed lines — `┤`/`├` are
+    //    solid-only in box-drawing block; for dashed relationships
+    //    we keep `│` and let the line just touch it (still reads as
+    //    a connection because the cardinality glyph is adjacent).
+    if !rel.line_style.is_dashed() {
+        put(grid, line_row, left_border, '┤');
+        put(grid, line_row, right_border, '├');
     }
 
-    // Cardinality glyphs at each endpoint, one cell inside the line.
-    // The glyph at `lo` marks the source cardinality; at `hi` marks
-    // the target cardinality. Visible direction is captured by the
-    // source-to-target reading order.
-    let (source_card, target_card) = if going_right {
+    // 2. Fill the line across the gap.
+    for c in line_lo..=line_hi {
+        put(grid, line_row, c, line_glyph);
+    }
+
+    // 3. Cardinality glyphs at each end of the line. The glyph at
+    //    `line_lo` always belongs to whichever endpoint sits on the
+    //    LEFT side of the gap; `line_hi` to the right. So when the
+    //    source is on the left (`source_at_left`), source-cardinality
+    //    goes at `line_lo`; otherwise it goes at `line_hi`.
+    let (lo_card, hi_card) = if source_at_left {
         (rel.from_cardinality, rel.to_cardinality)
     } else {
         (rel.to_cardinality, rel.from_cardinality)
     };
-    put(grid, row_arrow, lo, cardinality_glyph(source_card));
-    put(grid, row_arrow, hi, cardinality_glyph(target_card));
+    put(grid, line_row, line_lo, cardinality_glyph(lo_card));
+    put(grid, line_row, line_hi, cardinality_glyph(hi_card));
 
-    // Label row: just the user-supplied label text (cardinalities
-    // live on the arrow row now). Centre it over the line.
+    // 4. Label centred above the line in the gap area, on the
+    //    top-pad row. Only writes if the caller reserved a row for
+    //    labels (top_pad >= 1) and the label fits in the gap.
+    if top_pad == 0 {
+        return;
+    }
     if let Some(label) = &rel.label
         && !label.is_empty()
     {
         let label_w = label.width();
-        let line_w = hi - lo;
-        if line_w >= label_w {
-            let label_col = lo + (line_w.saturating_sub(label_w)) / 2 + 1;
-            put_str(grid, row_label, label_col, label);
+        let gap_w = line_hi - line_lo + 1;
+        let label_row = top_pad - 1;
+        if gap_w >= label_w {
+            let offset = (gap_w - label_w) / 2;
+            put_str(grid, label_row, line_lo + offset, label);
         } else {
-            // Line too short — just place at the source end so at
-            // least the start of the label is visible.
-            put_str(grid, row_label, lo, label);
+            // Label wider than the gap — fall back to placing it at
+            // the source end. Better to clip than to overwrite a
+            // box border.
+            put_str(grid, label_row, line_lo, label);
         }
     }
 }
+
 
 /// Single-character glyph at a relationship endpoint, conveying
 /// cardinality. Chosen to read unambiguously in any monospace font:

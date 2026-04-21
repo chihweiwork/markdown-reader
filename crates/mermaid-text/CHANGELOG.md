@@ -3,6 +3,40 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.12.1 — 2026-04-22
+
+### Fixed
+
+- **erDiagram relationships now visually connect their entity boxes**.
+  The cardinality glyphs and label used to float in a detached row
+  *below* both boxes — readers had to mentally connect "the line
+  with `1──*` and `places`" to "the entities above it". The
+  rendering looked broken, and the gallery's CUSTOMER↔ORDER and
+  PARENT↔CHILD examples both showed the symptom prominently.
+
+  The relationship line now sits on the entity-name row of both
+  boxes, merging into the side borders via `┤` (source's right
+  edge) and `├` (target's left edge) tee glyphs, with cardinality
+  markers at each end and the label centred on a row above the
+  boxes. The inter-entity gap widens dynamically to fit the
+  relationship label plus its cardinality glyphs and breathing
+  room. Dashed (non-identifying) relationships keep `│` borders
+  since `┤`/`├` are solid-only — the dashed line still touches
+  both borders cleanly.
+
+  ```
+  Before:                          After:
+  ┌──────────┐    ┌─────────┐                    places
+  │  PARENT  │    │  CHILD  │      ┌──────────┐          ┌─────────┐
+  └──────────┘    └─────────┘      │  PARENT  ┤1────────*├  CHILD  │
+              optional             └──────────┘          └─────────┘
+              1┄┄*
+  ```
+
+  Three existing snapshots updated, all visual improvements.
+  Self-relationships are skipped in this pass — they need a loop
+  visual that's deferred to a future Phase 3.
+
 ## 0.12.0 — 2026-04-22
 
 ### Fixed

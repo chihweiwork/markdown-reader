@@ -1,9 +1,9 @@
 ---
 source: crates/mermaid-text/tests/snapshots.rs
+assertion_line: 959
 expression: out
 ---
-┌────────────┐    ┌─────────┐
-│  CUSTOMER  │    │  ORDER  │
-└────────────┘    └─────────┘
-              places
-              1──*
+                places
+┌────────────┐          ┌─────────┐
+│  CUSTOMER  ┤1────────*├  ORDER  │
+└────────────┘          └─────────┘

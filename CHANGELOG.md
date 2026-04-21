@@ -5,6 +5,19 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.4] - 2026-04-22
+
+### Fixed
+
+- **erDiagram relationships now visually connect their entity boxes**
+  (via `mermaid-text` 0.12.1). The cardinality glyphs and label
+  used to float in a detached row below both boxes — readers had
+  to mentally connect them to the entities above. Now the line
+  sits at the entity-name row of both boxes, merging into the
+  side borders via `┤` and `├` tee glyphs. The README CUSTOMER↔ORDER
+  example reads as a single diagram instead of two stacked artefacts.
+  Free upgrade.
+
 ## [1.13.3] - 2026-04-22
 
 ### Fixed
