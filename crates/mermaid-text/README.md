@@ -322,7 +322,7 @@ The mapping used: `─ ━ ┄` → `-`, `│ ┃ ┆` → `|`, all corners/junc
 
 ### State machine
 
-```
+```mermaid
 graph TD
     Idle -->|event| Running
     Running -->|done| Done
@@ -353,7 +353,7 @@ graph TD
 
 ### Supervisor pattern
 
-```
+```mermaid
 graph LR
     subgraph Supervisor
         direction TB
@@ -366,7 +366,7 @@ graph LR
 
 ### CI/CD pipeline with edge styles
 
-```
+```mermaid
 graph LR
     subgraph CI
         L[Lint] ==> B[Build] ==> T[Test]
@@ -379,7 +379,7 @@ graph LR
 
 ### Dependency graph
 
-```
+```mermaid
 graph LR
     App --> DB[(PostgreSQL)]
     App --> Cache[(Redis)]
@@ -390,7 +390,7 @@ graph LR
 
 ### Sequence diagram (autonumber + activations + alt)
 
-```
+```mermaid
 sequenceDiagram
     autonumber
     participant U as User
@@ -432,7 +432,7 @@ for one example of each.
 
 ### Pie chart
 
-```
+```mermaid
 pie showData title Pet Counts
     "Dogs" : 386
     "Cats" : 85
