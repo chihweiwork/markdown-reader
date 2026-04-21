@@ -5,6 +5,24 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] - 2026-04-22
+
+### Changed
+
+- **Long-edge routing in flowchart and state diagrams** (via
+  `mermaid-text` 0.10.0). Edges spanning more than one layer now
+  get per-intermediate-layer waypoints, giving them a near-
+  straight channel through the layout instead of detouring
+  around intervening nodes. Phase A.1 of the layered-layout
+  improvements series; Phases A.2 (Brandes-Köpf compaction) and
+  A.3 (median + transpose crossing min) ship in subsequent
+  `mermaid-text` 0.10.x releases.
+- **Source-breaking for external consumers of `mermaid-text`**:
+  `layered::layout` now returns `LayoutResult` instead of a
+  position `HashMap`; `render::render` gains a fourth parameter
+  for waypoints. No surface-level changes in markdown-reader
+  itself — bumped to 1.12.0 to reflect the dep's minor bump.
+
 ## [1.11.7] - 2026-04-22
 
 ### Changed

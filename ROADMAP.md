@@ -339,6 +339,17 @@ defer until someone files a real use case.
 
 ## Done since 1.7.1 (recent history — see CHANGELOGs for detail)
 
+- **0.10.0**: long-edge waypoint routing (Phase A.1 of the
+  layered-layout improvements series). Edges spanning >1 layer
+  now thread through per-layer waypoints anchored on each
+  intermediate layer's spine, with row/column snapped off
+  real-node ranges. Marginal-but-clean visual win on dense
+  graphs; sets up Phase A.2 (Brandes-Köpf coordinate assignment,
+  due 0.10.1) for the bigger compaction win. Source-breaking:
+  `layered::layout` now returns `LayoutResult`; `render::render`
+  gains a `&[EdgeWaypoints]` parameter.
+
+
 - **0.9.4**: `pie` chart support — first new diagram type since
   `sequenceDiagram` in 0.9.0. Accepts the standard `pie [showData]
   [title <text>]` header plus `"label" : value` slice lines.

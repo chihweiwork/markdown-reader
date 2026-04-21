@@ -259,6 +259,64 @@ fn entry_point_back_edge(pos: GridPos, geom: NodeGeom, dir: Direction) -> Attach
 /// For LR/RL: the edge enters from below the target node, so the tip points UP.
 /// For TD/BT: the edge enters from the right of the target node, so the tip
 /// points LEFT.
+/// Route a long edge through the supplied waypoints as a chain of
+/// short A* segments. Each segment is `route_edge` from the previous
+/// position to the next waypoint, with the arrowhead suppressed for
+/// internal segments and stamped only at the final endpoint.
+///
+/// Returns the concatenated path (excluding duplicated endpoints) so
+/// the caller can do label placement and tip post-processing the same
+/// way as a single-call route. Returns `None` if any segment fails
+/// to route (lets the caller fall back to a normal `route_edge` call).
+fn route_via_waypoints(
+    grid: &mut Grid,
+    src: Attach,
+    dst: Attach,
+    waypoints: &[GridPos],
+    horizontal_first: bool,
+    fwd_tip: char,
+) -> Option<Vec<(usize, usize)>> {
+    if waypoints.is_empty() {
+        return grid.route_edge(src.col, src.row, dst.col, dst.row, horizontal_first, fwd_tip);
+    }
+
+    // Internal segments use a path-glyph as their "tip" so they
+    // visually merge into the next segment instead of leaving a stray
+    // arrowhead at every dummy. Keep the real tip for the final hop.
+    let internal_tip = if horizontal_first { '─' } else { '│' };
+
+    // First segment: src → first waypoint.
+    let mut combined: Vec<(usize, usize)> = Vec::new();
+    let (mut cur_col, mut cur_row) = (src.col, src.row);
+    for (wp_col, wp_row) in waypoints {
+        let seg = grid.route_edge(
+            cur_col,
+            cur_row,
+            *wp_col,
+            *wp_row,
+            horizontal_first,
+            internal_tip,
+        )?;
+        // Drop the duplicated endpoint when chaining segments together.
+        if combined.is_empty() {
+            combined.extend_from_slice(&seg);
+        } else if let Some((_, rest)) = seg.split_first() {
+            combined.extend_from_slice(rest);
+        }
+        // Unprotect the waypoint cell so the next segment can route
+        // through it cleanly (otherwise the path-glyph "tip" sits
+        // with protection and the next segment sees an obstacle).
+        grid.unprotect_cell(*wp_col, *wp_row);
+        (cur_col, cur_row) = (*wp_col, *wp_row);
+    }
+    // Final segment: last waypoint → destination, with the real tip.
+    let seg = grid.route_edge(cur_col, cur_row, dst.col, dst.row, horizontal_first, fwd_tip)?;
+    if let Some((_, rest)) = seg.split_first() {
+        combined.extend_from_slice(rest);
+    }
+    Some(combined)
+}
+
 fn tip_char_for_back_edge(dir: Direction) -> char {
     match dir {
         Direction::LeftToRight | Direction::RightToLeft => arrow::UP,
@@ -466,8 +524,9 @@ pub fn render(
     graph: &Graph,
     positions: &HashMap<String, GridPos>,
     sg_bounds: &[SubgraphBounds],
+    edge_waypoints: &[crate::layout::layered::EdgeWaypoints],
 ) -> String {
-    render_inner(graph, positions, sg_bounds, false)
+    render_inner(graph, positions, sg_bounds, edge_waypoints, false)
 }
 
 /// Render `graph` with embedded ANSI 24-bit color SGR sequences derived from
@@ -484,14 +543,16 @@ pub fn render_color(
     graph: &Graph,
     positions: &HashMap<String, GridPos>,
     sg_bounds: &[SubgraphBounds],
+    edge_waypoints: &[crate::layout::layered::EdgeWaypoints],
 ) -> String {
-    render_inner(graph, positions, sg_bounds, true)
+    render_inner(graph, positions, sg_bounds, edge_waypoints, true)
 }
 
 fn render_inner(
     graph: &Graph,
     positions: &HashMap<String, GridPos>,
     sg_bounds: &[SubgraphBounds],
+    edge_waypoints: &[crate::layout::layered::EdgeWaypoints],
     with_color: bool,
 ) -> String {
     // Pre-compute geometry for every node
@@ -617,14 +678,37 @@ fn render_inner(
             tip_char(graph.direction)
         };
         let horizontal_first = graph.direction.is_horizontal();
-        let path = grid.route_edge(
-            src.col,
-            src.row,
-            dst.col,
-            dst.row,
-            horizontal_first,
-            fwd_tip,
-        );
+
+        // Long-edge routing via waypoints: if this edge has dummy-node
+        // waypoints from the layout pass, route as a chain of short
+        // segments through them. Each segment gets its own A* call so
+        // long edges thread cleanly through reserved channels instead
+        // of forcing the router to detour around real nodes in the
+        // intermediate layers. Forward-edges only — back-edges still
+        // use the perimeter route (waypoints aren't generated for
+        // those upstream).
+        let waypoints = (!edge_is_back)
+            .then(|| edge_waypoints.iter().find(|w| w.edge_idx == edge_idx))
+            .flatten();
+        let path = if let Some(waypoints) = waypoints {
+            route_via_waypoints(
+                &mut grid,
+                src,
+                dst,
+                &waypoints.waypoints,
+                horizontal_first,
+                fwd_tip,
+            )
+        } else {
+            grid.route_edge(
+                src.col,
+                src.row,
+                dst.col,
+                dst.row,
+                horizontal_first,
+                fwd_tip,
+            )
+        };
 
         // Post-process the destination tip cell for non-arrow endpoints.
         //
@@ -1656,9 +1740,12 @@ mod tests {
 
     fn render_diagram(src: &str) -> String {
         let graph = parser::parse(src).unwrap();
-        let positions = layout(&graph, &LayoutConfig::default());
+        let crate::layout::layered::LayoutResult {
+            positions,
+            edge_waypoints,
+        } = layout(&graph, &LayoutConfig::default());
         let sg_bounds = crate::layout::subgraph::compute_subgraph_bounds(&graph, &positions);
-        render(&graph, &positions, &sg_bounds)
+        render(&graph, &positions, &sg_bounds, &edge_waypoints)
     }
 
     #[test]

@@ -3,6 +3,62 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.10.0 — 2026-04-22
+
+### Added
+
+- **Long-edge waypoint routing** (Phase A.1 of the layered-layout
+  improvements series). Edges that span more than one layer in a
+  flowchart or state diagram now get per-layer waypoints anchored
+  on each intermediate layer's spine, with the perpendicular axis
+  (row in LR/RL, column in TD/BT) interpolated between source and
+  target and snapped off any real-node row range so the waypoint
+  sits in clear space. The edge router segments through these
+  waypoints as a chain of short A* runs, giving long edges a
+  near-straight channel rather than a detour around intervening
+  real nodes.
+- **`LayoutResult` struct** as the new `layered::layout` return
+  type, carrying both `positions` (the existing per-node grid
+  coordinates) and `edge_waypoints` (the new per-long-edge
+  waypoint trails). Old callers that destructured the position
+  map directly need to swap to `result.positions`.
+- **`Grid::set_unless_protected`** complemented by a new public
+  `route_via_waypoints` helper in the renderer — the segment-by-
+  segment chain builder.
+- 5 new unit tests covering: short edges produce no waypoints,
+  long edges produce one waypoint per intermediate layer,
+  back-edges are skipped (they use perimeter routing),
+  `nearest_clear` snap behaviour at edges and ties.
+
+### Changed
+
+- **Public API**: `layered::layout` now returns `LayoutResult`
+  instead of `HashMap<String, GridPos>`. `render::render` /
+  `render::render_color` gain a fourth parameter
+  `&[EdgeWaypoints]`. **Source-breaking** for any external
+  consumer; the only known consumer (`markdown-tui-explorer`)
+  ships in lockstep at 1.12.0.
+- **Refactored** `order_within_layers` and `count_crossings` to
+  take an explicit `&[(String, String)]` edge list instead of
+  reaching into `graph.edges`. Cleaner separation of concerns and
+  paves the way for Phase A.2's barycenter-with-dummies pass.
+
+### Notes
+
+- This is a **0.10.0 minor** because the public layout / render
+  signatures changed.
+- 3 state-diagram snapshots updated with minor edge-routing
+  re-routings (single-character changes, all marginal).
+- The visible win is incremental: the dependency-graph gallery
+  example's `App→PostgreSQL` long edge now threads through the
+  layer columns instead of detouring around the bottom. Phase A.2
+  (Brandes-Köpf coordinate assignment) and Phase A.3 (median +
+  transpose crossing-min passes) ship in 0.10.x follow-ups and
+  will deliver the bigger compaction win.
+- Honest scope: this fix addresses the *channel-reservation*
+  half of long-edge handling. The full sugiyama benefit needs
+  the upcoming Brandes-Köpf compaction.
+
 ## 0.9.7 — 2026-04-22
 
 ### Changed

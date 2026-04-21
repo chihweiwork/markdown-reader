@@ -78,6 +78,34 @@ impl Default for LayoutConfig {
 /// Character-grid position of a node's top-left corner.
 pub type GridPos = (usize, usize); // (col, row)
 
+/// Per-edge waypoint trail through the intermediate layers between
+/// source and target. Used by the renderer to route long edges as a
+/// chain of straight segments rather than a single A* pathfinding run
+/// that has to detour around intervening real nodes.
+///
+/// Each waypoint sits at a chosen `(col, row)` cell — the layout pass
+/// anchors them on each intermediate layer's spine, interpolated
+/// between source and target along the perpendicular axis. The
+/// renderer routes A* segments through these cells.
+#[derive(Debug, Clone)]
+pub struct EdgeWaypoints {
+    /// Index into the original `Graph::edges`.
+    pub edge_idx: usize,
+    /// Ordered intermediate positions, one per dummy node, source-to-target.
+    pub waypoints: Vec<GridPos>,
+}
+
+/// Output of [`layout`]. Holds real-node positions plus per-edge
+/// waypoint trails for any edge that spans more than one layer.
+#[derive(Debug, Clone, Default)]
+pub struct LayoutResult {
+    /// Top-left `(col, row)` of every real node. Excludes dummies.
+    pub positions: HashMap<String, GridPos>,
+    /// Waypoints for long edges, keyed by edge index. Empty for graphs
+    /// where no edge spans more than one layer.
+    pub edge_waypoints: Vec<EdgeWaypoints>,
+}
+
 /// Compute character-grid positions for every node in `graph`.
 ///
 /// Implements a three-step Sugiyama-inspired layered layout:
@@ -109,23 +137,224 @@ pub type GridPos = (usize, usize); // (col, row)
 /// g.nodes.push(Node::new("B", "B", NodeShape::Rectangle));
 /// g.edges.push(Edge::new("A", "B", None));
 ///
-/// let positions = layout(&g, &LayoutConfig::default());
+/// let positions = layout(&g, &LayoutConfig::default()).positions;
 /// // In LR layout, A is to the left of B.
 /// assert!(positions["A"].0 < positions["B"].0);
 /// ```
-pub fn layout(graph: &Graph, config: &LayoutConfig) -> HashMap<String, GridPos> {
+pub fn layout(graph: &Graph, config: &LayoutConfig) -> LayoutResult {
     if graph.nodes.is_empty() {
-        return HashMap::new();
+        return LayoutResult::default();
     }
 
-    // 1. Assign layers
+    // 1. Assign layers.
     let layers = assign_layers(graph);
 
-    // 2. Group nodes into per-layer lists and sort them by barycenter
-    let ordered = order_within_layers(graph, &layers);
+    // 2. Build edge-tuple list once for ordering / crossing-min.
+    //    (No dummy augmentation — see Phase A.2 for the planned
+    //    barycenter-with-dummies upgrade once Brandes-Köpf coordinate
+    //    assignment is in place to keep the rendering compact.)
+    let edges: Vec<(String, String)> = graph
+        .edges
+        .iter()
+        .map(|e| (e.from.clone(), e.to.clone()))
+        .collect();
 
-    // 3. Convert to grid coordinates
-    compute_positions(graph, &ordered, config)
+    // 3. Group nodes into per-layer lists and sort by barycenter.
+    let ordered = order_within_layers(graph, &layers, &edges);
+
+    // 4. Convert to grid coordinates.
+    let positions = compute_positions(graph, &ordered, config);
+
+    // 5. Compute long-edge waypoints — one per intermediate layer for
+    //    each edge spanning >1 layer. Each waypoint lands at the
+    //    source node's row inside the intermediate layer's column,
+    //    giving the router a near-straight channel hint without
+    //    moving any real-node positions. The router segments through
+    //    these waypoints (see `route_via_waypoints` in render/unicode.rs).
+    let edge_waypoints = compute_edge_waypoints(graph, &layers, &positions);
+
+    LayoutResult {
+        positions,
+        edge_waypoints,
+    }
+}
+
+/// Compute waypoint trails for every edge whose endpoints span more
+/// than one layer. Each waypoint sits in the *intermediate* layer's
+/// column (LR/RL) or row (TD/BT) at a position picked to clear all
+/// real nodes in that layer, biased toward the straight line from
+/// source to target.
+///
+/// Skips back-edges (`layer(to) <= layer(from)`) — those use the
+/// dedicated perimeter-routing pass — and self-edges (which never
+/// span layers in the first place).
+fn compute_edge_waypoints(
+    graph: &Graph,
+    layers: &HashMap<String, usize>,
+    positions: &HashMap<String, GridPos>,
+) -> Vec<EdgeWaypoints> {
+    // Per-layer "spine" position (col for LR/RL, row for TD/BT) and
+    // the perpendicular range (row span for LR/RL, col span for TD/BT)
+    // occupied by real nodes in that layer.
+    let layer_anchor = layer_axis_anchors(graph, layers, positions);
+    let layer_occupied = layer_perpendicular_ranges(graph, layers, positions);
+
+    let mut out: Vec<EdgeWaypoints> = Vec::new();
+    for (edge_idx, edge) in graph.edges.iter().enumerate() {
+        let (Some(&from_layer), Some(&to_layer)) =
+            (layers.get(&edge.from), layers.get(&edge.to))
+        else {
+            continue;
+        };
+        if to_layer <= from_layer + 1 {
+            continue; // short edge or back-edge — no waypoints
+        }
+        let (Some(&src), Some(&tgt)) = (positions.get(&edge.from), positions.get(&edge.to))
+        else {
+            continue;
+        };
+
+        let span = to_layer - from_layer;
+        let mut waypoints = Vec::with_capacity(span - 1);
+        for slot in 0..(span - 1) {
+            let intermediate_layer = from_layer + 1 + slot;
+            let Some(&anchor) = layer_anchor.get(&intermediate_layer) else {
+                continue;
+            };
+            let occupied = layer_occupied
+                .get(&intermediate_layer)
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+
+            // Ideal perpendicular position: linearly interpolate
+            // between source and target so the chain forms a
+            // straight-ish diagonal. Then snap *off* any real-node
+            // row/column range so the waypoint sits in clear space —
+            // otherwise the segment-by-segment router would have to
+            // pierce through a real node to reach it.
+            let frac = (slot + 1) as f64 / span as f64;
+            let waypoint = match graph.direction {
+                Direction::LeftToRight | Direction::RightToLeft => {
+                    let ideal_row = interpolate(src.1, tgt.1, frac);
+                    let row = nearest_clear(ideal_row, occupied);
+                    (anchor, row)
+                }
+                Direction::TopToBottom | Direction::BottomToTop => {
+                    let ideal_col = interpolate(src.0, tgt.0, frac);
+                    let col = nearest_clear(ideal_col, occupied);
+                    (col, anchor)
+                }
+            };
+            waypoints.push(waypoint);
+        }
+        if !waypoints.is_empty() {
+            out.push(EdgeWaypoints {
+                edge_idx,
+                waypoints,
+            });
+        }
+    }
+    out
+}
+
+/// For each layer, the position along the flow axis (column for LR/RL,
+/// row for TD/BT) shared by every node in that layer. This is the
+/// "spine" of the layer — long-edge waypoints anchor here.
+fn layer_axis_anchors(
+    graph: &Graph,
+    layers: &HashMap<String, usize>,
+    positions: &HashMap<String, GridPos>,
+) -> HashMap<usize, usize> {
+    let mut out: HashMap<usize, usize> = HashMap::new();
+    for (id, &layer) in layers {
+        let Some(&pos) = positions.get(id) else {
+            continue;
+        };
+        // Anchor at the *centre* of the box on the flow axis so the
+        // waypoint lines up with the lifeline-equivalent rather than
+        // the box's left/top edge.
+        let (anchor, half_size) = match graph.direction {
+            Direction::LeftToRight | Direction::RightToLeft => {
+                (pos.0, node_box_width(graph, id) / 2)
+            }
+            Direction::TopToBottom | Direction::BottomToTop => {
+                (pos.1, node_box_height(graph, id) / 2)
+            }
+        };
+        out.entry(layer).or_insert(anchor + half_size);
+    }
+    out
+}
+
+/// For each layer, the inclusive `(start, end)` ranges occupied by
+/// real nodes along the perpendicular axis (rows for LR/RL,
+/// columns for TD/BT). Waypoints snap *off* these ranges to avoid
+/// piercing real boxes.
+fn layer_perpendicular_ranges(
+    graph: &Graph,
+    layers: &HashMap<String, usize>,
+    positions: &HashMap<String, GridPos>,
+) -> HashMap<usize, Vec<(usize, usize)>> {
+    let mut out: HashMap<usize, Vec<(usize, usize)>> = HashMap::new();
+    for (id, &layer) in layers {
+        let Some(&pos) = positions.get(id) else {
+            continue;
+        };
+        let (start, size) = match graph.direction {
+            Direction::LeftToRight | Direction::RightToLeft => (pos.1, node_box_height(graph, id)),
+            Direction::TopToBottom | Direction::BottomToTop => (pos.0, node_box_width(graph, id)),
+        };
+        if size == 0 {
+            continue;
+        }
+        out.entry(layer).or_default().push((start, start + size - 1));
+    }
+    out
+}
+
+/// Snap `target` to the nearest position outside every `(start, end)`
+/// range in `occupied` (inclusive). If `target` is already clear,
+/// returns it unchanged. When `target` overlaps a range we pick the
+/// closer of the two boundaries (`start - 1` if it exists, or
+/// `end + 1`); ties go DOWN so waypoints prefer the row below
+/// intervening boxes — reads naturally and keeps the path away from
+/// the canvas top edge. Iterates until clear of every range —
+/// bounded by `occupied.len() + 2` passes (each pass either escapes
+/// the current range or moves us monotonically further).
+fn nearest_clear(target: usize, occupied: &[(usize, usize)]) -> usize {
+    let mut current = target;
+    let max_passes = occupied.len() + 2;
+    for _ in 0..max_passes {
+        let mut moved = false;
+        for &(start, end) in occupied {
+            if current < start || current > end {
+                continue;
+            }
+            // Distance to escape upward (must have room above the
+            // range) vs downward. If the range hugs the top edge
+            // (`start == 0`), upward isn't an option — push down.
+            let up_target = start.checked_sub(1);
+            let down_target = end + 1;
+            current = match up_target {
+                Some(up) if (current - up) < (down_target - current) => up,
+                Some(_) | None => down_target,
+            };
+            moved = true;
+        }
+        if !moved {
+            return current;
+        }
+    }
+    current
+}
+
+/// Linear interpolation between two `usize` positions, rounded to
+/// the nearest integer cell. `frac` is clamped to `[0.0, 1.0]`.
+fn interpolate(a: usize, b: usize, frac: f64) -> usize {
+    let frac = frac.clamp(0.0, 1.0);
+    let af = a as f64;
+    let bf = b as f64;
+    (af + (bf - af) * frac).round() as usize
 }
 
 // ---------------------------------------------------------------------------
@@ -312,30 +541,41 @@ fn assign_layers(graph: &Graph) -> HashMap<String, usize> {
 /// alternating forward/backward sweeps for up to `MAX_PASSES` iterations,
 /// keeping the ordering with the fewest edge crossings ever observed, and
 /// exiting early after `NO_IMPROVEMENT_CAP` consecutive non-improving passes.
-fn order_within_layers(graph: &Graph, layers: &HashMap<String, usize>) -> Vec<Vec<String>> {
+fn order_within_layers(
+    graph: &Graph,
+    layers: &HashMap<String, usize>,
+    edges: &[(String, String)],
+) -> Vec<Vec<String>> {
     // Find max layer
     let max_layer = layers.values().copied().max().unwrap_or(0);
     let num_layers = max_layer + 1;
 
-    // Bucket nodes into layers (preserve declaration order as initial order)
+    // Bucket nodes into layers (preserve declaration order as initial
+    // order). Edges are passed in via `edges` so the barycenter pass
+    // doesn't have to reach into `graph.edges` directly — keeps the
+    // signature open to future augmented-edge schemes.
     let mut buckets: Vec<Vec<String>> = vec![Vec::new(); num_layers];
     for node in &graph.nodes {
-        let l = layers[&node.id];
-        buckets[l].push(node.id.clone());
+        if let Some(&l) = layers.get(&node.id) {
+            buckets[l].push(node.id.clone());
+        }
     }
 
-    // Build successor/predecessor maps for barycenter computation.
+    // Build successor/predecessor maps for barycenter computation —
+    // from the augmented edge list (long edges replaced by dummy
+    // chains), so dummies receive barycenter "pull" from their owning
+    // edge's source and target and naturally form a straight column.
     let mut successors: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut predecessors: HashMap<&str, Vec<&str>> = HashMap::new();
-    for edge in &graph.edges {
+    for (from, to) in edges {
         successors
-            .entry(edge.from.as_str())
+            .entry(from.as_str())
             .or_default()
-            .push(edge.to.as_str());
+            .push(to.as_str());
         predecessors
-            .entry(edge.to.as_str())
+            .entry(to.as_str())
             .or_default()
-            .push(edge.from.as_str());
+            .push(from.as_str());
     }
 
     // Per-node layer lookup for the crossing counter. Borrows from `layers`
@@ -350,14 +590,14 @@ fn order_within_layers(graph: &Graph, layers: &HashMap<String, usize>) -> Vec<Ve
     const NO_IMPROVEMENT_CAP: usize = 4;
 
     let mut best = buckets.clone();
-    let mut best_crossings = count_crossings(graph, &node_layer, &best);
+    let mut best_crossings = count_crossings(edges, &node_layer, &best);
     let mut no_improvement = 0usize;
 
     for _ in 0..MAX_PASSES {
         sort_by_barycenter(&mut buckets, &predecessors, SweepDirection::Forward);
         sort_by_barycenter(&mut buckets, &successors, SweepDirection::Backward);
 
-        let c = count_crossings(graph, &node_layer, &buckets);
+        let c = count_crossings(edges, &node_layer, &buckets);
         if c < best_crossings {
             best = buckets.clone();
             best_crossings = c;
@@ -527,7 +767,7 @@ fn sort_by_barycenter(
 /// This is the classic inversion test; O(E²) per gap, which is fine for the
 /// small graphs this crate targets.
 fn count_crossings(
-    graph: &Graph,
+    edges: &[(String, String)],
     node_layer: &HashMap<&str, usize>,
     buckets: &[Vec<String>],
 ) -> usize {
@@ -542,14 +782,13 @@ fn count_crossings(
     // Group edges by the ordered (from_layer, to_layer) gap they cross.
     // Edges that stay within a single layer or that skip layers still "count"
     // here because they still produce visual crossings at the rendered gap.
-    let edges_with_gaps: Vec<(usize, usize, usize, usize)> = graph
-        .edges
+    let edges_with_gaps: Vec<(usize, usize, usize, usize)> = edges
         .iter()
-        .filter_map(|e| {
-            let fl = *node_layer.get(e.from.as_str())?;
-            let tl = *node_layer.get(e.to.as_str())?;
-            let fr = *rank.get(e.from.as_str())?;
-            let tr = *rank.get(e.to.as_str())?;
+        .filter_map(|(from, to)| {
+            let fl = *node_layer.get(from.as_str())?;
+            let tl = *node_layer.get(to.as_str())?;
+            let fr = *rank.get(from.as_str())?;
+            let tr = *rank.get(to.as_str())?;
             Some((fl, tl, fr, tr))
         })
         .collect();
@@ -966,7 +1205,7 @@ mod tests {
     fn lr_nodes_have_increasing_columns() {
         let g = simple_lr_graph();
         let cfg = LayoutConfig::default();
-        let pos = layout(&g, &cfg);
+        let pos = layout(&g, &cfg).positions;
         assert!(pos["A"].0 < pos["B"].0);
         assert!(pos["B"].0 < pos["C"].0);
     }
@@ -979,7 +1218,7 @@ mod tests {
         g.edges.push(Edge::new("A", "B", None));
 
         let cfg = LayoutConfig::default();
-        let pos = layout(&g, &cfg);
+        let pos = layout(&g, &cfg).positions;
         assert!(pos["A"].1 < pos["B"].1);
     }
 
@@ -992,7 +1231,7 @@ mod tests {
         g.edges.push(Edge::new("B", "A", None));
 
         let cfg = LayoutConfig::default();
-        let pos = layout(&g, &cfg);
+        let pos = layout(&g, &cfg).positions;
         assert_eq!(pos.len(), 2);
     }
 
@@ -1002,7 +1241,105 @@ mod tests {
         g.nodes.push(Node::new("A", "Alone", NodeShape::Rectangle));
 
         let cfg = LayoutConfig::default();
-        let pos = layout(&g, &cfg);
+        let pos = layout(&g, &cfg).positions;
         assert_eq!(pos["A"], (0, 0));
+    }
+
+    // ---- Long-edge waypoints (Phase A.1) -------------------------------
+
+    #[test]
+    fn short_edges_get_no_waypoints() {
+        // A -> B (1-layer span) needs no waypoints — the direct router
+        // path is already straight.
+        let g = simple_lr_graph();
+        let result = layout(&g, &LayoutConfig::default());
+        assert!(result.edge_waypoints.is_empty());
+    }
+
+    #[test]
+    fn long_edge_gets_waypoint_per_intermediate_layer() {
+        // A -> B -> C -> D plus A -> D (a long edge spanning 3 layers).
+        // Should produce 2 waypoints for the long edge — one in B's
+        // layer, one in C's layer — anchored to those layer columns.
+        let mut g = Graph::new(Direction::LeftToRight);
+        g.nodes.push(Node::new("A", "A", NodeShape::Rectangle));
+        g.nodes.push(Node::new("B", "B", NodeShape::Rectangle));
+        g.nodes.push(Node::new("C", "C", NodeShape::Rectangle));
+        g.nodes.push(Node::new("D", "D", NodeShape::Rectangle));
+        g.edges.push(Edge::new("A", "B", None));
+        g.edges.push(Edge::new("B", "C", None));
+        g.edges.push(Edge::new("C", "D", None));
+        g.edges.push(Edge::new("A", "D", None));
+
+        let result = layout(&g, &LayoutConfig::default());
+        // The long A→D edge is index 3; the three short edges produce
+        // no waypoints (single-layer span).
+        assert_eq!(result.edge_waypoints.len(), 1);
+        let w = &result.edge_waypoints[0];
+        assert_eq!(w.edge_idx, 3);
+        assert_eq!(w.waypoints.len(), 2, "two intermediate layers (B and C)");
+        // Both waypoints sit in the same row range, since A and D are
+        // in the same row (single-layer chain). The waypoint row must
+        // not pierce any real-node row range — `nearest_clear` snaps
+        // it off the box.
+        let pos_b = result.positions["B"];
+        let h_b = node_box_height(&g, "B");
+        let row_inside_b = (pos_b.1)..(pos_b.1 + h_b);
+        assert!(
+            !row_inside_b.contains(&w.waypoints[0].1),
+            "waypoint row {} should not be inside B's row range {row_inside_b:?}",
+            w.waypoints[0].1
+        );
+    }
+
+    #[test]
+    fn back_edges_get_no_waypoints() {
+        // A -> B -> C plus C -> A. The back-edge has layer(C) > layer(A)
+        // so technically spans more layers, but we filter out any edge
+        // where to-layer <= from-layer + 1 in the FORWARD direction.
+        // Here C is at layer 2, A is at layer 0 — to_layer (0) is NOT
+        // > from_layer (2) + 1, so the filter catches it.
+        let mut g = Graph::new(Direction::LeftToRight);
+        g.nodes.push(Node::new("A", "A", NodeShape::Rectangle));
+        g.nodes.push(Node::new("B", "B", NodeShape::Rectangle));
+        g.nodes.push(Node::new("C", "C", NodeShape::Rectangle));
+        g.edges.push(Edge::new("A", "B", None));
+        g.edges.push(Edge::new("B", "C", None));
+        g.edges.push(Edge::new("C", "A", None));
+
+        let result = layout(&g, &LayoutConfig::default());
+        // No long forward edges → no waypoints (back-edge handled by
+        // the perimeter routing pass).
+        assert!(result.edge_waypoints.is_empty());
+    }
+
+    #[test]
+    fn nearest_clear_no_overlap_returns_target() {
+        assert_eq!(nearest_clear(5, &[(10, 12)]), 5);
+        assert_eq!(nearest_clear(20, &[(10, 12)]), 20);
+        assert_eq!(nearest_clear(5, &[]), 5);
+    }
+
+    #[test]
+    fn nearest_clear_snaps_off_overlap_to_closer_boundary() {
+        // Target 11 in (10, 12): up dist 2, down dist 2 → tie goes
+        // down (`13`) by design (see helper docs).
+        assert_eq!(nearest_clear(11, &[(10, 12)]), 13);
+        // Target 12 at the upper edge — clearly closer to 13 (down).
+        assert_eq!(nearest_clear(12, &[(10, 12)]), 13);
+        // Target 10 at the lower edge — clearly closer to 9 (up).
+        assert_eq!(nearest_clear(10, &[(10, 12)]), 9);
+    }
+
+    #[test]
+    fn nearest_clear_top_edge_pushes_down() {
+        // Range starts at 0 → no room above. Must push down.
+        assert_eq!(nearest_clear(1, &[(0, 4)]), 5);
+    }
+
+    #[test]
+    fn nearest_clear_handles_consecutive_ranges() {
+        // Two adjacent ranges: target snaps into the gap.
+        assert_eq!(nearest_clear(1, &[(0, 2), (4, 6)]), 3);
     }
 }

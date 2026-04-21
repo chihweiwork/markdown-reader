@@ -589,70 +589,74 @@ fn render_with_config_color(
     config: &LayoutConfig,
     with_color: bool,
 ) -> String {
-    let mut positions = layout::layered::layout(graph, config);
+    let layout::layered::LayoutResult {
+        mut positions,
+        mut edge_waypoints,
+    } = layout::layered::layout(graph, config);
 
     if !graph.subgraphs.is_empty() {
-        offset_positions_for_subgraphs(graph, &mut positions);
+        let (col_offset, row_offset) = subgraph_position_offset(graph, &positions);
+        if col_offset != 0 || row_offset != 0 {
+            for (col, row) in positions.values_mut() {
+                *col += col_offset;
+                *row += row_offset;
+            }
+            for waypoints in &mut edge_waypoints {
+                for (col, row) in &mut waypoints.waypoints {
+                    *col += col_offset;
+                    *row += row_offset;
+                }
+            }
+        }
     }
 
     let sg_bounds = layout::subgraph::compute_subgraph_bounds(graph, &positions);
     if with_color {
-        render::render_color(graph, &positions, &sg_bounds)
+        render::render_color(graph, &positions, &sg_bounds, &edge_waypoints)
     } else {
-        render::render(graph, &positions, &sg_bounds)
+        render::render(graph, &positions, &sg_bounds, &edge_waypoints)
     }
 }
 
-/// Shift all node positions so that the innermost subgraph members have
-/// enough space above and to the left for all enclosing subgraph borders.
+/// Compute the `(col_offset, row_offset)` shift that needs to be applied
+/// to every node position so that the innermost subgraph members have
+/// enough space above and to the left for all enclosing subgraph
+/// borders.
 ///
 /// Each nesting level needs `SG_BORDER_PAD` cells of breathing room.
-/// For a node at depth `d` (inside `d` nested subgraphs), we need at least
-/// `SG_BORDER_PAD * (d + 1)` free rows/cols before the node's top-left corner
-/// so that every enclosing border can be drawn without `saturating_sub`
-/// clipping to 0.
-fn offset_positions_for_subgraphs(
+/// For a node at depth `d` (inside `d` nested subgraphs), we need at
+/// least `SG_BORDER_PAD * (d + 1)` free rows/cols before the node's
+/// top-left corner so that every enclosing border can be drawn without
+/// `saturating_sub` clipping to 0.
+///
+/// Pure (read-only) so the caller can apply the same shift uniformly
+/// to both node positions AND long-edge waypoints — they need to move
+/// together so waypoints stay aligned with the nodes they pass between.
+fn subgraph_position_offset(
     graph: &crate::types::Graph,
-    positions: &mut std::collections::HashMap<String, (usize, usize)>,
-) {
+    positions: &std::collections::HashMap<String, (usize, usize)>,
+) -> (usize, usize) {
     use layout::subgraph::SG_BORDER_PAD;
 
-    // Build node → nesting depth (how many subgraphs enclose it).
     let node_sg_map = graph.node_to_subgraph();
     let max_depth = compute_max_nesting_depth(graph);
-
-    // The innermost nodes need `SG_BORDER_PAD * (max_depth + 1)` free space.
-    // Nodes outside subgraphs need 0 padding.
     let required_pad = SG_BORDER_PAD * (max_depth + 1);
 
-    // Find the minimum col and row across all nodes that are inside at least
-    // one subgraph.
     let mut min_col = usize::MAX;
     let mut min_row = usize::MAX;
-
     for (node_id, &(col, row)) in positions.iter() {
         if node_sg_map.contains_key(node_id) {
             min_col = min_col.min(col);
             min_row = min_row.min(row);
         }
     }
-
     if min_col == usize::MAX {
-        return; // no subgraph members in positions
+        return (0, 0);
     }
-
-    let col_offset = required_pad.saturating_sub(min_col);
-    let row_offset = required_pad.saturating_sub(min_row);
-
-    if col_offset == 0 && row_offset == 0 {
-        return;
-    }
-
-    // Shift every node (not just subgraph members) so the grid remains consistent.
-    for (col, row) in positions.values_mut() {
-        *col += col_offset;
-        *row += row_offset;
-    }
+    (
+        required_pad.saturating_sub(min_col),
+        required_pad.saturating_sub(min_row),
+    )
 }
 
 /// Compute the maximum nesting depth of any subgraph in the graph.
