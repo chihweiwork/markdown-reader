@@ -280,11 +280,16 @@ impl MdRenderer {
                 source_lines.len(),
                 lines.len(),
             );
+            // visual_height starts at the logical line count — a no-wrap
+            // safe upper bound. update_text_visual_heights replaces it with
+            // the true wrapped count once the layout width is known.
+            let logical_count = crate::cast::u32_sat(lines.len());
             self.blocks.push(DocBlock::Text {
                 text: Text::from(lines),
                 links,
                 heading_anchors,
                 source_lines,
+                visual_height: Cell::new(logical_count),
             });
         }
     }

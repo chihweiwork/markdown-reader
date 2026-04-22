@@ -99,20 +99,30 @@ pub fn collect_match_lines(
     table_layouts: &HashMap<crate::markdown::TableBlockId, TableLayout>,
     mermaid_cache: &MermaidCache,
     query_lower: &str,
+    content_width: u16,
 ) -> Vec<u32> {
+    use crate::ui::markdown_view::visual_rows::line_visual_rows;
     let mut matches = Vec::new();
     let mut offset = 0u32;
 
     for block in blocks {
         match block {
             DocBlock::Text { text, .. } => {
-                for (i, line) in text.lines.iter().enumerate() {
+                // Track visual row offsets per logical line so a match's
+                // recorded line index matches `cursor_line` / `scroll_offset`
+                // (both in visual rows). Without this, jumping to a search
+                // match in a document with wrapped paragraphs lands the
+                // cursor on the wrong row by `Σ wraps_before_match - 1`.
+                let mut visual_in_block = 0u32;
+                for line in &text.lines {
                     let line_text: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
                     if line_text.to_lowercase().contains(query_lower) {
-                        matches.push(offset + u32_sat(i));
+                        matches.push(offset + visual_in_block);
                     }
+                    visual_in_block =
+                        visual_in_block.saturating_add(line_visual_rows(line, content_width));
                 }
-                offset += u32_sat(text.lines.len());
+                offset += block.height();
             }
             DocBlock::Table(table) => {
                 if let Some(layout) = table_layouts.get(&table.id) {

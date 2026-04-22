@@ -1,5 +1,5 @@
 use crate::markdown::DocBlock;
-use ratatui::text::Line;
+use ratatui::text::{Line, Text};
 use unicode_width::UnicodeWidthStr;
 
 /// Compute the number of terminal rows a single rendered `Line` occupies when
@@ -106,4 +106,35 @@ pub fn visual_row_to_logical_line(
 
     // Fell off the end — return a value that won't match any link.
     u32::MAX
+}
+
+/// Map a visual row inside a `Text` block to the logical-line index it
+/// corresponds to.
+///
+/// Returns `text.lines.len()` (one past the end) if `visual_row_in_block`
+/// is past the block. Used by the draw loop to locate which logical line
+/// the cursor's visual row falls on so per-line highlights and search
+/// painting target the right span. The width-based wrap math here mirrors
+/// what `Paragraph::wrap(Wrap { trim: false })` will do at render time.
+pub fn visual_row_to_logical_in_block(text: &Text<'_>, content_width: u16, visual_row: u32) -> u32 {
+    visual_row_to_logical_in_block_lines(&text.lines, content_width, visual_row)
+}
+
+/// Same as [`visual_row_to_logical_in_block`] but takes a slice of `Line`
+/// directly so callers that already hold a `&mut [Line]` (e.g. the
+/// highlight pipeline) don't have to reconstruct a `Text` borrow.
+pub fn visual_row_to_logical_in_block_lines(
+    lines: &[Line<'_>],
+    content_width: u16,
+    visual_row: u32,
+) -> u32 {
+    let mut acc = 0u32;
+    for (i, line) in lines.iter().enumerate() {
+        let rows = line_visual_rows(line, content_width);
+        if visual_row < acc + rows {
+            return crate::cast::u32_sat(i);
+        }
+        acc += rows;
+    }
+    crate::cast::u32_sat(lines.len())
 }

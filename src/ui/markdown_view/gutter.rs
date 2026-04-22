@@ -10,8 +10,14 @@ use ratatui::{
 
 /// Render a slice of text with an absolute-line-number gutter.
 ///
-/// `first_line_number` is the 1-based absolute display line of the slice's first row;
-/// `total_doc_lines` is used to size the gutter so width is stable across blocks.
+/// `first_line_number` is the 1-based absolute display line of the slice's
+/// first row; `total_doc_lines` is used to size the gutter so width is stable
+/// across blocks. `scroll_skip` is the number of visual rows to skip from
+/// the top of `text` (matches the `scroll((scroll_skip, 0))` applied to the
+/// content paragraph). `wrap` enables ratatui's word wrap on the content
+/// pane — Tables pass `false` because their cached layout is already pre-
+/// sized to the content width.
+#[allow(clippy::too_many_arguments)]
 pub fn render_text_with_gutter(
     f: &mut Frame,
     rect: ratatui::layout::Rect,
@@ -19,6 +25,8 @@ pub fn render_text_with_gutter(
     first_line_number: u32,
     total_doc_lines: u32,
     p: &Palette,
+    scroll_skip: u16,
+    wrap: bool,
 ) {
     let num_digits = if total_doc_lines == 0 {
         4
@@ -39,6 +47,14 @@ pub fn render_text_with_gutter(
     // number on the row where the logical line starts and blank padding on
     // each continuation row, so the number stays visually adjacent to its
     // content.
+    //
+    // `first_line_number` is the absolute visual row of the first row of
+    // `text` after `scroll_skip` rows are skipped. We emit numbers tracking
+    // the source-line each logical line came from. Since logical lines map
+    // 1:1 to source lines (renderer flushes per source line via the
+    // SoftBreak fix in 1.18.3), we number each logical line sequentially —
+    // the visual continuation rows of a wrapped line get blank padding so
+    // the gutter never gets out of step with the wrapped content.
     let content_width = chunks[1].width;
     let gutter_style = Style::new().fg(p.gutter);
     let mut gutter_lines: Vec<Line<'static>> = Vec::with_capacity(text.lines.len());
@@ -61,6 +77,18 @@ pub fn render_text_with_gutter(
         }
     }
 
-    f.render_widget(Paragraph::new(Text::from(gutter_lines)), chunks[0]);
-    f.render_widget(Paragraph::new(text).wrap(Wrap { trim: false }), chunks[1]);
+    let mut gutter_para = Paragraph::new(Text::from(gutter_lines));
+    if scroll_skip > 0 {
+        gutter_para = gutter_para.scroll((scroll_skip, 0));
+    }
+    f.render_widget(gutter_para, chunks[0]);
+
+    let mut content_para = Paragraph::new(text);
+    if wrap {
+        content_para = content_para.wrap(Wrap { trim: false });
+    }
+    if scroll_skip > 0 {
+        content_para = content_para.scroll((scroll_skip, 0));
+    }
+    f.render_widget(content_para, chunks[1]);
 }

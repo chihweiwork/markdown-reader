@@ -12,8 +12,11 @@ impl App {
         let Some(tab) = self.tabs.active_tab() else {
             return;
         };
-        let target_source =
-            crate::markdown::source_line_at(&tab.view.rendered, tab.view.cursor_line);
+        let target_source = crate::markdown::source_line_at_width(
+            &tab.view.rendered,
+            tab.view.cursor_line,
+            tab.view.layout_width,
+        );
         // `content` is the raw markdown; we index into its lines.
         let content = tab.view.content.clone();
         if let Some(line) = content.lines().nth(target_source as usize) {
@@ -34,10 +37,14 @@ impl App {
         let text = match range.mode {
             VisualMode::Line => {
                 // Line mode: yank whole source lines (existing behaviour).
+                let w = tab.view.layout_width;
                 let top_source =
-                    crate::markdown::source_line_at(&tab.view.rendered, range.top_line());
-                let bottom_source =
-                    crate::markdown::source_line_at(&tab.view.rendered, range.bottom_line());
+                    crate::markdown::source_line_at_width(&tab.view.rendered, range.top_line(), w);
+                let bottom_source = crate::markdown::source_line_at_width(
+                    &tab.view.rendered,
+                    range.bottom_line(),
+                    w,
+                );
                 build_yank_text(&tab.view.content, top_source, bottom_source)
             }
             VisualMode::Char => {

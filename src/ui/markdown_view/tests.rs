@@ -251,6 +251,7 @@ mod unit {
             links: vec![],
             heading_anchors: vec![],
             source_lines: vec![0, 1],
+            visual_height: std::cell::Cell::new(2),
         };
         let mut v = MarkdownViewState {
             total_lines: 2,
@@ -335,6 +336,7 @@ mod unit {
             links: Vec::<LinkInfo>::new(),
             heading_anchors: Vec::<HeadingAnchor>::new(),
             source_lines,
+            visual_height: std::cell::Cell::new(crate::cast::u32_sat(n)),
         }
     }
 

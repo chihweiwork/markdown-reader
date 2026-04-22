@@ -165,22 +165,45 @@ pub struct MarkdownViewState {
 impl MarkdownViewState {
     /// Recompute absolute link and heading-anchor positions from the current
     /// block heights. Call this after any operation that changes block heights
-    /// (table layout, mermaid height update) so click targets and the link
-    /// picker stay aligned with what the user sees on screen.
-    pub fn recompute_positions(&mut self) {
+    /// (table layout, mermaid height update, text wrap recompute) so click
+    /// targets and the link picker stay aligned with what the user sees on
+    /// screen.
+    ///
+    /// `content_width` is the effective viewer width (excluding the gutter
+    /// when line numbers are on); used to translate logical line indices
+    /// stored on `LinkInfo` / `HeadingAnchor` into the visual rows actually
+    /// occupied by those lines after wrapping.
+    pub fn recompute_positions(&mut self, content_width: u16) {
+        use super::visual_rows::line_visual_rows;
         let mut abs_links: Vec<AbsoluteLink> = Vec::new();
         let mut abs_anchors: Vec<AbsoluteAnchor> = Vec::new();
         let mut block_offset = 0u32;
         for block in &self.rendered {
             if let DocBlock::Text {
+                text,
                 links,
                 heading_anchors,
                 ..
             } = block
             {
+                // Cumulative visual-row offset of each logical line within
+                // this block. `visual_offset_of_logical[i]` is the visual
+                // row at which `text.lines[i]` begins.
+                let mut visual_offset_of_logical: Vec<u32> =
+                    Vec::with_capacity(text.lines.len() + 1);
+                let mut acc = 0u32;
+                visual_offset_of_logical.push(acc);
+                for line in &text.lines {
+                    acc = acc.saturating_add(line_visual_rows(line, content_width));
+                    visual_offset_of_logical.push(acc);
+                }
                 for link in links {
+                    let visual_row = visual_offset_of_logical
+                        .get(link.line as usize)
+                        .copied()
+                        .unwrap_or(link.line);
                     abs_links.push(AbsoluteLink {
-                        line: block_offset + link.line,
+                        line: block_offset + visual_row,
                         col_start: link.col_start,
                         col_end: link.col_end,
                         url: link.url.clone(),
@@ -188,9 +211,13 @@ impl MarkdownViewState {
                     });
                 }
                 for ha in heading_anchors {
+                    let visual_row = visual_offset_of_logical
+                        .get(ha.line as usize)
+                        .copied()
+                        .unwrap_or(ha.line);
                     abs_anchors.push(AbsoluteAnchor {
                         anchor: ha.anchor.clone(),
-                        line: block_offset + ha.line,
+                        line: block_offset + visual_row,
                     });
                 }
             }
@@ -221,7 +248,11 @@ impl MarkdownViewState {
         let blocks = crate::markdown::renderer::render_markdown(&content, palette, theme);
         self.total_lines = blocks.iter().map(crate::markdown::DocBlock::height).sum();
         self.rendered = blocks;
-        self.recompute_positions();
+        // No layout width yet — pass 0 so `line_visual_rows` short-circuits
+        // to "1 row per logical line", matching the pre-wrap heights stored
+        // by the renderer. The first `draw` call will recompute with the
+        // real width once the viewport rect is known.
+        self.recompute_positions(0);
         self.content = content;
         self.file_name = file_name;
         self.current_path = Some(path);

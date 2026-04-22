@@ -9,7 +9,7 @@ mod highlight;
 mod mermaid_draw;
 mod state;
 mod tests;
-mod visual_rows;
+pub mod visual_rows;
 
 // Public API — re-export everything callers access via `crate::ui::markdown_view::*`.
 // The `unused_imports` warning below is a false positive from the pre-existing

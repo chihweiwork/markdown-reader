@@ -24,6 +24,7 @@ fn make_text_block(lines: &[&str]) -> DocBlock {
         links: Vec::new(),
         heading_anchors: Vec::new(),
         source_lines: (0..crate::cast::u32_sat(n)).collect(),
+        visual_height: std::cell::Cell::new(crate::cast::u32_sat(n)),
     }
 }
 
@@ -96,7 +97,7 @@ fn collect_matches_text_block() {
     let blocks = vec![make_text_block(&["hello world", "no match", "world again"])];
     let layouts = HashMap::new();
     let cache = empty_mermaid_cache();
-    let result = collect_match_lines(&blocks, &layouts, &cache, "world");
+    let result = collect_match_lines(&blocks, &layouts, &cache, "world", 0);
     assert_eq!(result, vec![0, 2]);
 }
 
@@ -119,7 +120,7 @@ fn collect_matches_table_with_layout_cache() {
         ]),
     );
     let cache = empty_mermaid_cache();
-    let result = collect_match_lines(&blocks, &layouts, &cache, "needle");
+    let result = collect_match_lines(&blocks, &layouts, &cache, "needle", 0);
     // text block has 1 line (offset 0); table starts at offset 1.
     // "beta needle" is at layout index 4, so absolute = 1 + 4 = 5.
     assert_eq!(result, vec![5]);
@@ -130,7 +131,7 @@ fn collect_matches_table_fallback_no_layout() {
     let blocks = vec![make_table_block(2, &["Col"], &[&["findme"], &["nothing"]])];
     let layouts = HashMap::new();
     let cache = empty_mermaid_cache();
-    let result = collect_match_lines(&blocks, &layouts, &cache, "findme");
+    let result = collect_match_lines(&blocks, &layouts, &cache, "findme", 0);
     // Fallback: header row is at row_offset=1, data rows follow.
     // "findme" is the first data row → row_offset = 2 → absolute = 0+2 = 2.
     assert_eq!(result, vec![2]);
@@ -151,7 +152,7 @@ fn collect_matches_mermaid_source_only() {
     ];
     let cache = source_only_cache(99);
     let layouts = HashMap::new();
-    let result = collect_match_lines(&blocks, &layouts, &cache, "needle");
+    let result = collect_match_lines(&blocks, &layouts, &cache, "needle", 0);
     // text block: 1 line (offset 0). mermaid starts at offset 1.
     // "A --> needle" is source line index 1, so absolute = 1 + 1 = 2.
     assert_eq!(result, vec![2]);
@@ -168,7 +169,7 @@ fn collect_matches_mermaid_failed_shows_source() {
     }];
     let cache = ready_cache(42);
     let layouts = HashMap::new();
-    let result = collect_match_lines(&blocks, &layouts, &cache, "find_this");
+    let result = collect_match_lines(&blocks, &layouts, &cache, "find_this", 0);
     assert_eq!(result, vec![1]);
 }
 
@@ -183,7 +184,7 @@ fn collect_matches_mermaid_absent_shows_source() {
     }];
     let layouts = HashMap::new();
     let cache = empty_mermaid_cache();
-    let result = collect_match_lines(&blocks, &layouts, &cache, "match_me");
+    let result = collect_match_lines(&blocks, &layouts, &cache, "match_me", 0);
     assert_eq!(result, vec![1]);
 }
 
@@ -349,7 +350,7 @@ fn collect_matches_absolute_offsets_across_blocks() {
         ]),
     );
     let cache = empty_mermaid_cache();
-    let result = collect_match_lines(&blocks, &layouts, &cache, "target");
+    let result = collect_match_lines(&blocks, &layouts, &cache, "target", 0);
     // text block: 3 lines (offsets 0-2). table starts at 3, rendered_height=4.
     // "row1 target" is at layout index 4 → absolute = 3+4 = 7.
     // after block starts at 3+4=7. "after" is at 7+0=7 — no match for "target".
@@ -570,6 +571,7 @@ fn enter_edit_mode_uses_cursor_for_source_line() {
         links: Vec::<LinkInfo>::new(),
         heading_anchors: Vec::<HeadingAnchor>::new(),
         source_lines: src_lines,
+        visual_height: std::cell::Cell::new(3),
     }];
     tab.view.total_lines = 3;
     // Set cursor to logical line 1 → source_line_at returns 11.
@@ -1378,7 +1380,7 @@ fn open_link_picker_real_doc_repro() {
     if let Some(tab) = app.tabs.active_tab_mut() {
         tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
         tab.view.rendered = blocks;
-        tab.view.recompute_positions();
+        tab.view.recompute_positions(0);
     }
     app.focus = Focus::Viewer;
 
@@ -1463,7 +1465,7 @@ See [BadFirst](#real) and [GoodSecond](#real).
     if let Some(tab) = app.tabs.active_tab_mut() {
         tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
         tab.view.rendered = blocks;
-        tab.view.recompute_positions();
+        tab.view.recompute_positions(0);
     }
     app.focus = Focus::Viewer;
 
@@ -1517,7 +1519,7 @@ Final prose link: [Fig](#fig).
     if let Some(tab) = app.tabs.active_tab_mut() {
         tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
         tab.view.rendered = blocks;
-        tab.view.recompute_positions();
+        tab.view.recompute_positions(0);
     }
     app.focus = Focus::Viewer;
 
@@ -1563,7 +1565,7 @@ Skim [System overview](#system-overview) first. End-of-doc has [appendix](#appen
     if let Some(tab) = app.tabs.active_tab_mut() {
         tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
         tab.view.rendered = blocks;
-        tab.view.recompute_positions();
+        tab.view.recompute_positions(0);
     }
     app.focus = Focus::Viewer;
 
@@ -1622,7 +1624,7 @@ Finally [Cherry](#cherry).
     if let Some(tab) = app.tabs.active_tab_mut() {
         tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
         tab.view.rendered = blocks;
-        tab.view.recompute_positions();
+        tab.view.recompute_positions(0);
     }
     app.focus = Focus::Viewer;
 

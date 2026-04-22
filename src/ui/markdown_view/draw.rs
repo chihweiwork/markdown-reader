@@ -1,10 +1,14 @@
 use super::gutter::render_text_with_gutter;
-use super::highlight::{apply_block_highlight, highlight_matches};
+use super::highlight::{
+    apply_block_highlight, apply_visual_or_cursor_highlight, highlight_matches,
+};
 use super::mermaid_draw::{MermaidDrawParams, draw_mermaid_block};
 use super::state::VisualRange;
 use crate::action::Action;
 use crate::app::App;
-use crate::markdown::{DocBlock, MermaidBlockId, update_mermaid_heights};
+use crate::markdown::{
+    DocBlock, MermaidBlockId, update_mermaid_heights, update_text_visual_heights,
+};
 use crate::mermaid::MermaidRenderConfig;
 use crate::ui::table_render::layout_table;
 use ratatui::{
@@ -31,6 +35,16 @@ struct TextDraw {
     height: u16,
     text: Text<'static>,
     first_line_number: u32,
+    /// Number of visual rows to skip from the top of `text` when rendering.
+    /// Always `0` for cached table layouts (where text already matches the
+    /// visible slice) and for Text blocks fully visible from their top edge;
+    /// non-zero for Text blocks scrolled past their top.
+    scroll_skip: u16,
+    /// `true` when rendering should use `Paragraph::wrap(Wrap { trim: false })`.
+    /// Tables disable wrap because their cached layout is already pre-sized to
+    /// the content width; Text blocks need it because long source lines
+    /// otherwise extend past the right edge.
+    wrap: bool,
 }
 
 /// Deferred mermaid-block render instruction.
@@ -174,7 +188,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                     .iter()
                     .map(|b: &DocBlock| b.height())
                     .sum();
-                tab.view.recompute_positions();
+                tab.view.recompute_positions(effective_width);
                 let max_scroll = tab.view.total_lines.saturating_sub(view_height / 2);
                 tab.view.scroll_offset = tab.view.scroll_offset.min(max_scroll);
             }
@@ -203,13 +217,17 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                 &app.mermaid_cache,
                 app.mermaid_max_height,
             );
+            // Re-measure each Text block's visual row count at the new width;
+            // long lines that wrap now contribute > 1 row to total_lines so
+            // tables and following content stop drifting under scroll.
+            update_text_visual_heights(&tab.view.rendered, effective_width);
             tab.view.total_lines = tab
                 .view
                 .rendered
                 .iter()
                 .map(|b: &DocBlock| b.height())
                 .sum();
-            tab.view.recompute_positions();
+            tab.view.recompute_positions(effective_width);
             let max_scroll = tab.view.total_lines.saturating_sub(view_height / 2);
             tab.view.scroll_offset = tab.view.scroll_offset.min(max_scroll);
         }
@@ -259,10 +277,20 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
             return;
         };
         let mut block_start = 0u32;
+        // Parallel tracker in *logical* lines so the gutter can show
+        // source-line numbers that don't drift through wrapped paragraphs.
+        // For Text blocks the logical count is `text.lines.len()`; for
+        // Mermaid/Table it equals their visual height (no wrapping happens
+        // inside those, so logical and visual coincide).
+        let mut block_start_logical = 0u32;
 
         for doc_block in &tab.view.rendered {
             let block_height: u32 = DocBlock::height(doc_block);
             let block_end = block_start + block_height;
+            let block_logical_height: u32 = match doc_block {
+                DocBlock::Text { text, .. } => crate::cast::u32_sat(text.lines.len()),
+                _ => block_height,
+            };
 
             // Queue mermaid blocks within the lookahead window.
             if let DocBlock::Mermaid { id, source, .. } = doc_block
@@ -291,59 +319,63 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
 
                     match doc_block {
                         DocBlock::Text { text, .. } => {
-                            // Slice only the visible lines from this Text block.
-                            let start = clip_start as usize;
-                            let end = (clip_start + visible_lines)
-                                .min(crate::cast::u32_sat(text.lines.len()))
-                                as usize;
-                            let mut visible_text = if let Some((query, current_line)) =
-                                &doc_search_query
-                            {
-                                let full_text =
-                                    highlight_matches(text, query, *current_line, block_start, &p);
-                                let sliced_lines = full_text.lines[start..end].to_vec();
-                                Text::from(sliced_lines)
-                            } else {
-                                let sliced_lines = text.lines[start..end].to_vec();
-                                Text::from(sliced_lines)
-                            };
+                            // The block iterator above runs in visual rows
+                            // (block_height = visual_height), so clip_start /
+                            // visible_lines / draw_height are also in visual
+                            // rows. We render the FULL text via Paragraph and
+                            // let `.scroll((clip_start, 0))` skip the rows
+                            // above the viewport. This keeps the wrap math
+                            // consistent: ratatui wraps once and we scroll
+                            // through the wrapped output, instead of slicing
+                            // by logical line (which produces drifting rows
+                            // when long lines wrap).
+                            //
+                            // Highlights operate on logical lines in the
+                            // full text; their styled spans appear on
+                            // whatever wrapped rows ratatui places them on.
+                            let mut full_text =
+                                if let Some((query, current_line)) = &doc_search_query {
+                                    highlight_matches(text, query, *current_line, block_start, &p)
+                                } else {
+                                    Text::from(text.lines.clone())
+                                };
 
-                            // Apply highlight(s) when the viewer has focus.
-                            // In visual mode every line in the selection gets highlighted;
-                            // in normal mode only the single cursor row is highlighted.
-                            let block_end = block_start + block_height;
+                            let block_end_visual = block_start + block_height;
                             if focused {
-                                apply_block_highlight(
-                                    &mut visible_text.lines,
+                                apply_visual_or_cursor_highlight(
+                                    &mut full_text.lines,
                                     visual_mode,
                                     cursor_line,
                                     block_start,
-                                    block_end,
-                                    start,
+                                    block_end_visual,
+                                    effective_width,
                                     p.selection_bg,
                                 );
 
-                                // Draw a single-cell block cursor at (cursor_line,
-                                // cursor_col) so the horizontal position is visible
-                                // in both normal and visual modes. Uses `accent` to
-                                // stand out against the line/range `selection_bg`.
-                                if cursor_line >= block_start && cursor_line < block_end {
-                                    let rel = (cursor_line - block_start) as usize;
-                                    if rel >= start {
-                                        let idx = rel - start;
-                                        if let Some(line) = visible_text.lines.get(idx) {
-                                            let col = app
-                                                .tabs
-                                                .active_tab()
-                                                .map_or(0, |t| t.view.cursor_col);
-                                            visible_text.lines[idx] =
-                                                super::highlight::highlight_columns(
-                                                    line,
-                                                    col,
-                                                    col + 1,
-                                                    p.accent,
-                                                );
-                                        }
+                                // Single-cell cursor at (cursor_line,
+                                // cursor_col) so the horizontal position is
+                                // visible. Convert the visual cursor row to
+                                // the logical line it sits on; mark that
+                                // logical line so it stands out against the
+                                // selection background.
+                                if cursor_line >= block_start && cursor_line < block_end_visual {
+                                    let cursor_visual_in_block = cursor_line - block_start;
+                                    let logical_idx =
+                                        super::visual_rows::visual_row_to_logical_in_block(
+                                            text,
+                                            effective_width,
+                                            cursor_visual_in_block,
+                                        ) as usize;
+                                    if let Some(line) = full_text.lines.get(logical_idx) {
+                                        let col =
+                                            app.tabs.active_tab().map_or(0, |t| t.view.cursor_col);
+                                        full_text.lines[logical_idx] =
+                                            super::highlight::highlight_columns(
+                                                line,
+                                                col,
+                                                col + 1,
+                                                p.accent,
+                                            );
                                     }
                                 }
                             }
@@ -351,8 +383,17 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                             text_draws.push(TextDraw {
                                 y: rect_y,
                                 height: draw_height,
-                                text: visible_text,
-                                first_line_number: block_start + clip_start + 1,
+                                text: full_text,
+                                // Logical block start + 1 so the gutter
+                                // numbers each `text.lines[i]` as
+                                // `first_line_number + i` (one number per
+                                // source line, blank rows for wrap
+                                // continuations). The Paragraph's scroll
+                                // moves the visible window through the
+                                // same generated gutter Vec.
+                                first_line_number: block_start_logical + 1,
+                                scroll_skip: crate::cast::u16_from_u32(clip_start),
+                                wrap: true,
                             });
                         }
                         DocBlock::Mermaid { id, source, .. } => {
@@ -416,6 +457,8 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                                     height: draw_height,
                                     text: visible_text,
                                     first_line_number: block_start + clip_start + 1,
+                                    scroll_skip: 0,
+                                    wrap: false,
                                 });
                             }
                         }
@@ -424,6 +467,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
             }
 
             block_start = block_end;
+            block_start_logical += block_logical_height;
             if block_start >= lookahead_end {
                 break;
             }
@@ -469,9 +513,24 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
             height: td.height,
         };
         if app.show_line_numbers {
-            render_text_with_gutter(f, rect, td.text, td.first_line_number, total_doc_lines, &p);
+            render_text_with_gutter(
+                f,
+                rect,
+                td.text,
+                td.first_line_number,
+                total_doc_lines,
+                &p,
+                td.scroll_skip,
+                td.wrap,
+            );
         } else {
-            let para = Paragraph::new(td.text).wrap(Wrap { trim: false });
+            let mut para = Paragraph::new(td.text);
+            if td.wrap {
+                para = para.wrap(Wrap { trim: false });
+            }
+            if td.scroll_skip > 0 {
+                para = para.scroll((td.scroll_skip, 0));
+            }
             f.render_widget(para, rect);
         }
     }

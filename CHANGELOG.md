@@ -5,6 +5,48 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.4] - 2026-04-22
+
+### Fixed
+
+- **Scroll math is now in visual rows, not logical lines.** 1.18.3 fixed
+  the scroll-time line reveal for soft-broken paragraphs but the bug
+  survived for single source lines that were themselves wider than the
+  viewport — exactly what happens in documents with prose paragraphs
+  written as one long physical line (common in note-taking tools).
+  User reproduction: a 180-char line at source line 105 in
+  `personal_notes.md` wrapped visually but `block.height()` still
+  returned 1, so scrolling past it shifted the following table by the
+  missing rows.
+
+  The fix moves the entire coordinate system to visual rows:
+
+  - `DocBlock::height()` now returns wrapped visual-row counts for
+    `Text` blocks (via a new `visual_height: Cell<u32>`), recomputed on
+    every layout-width change by `update_text_visual_heights`.
+  - `scroll_offset`, `cursor_line`, `total_lines`, and the visual
+    selection range are all in visual rows. `j` / `k` move by one
+    visual row, matching pager conventions (`less`, `bat`) rather than
+    strict vim logical-line semantics.
+  - Text blocks render via `Paragraph::new(full_text).scroll((N, 0))`
+    instead of slicing by logical line, so ratatui's wrap and our
+    scroll math agree on what's visible.
+  - `recompute_positions` translates logical-in-block link and anchor
+    indices to absolute visual rows so the `f` link picker and TOC
+    jumps still land on the right row under wrapping.
+  - `collect_match_lines` records matches in visual rows so `n` / `N`
+    doc-search navigation jumps don't drift when wrapped paragraphs
+    sit between matches.
+  - `source_line_at` and `logical_line_at_source` gain width-aware
+    variants (`_width`) used everywhere that converts between cursor
+    position and source-line number (edit mode entry, `yy` / visual
+    yank, link-picker line filtering).
+
+  Gutter line numbers now track logical source lines (with blank
+  continuation rows) rather than absolute visual rows, so long
+  paragraphs show a single number on the first wrap row and blanks
+  below — the correspondence users expect from an editor/pager.
+
 ## [1.18.3] - 2026-04-21
 
 ### Fixed
