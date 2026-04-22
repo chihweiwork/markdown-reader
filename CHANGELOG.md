@@ -5,6 +5,32 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] - 2026-04-22
+
+### Added
+
+- **Word-jump cursor keys.** The viewer's horizontal cursor now
+  honours macOS-standard chords plus vim word motions:
+  - **Option+Left / Option+Right** (Alt+Left/Right on Linux) — jump
+    by whitespace-separated word.
+  - **Home / End** (Cmd+Left / Cmd+Right via Terminal.app forwarding)
+    — jump to line start / end.
+  - **`w`** — next word; **`b`** — previous word; **`e`** — same as
+    `w` for now (the viewer has no "yank to end of word" so the two
+    semantics collapse).
+  - **`^`** — line start; **`$`** — line end.
+
+  Visual mode (`v`) extends the selection through word jumps too, so
+  Option+Right after `v` selects a word at a time.
+
+  Word definition is the simple "maximal run of non-whitespace"
+  segmentation — same as terminal `readline` and most editors'
+  default. Indexed by char position; multi-byte / wide chars (CJK,
+  emoji) get the same approximation as the existing single-cell
+  `h`/`l` arrows.
+
+  Covered by 7 unit tests on `next_word_col` / `prev_word_col`.
+
 ## [1.19.2] - 2026-04-22
 
 ### Fixed

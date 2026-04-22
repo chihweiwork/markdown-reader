@@ -420,6 +420,69 @@ impl App {
                     }
                 }
             }
+            // Option/Alt + Left/Right — jump by word. Alt is the macOS
+            // convention for Option+arrow (iTerm and Terminal.app both
+            // forward Option+arrow as Esc+arrow, which crossterm reports
+            // as `KeyModifiers::ALT | Left/Right`). Same chord doubles
+            // as the cross-platform "word jump" shortcut, so Linux /
+            // Windows users on terminals that send Alt+arrow get it too.
+            // Must precede the bare `Left` / `Right` arms below so the
+            // ALT-modified variants don't fall through to single-char
+            // movement.
+            KeyCode::Left if modifiers.contains(KeyModifiers::ALT) => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_word_backward();
+                }
+            }
+            KeyCode::Right if modifiers.contains(KeyModifiers::ALT) => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_word_forward();
+                }
+            }
+            // Home / End — jump to line start / end. macOS Terminal
+            // forwards Cmd+Left as Home and Cmd+Right as End by default;
+            // most other terminals also send Home/End for those native
+            // keys. Same handler covers both.
+            KeyCode::Home => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_line_start();
+                }
+            }
+            KeyCode::End => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_line_end();
+                }
+            }
+            // Vim: `w` next word, `b` previous word, `e` end of word
+            // (treated same as `w` for now — landing on the next word's
+            // start — since the viewer has no concept of "yank to end of
+            // word"). `^` jumps to first non-blank (alias for line start
+            // here since we don't track leading-whitespace position).
+            KeyCode::Char('w') => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_word_forward();
+                }
+            }
+            KeyCode::Char('b') => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_word_backward();
+                }
+            }
+            KeyCode::Char('e') => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_word_forward();
+                }
+            }
+            KeyCode::Char('^') => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_line_start();
+                }
+            }
+            KeyCode::Char('$') => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_line_end();
+                }
+            }
             // `h` / Left — move cursor column left (only in viewer focus, not tree).
             KeyCode::Char('h') | KeyCode::Left => {
                 if let Some(tab) = self.tabs.active_tab_mut() {

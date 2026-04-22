@@ -392,6 +392,89 @@ impl MarkdownViewState {
         0
     }
 
+    /// Joined span text of the logical line under the cursor, or `None` for
+    /// Mermaid / Table blocks (which have no per-cell cursor concept) and
+    /// blank/out-of-range positions.
+    ///
+    /// Used by the word-jump helpers to find whitespace-separated word
+    /// boundaries. Indexed by char position (display column on
+    /// ASCII-only lines, which covers the vast majority of prose markdown).
+    fn current_line_text(&self) -> Option<String> {
+        let mut offset = 0u32;
+        for block in &self.rendered {
+            let h = block.height();
+            if self.cursor_line < offset + h {
+                let local_visual = self.cursor_line - offset;
+                return match block {
+                    DocBlock::Text { text, .. } => {
+                        let logical_idx = super::visual_rows::visual_row_to_logical_in_block(
+                            text,
+                            self.layout_width,
+                            local_visual,
+                        ) as usize;
+                        text.lines.get(logical_idx).map(|l| {
+                            l.spans
+                                .iter()
+                                .map(|s| s.content.as_ref())
+                                .collect::<String>()
+                        })
+                    }
+                    DocBlock::Mermaid { .. } | DocBlock::Table(_) => None,
+                };
+            }
+            offset += h;
+        }
+        None
+    }
+
+    /// Move the cursor to the start of the next word on the current line, or
+    /// to end-of-line if no further word exists. Mirrors Option+Right on
+    /// macOS and vim's `w` for whitespace-segmented words.
+    ///
+    /// Updates the visual-mode cursor end too so range selection extends
+    /// naturally with word jumps.
+    pub fn cursor_word_forward(&mut self) {
+        let Some(text) = self.current_line_text() else {
+            return;
+        };
+        self.cursor_col = next_word_col(&text, self.cursor_col);
+        if let Some(range) = self.visual_mode.as_mut() {
+            range.cursor_col = self.cursor_col;
+        }
+    }
+
+    /// Move the cursor to the start of the previous word on the current
+    /// line, or to col 0 if already at the first word. Mirrors Option+Left
+    /// on macOS and vim's `b`.
+    pub fn cursor_word_backward(&mut self) {
+        let Some(text) = self.current_line_text() else {
+            return;
+        };
+        self.cursor_col = prev_word_col(&text, self.cursor_col);
+        if let Some(range) = self.visual_mode.as_mut() {
+            range.cursor_col = self.cursor_col;
+        }
+    }
+
+    /// Jump cursor to col 0 of the current line. Mirrors Home / Cmd+Left
+    /// (where the terminal forwards Cmd+Left as Home, e.g. macOS Terminal).
+    pub fn cursor_line_start(&mut self) {
+        self.cursor_col = 0;
+        if let Some(range) = self.visual_mode.as_mut() {
+            range.cursor_col = 0;
+        }
+    }
+
+    /// Jump cursor to the last column of the current line. Mirrors End /
+    /// Cmd+Right.
+    pub fn cursor_line_end(&mut self) {
+        let max = self.current_line_width().saturating_sub(1);
+        self.cursor_col = max;
+        if let Some(range) = self.visual_mode.as_mut() {
+            range.cursor_col = max;
+        }
+    }
+
     /// Adjust `scroll_offset` so the cursor sits as close to the vertical
     /// centre of the viewport as possible.
     ///
@@ -439,4 +522,132 @@ impl MarkdownViewState {
 #[derive(Debug)]
 pub struct TableLayout {
     pub text: Text<'static>,
+}
+
+/// Find the start of the next whitespace-separated word at or after
+/// `current_col` in `text`. If no further word exists, return the column
+/// just past the last char (so the cursor parks at end-of-line).
+///
+/// Word definition: a maximal run of non-whitespace chars. A "word jump"
+/// from inside a word skips the rest of that word + any whitespace,
+/// landing on the first char of the next word. From whitespace, it skips
+/// the whitespace and lands on the next word.
+///
+/// Indexed by char position; on ASCII-only lines this matches the display
+/// column space `cursor_col` lives in. Multi-byte / wide chars are out of
+/// scope (rare in prose markdown; the existing `h`/`l` arrows have the
+/// same approximation).
+fn next_word_col(text: &str, current_col: u16) -> u16 {
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut col = current_col as usize;
+    if col >= len {
+        return crate::cast::u16_sat(len.saturating_sub(1));
+    }
+    // Skip the rest of the current word (if we're inside one).
+    while col < len && !chars[col].is_whitespace() {
+        col += 1;
+    }
+    // Skip the whitespace gap.
+    while col < len && chars[col].is_whitespace() {
+        col += 1;
+    }
+    if col >= len {
+        crate::cast::u16_sat(len.saturating_sub(1))
+    } else {
+        crate::cast::u16_sat(col)
+    }
+}
+
+/// Mirror of [`next_word_col`] in the other direction. Returns 0 when
+/// already at or before the first word.
+fn prev_word_col(text: &str, current_col: u16) -> u16 {
+    let chars: Vec<char> = text.chars().collect();
+    if current_col == 0 || chars.is_empty() {
+        return 0;
+    }
+    let mut col = (current_col as usize).min(chars.len()).saturating_sub(1);
+    // If we started in whitespace, skip back to the previous word's end.
+    while col > 0 && chars[col].is_whitespace() {
+        col -= 1;
+    }
+    // If we started inside a word but not at its first char, jump to the
+    // word's start. Otherwise we're already at a word boundary; keep
+    // walking back through the gap to the previous word.
+    if col > 0 && !chars[col - 1].is_whitespace() {
+        // Inside a word; back up to its first char.
+        while col > 0 && !chars[col - 1].is_whitespace() {
+            col -= 1;
+        }
+    } else {
+        // At the first char of a word (or the boundary). Skip the gap…
+        while col > 0 && chars[col - 1].is_whitespace() {
+            col -= 1;
+        }
+        // …then back up to the start of that previous word.
+        while col > 0 && !chars[col - 1].is_whitespace() {
+            col -= 1;
+        }
+    }
+    crate::cast::u16_sat(col)
+}
+
+#[cfg(test)]
+mod word_jump_tests {
+    use super::{next_word_col, prev_word_col};
+
+    /// `next_word_col` from inside a word jumps past the word and gap to the
+    /// next word's start.
+    #[test]
+    fn next_word_from_inside_word() {
+        // "hello world foo"
+        //       ^   col=4 → next word "world" starts at col 6
+        assert_eq!(next_word_col("hello world foo", 4), 6);
+    }
+
+    /// From whitespace, `next_word_col` lands on the next word's first char.
+    #[test]
+    fn next_word_from_whitespace() {
+        // "abc   def"
+        //     ^^^   col=3 (whitespace) → "def" starts at col 6
+        assert_eq!(next_word_col("abc   def", 3), 6);
+    }
+
+    /// From inside the last word, `next_word_col` parks at end-of-line.
+    #[test]
+    fn next_word_from_last_word() {
+        // "abc def"  len=7, last index=6 → end-of-line is col 6
+        assert_eq!(next_word_col("abc def", 5), 6);
+    }
+
+    /// `prev_word_col` from inside a word jumps to that word's start.
+    #[test]
+    fn prev_word_from_mid_word() {
+        // "hello world foo"
+        //         ^ col=8 (inside "world") → start of "world" is col 6
+        assert_eq!(prev_word_col("hello world foo", 8), 6);
+    }
+
+    /// From the first char of a word, `prev_word_col` jumps back to the
+    /// previous word's start.
+    #[test]
+    fn prev_word_from_word_start() {
+        // "hello world foo"
+        //       ^ col=6 (start of "world") → previous word "hello" starts at 0
+        assert_eq!(prev_word_col("hello world foo", 6), 0);
+    }
+
+    /// From col 0, `prev_word_col` stays at 0.
+    #[test]
+    fn prev_word_at_start_stays() {
+        assert_eq!(prev_word_col("hello world", 0), 0);
+    }
+
+    /// From whitespace, `prev_word_col` jumps to the previous word's start.
+    #[test]
+    fn prev_word_from_whitespace() {
+        // "abc   def"
+        //      ^ col=4 (in the gap) → "abc" starts at 0
+        assert_eq!(prev_word_col("abc   def", 4), 0);
+    }
 }
