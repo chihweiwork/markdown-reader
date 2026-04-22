@@ -5,6 +5,29 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.1] - 2026-04-22
+
+### Fixed
+
+- **Option+Right no longer pops the link picker.** macOS terminals
+  (Terminal.app, iTerm2 default) send Option+Right as the literal
+  bytes `Esc f` (the readline word-forward chord), which crossterm
+  decodes as `KeyCode::Char('f')` with `KeyModifiers::ALT`. The bare
+  `f` arm — which opens the `f` link picker — caught the Alt-modified
+  variant too. Added explicit `Alt+f` / `Alt+b` arms ahead of the
+  bare ones so word-jumps fire instead.
+
+### Added
+
+- **Cmd+Left/Right line jumps via Kitty keyboard protocol.**
+  Crossterm reports Cmd as `KeyModifiers::SUPER` on terminals that
+  speak the Kitty enhancement protocol (Kitty, recent WezTerm,
+  iTerm2 with the protocol enabled). Bound `SUPER+Left/Right` to
+  line start / end so users on those terminals get native macOS
+  Cmd+arrow behaviour. On terminals that don't speak the protocol,
+  Cmd+arrow either gets intercepted by the OS (no-op in the app)
+  or arrives as Home/End / Esc+arrow — both already wired.
+
 ## [1.20.0] - 2026-04-22
 
 ### Added

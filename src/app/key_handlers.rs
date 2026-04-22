@@ -354,6 +354,21 @@ impl App {
                 }
                 self.focus = Focus::DocSearch;
             }
+            // macOS Terminal.app / iTerm2 send Option+Right as the literal
+            // bytes `Esc f` (the readline word-forward chord). Crossterm
+            // decodes that as `KeyCode::Char('f')` with `KeyModifiers::ALT`.
+            // Without this guard the bare-`f` arm below catches it and
+            // pops the link picker — which is what the user reported.
+            KeyCode::Char('f') if modifiers.contains(KeyModifiers::ALT) => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_word_forward();
+                }
+            }
+            KeyCode::Char('b') if modifiers.contains(KeyModifiers::ALT) => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_word_backward();
+                }
+            }
             KeyCode::Char('f') => {
                 self.open_link_picker();
             }
@@ -420,12 +435,31 @@ impl App {
                     }
                 }
             }
+            // Cmd+Left/Right — jump to line start/end. Crossterm only
+            // delivers `KeyModifiers::SUPER` when the terminal speaks
+            // the Kitty keyboard enhancement protocol (Kitty, recent
+            // WezTerm, iTerm2 with the protocol enabled). On terminals
+            // that don't, Cmd+arrow is intercepted by the OS or the
+            // terminal forwards it as Home/End or Esc+arrow — those
+            // paths are handled below.
+            KeyCode::Left if modifiers.contains(KeyModifiers::SUPER) => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_line_start();
+                }
+            }
+            KeyCode::Right if modifiers.contains(KeyModifiers::SUPER) => {
+                if let Some(tab) = self.tabs.active_tab_mut() {
+                    tab.view.cursor_line_end();
+                }
+            }
             // Option/Alt + Left/Right — jump by word. Alt is the macOS
-            // convention for Option+arrow (iTerm and Terminal.app both
-            // forward Option+arrow as Esc+arrow, which crossterm reports
-            // as `KeyModifiers::ALT | Left/Right`). Same chord doubles
-            // as the cross-platform "word jump" shortcut, so Linux /
-            // Windows users on terminals that send Alt+arrow get it too.
+            // convention for Option+arrow on terminals that send the
+            // CSI form (`\x1b[1;3D` / `\x1b[1;3C`). Terminals that send
+            // Esc+f / Esc+b instead are caught by the `Char('f') if ALT`
+            // / `Char('b') if ALT` arms above. Same chord doubles as
+            // the cross-platform word-jump shortcut on Linux / Windows
+            // terminals that report Alt+arrow.
+            //
             // Must precede the bare `Left` / `Right` arms below so the
             // ALT-modified variants don't fall through to single-char
             // movement.
