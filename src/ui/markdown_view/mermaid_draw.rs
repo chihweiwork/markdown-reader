@@ -200,6 +200,12 @@ pub fn render_mermaid_source_styled(f: &mut Frame, rect: Rect, text: Text<'stati
 /// the user sees the top of the diagram pinned in place even after
 /// scrolling well past it. Compare with the `Text` block path (in
 /// `draw.rs`) which already slices visible lines before rendering.
+///
+/// Width-overflow guard: `Paragraph` wraps long lines onto subsequent
+/// terminal rows by default, which fragments box-drawing chars (`┌──┐`
+/// becomes scattered chunks across rows). For diagrams whose natural
+/// width exceeds the available rect, we substitute an overflow
+/// placeholder pointing the user at the full-screen modal (`Enter`).
 fn render_mermaid_text_block(
     f: &mut Frame,
     rect: Rect,
@@ -212,6 +218,17 @@ fn render_mermaid_text_block(
     if start > 0 {
         text.lines.drain(..start);
     }
+
+    // Inner content area excludes the 1-cell border on each side.
+    let inner_width = rect.width.saturating_sub(2) as usize;
+    if inner_width > 0
+        && let Some(natural_width) = max_line_display_width(&text.lines)
+        && natural_width > inner_width
+    {
+        render_mermaid_overflow_placeholder(f, rect, natural_width, inner_width, p);
+        return;
+    }
+
     if params.focused {
         apply_block_highlight(
             &mut text.lines,
@@ -226,7 +243,94 @@ fn render_mermaid_text_block(
     render_mermaid_source_styled(f, rect, text, p);
 }
 
+/// Compute the widest display-width across `lines`. Returns `None` for an
+/// empty slice — callers treat that as "no overflow possible."
+fn max_line_display_width(lines: &[Line<'static>]) -> Option<usize> {
+    lines.iter().map(|l| l.width()).max()
+}
+
+/// Render a clean placeholder when a text-mode mermaid diagram is wider
+/// than the available rect. Tells the user the natural / available
+/// dimensions and points them at `Enter` (the full-screen modal).
+fn render_mermaid_overflow_placeholder(
+    f: &mut Frame,
+    rect: Rect,
+    natural_width: usize,
+    available_width: usize,
+    p: &Palette,
+) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(p.border_style())
+        .style(Style::default().bg(p.background));
+    let inner = block.inner(rect);
+    f.render_widget(block, rect);
+
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+
+    let lines = vec![
+        Line::from(Span::styled(
+            "Mermaid diagram too wide to display in place".to_string(),
+            p.dim_style(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            format!("Natural width: {natural_width} cells, available: {available_width}"),
+            p.dim_style(),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Press Enter to open in fullscreen".to_string(),
+            p.dim_style(),
+        )),
+    ];
+
+    let para = Paragraph::new(Text::from(lines)).alignment(ratatui::layout::Alignment::Center);
+
+    // Center vertically in the inner rect (placeholder lines = 5).
+    let line_count: u16 = 5;
+    let y_offset = inner.height.saturating_sub(line_count) / 2;
+    let target = Rect {
+        x: inner.x,
+        y: inner.y + y_offset,
+        width: inner.width,
+        height: line_count.min(inner.height),
+    };
+    f.render_widget(para, target);
+}
+
 /// Truncate `s` to at most `max` bytes, returning the valid UTF-8 prefix.
 pub fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max { s } else { &s[..max] }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ratatui::text::Span;
+
+    #[test]
+    fn max_line_display_width_handles_empty_and_unicode() {
+        assert_eq!(max_line_display_width(&[]), None);
+        let lines = vec![
+            Line::from(Span::raw("hi".to_string())),
+            Line::from(Span::raw("hello world".to_string())),
+            Line::from(Span::raw("┌──┐".to_string())),
+        ];
+        // "hello world" = 11 cells; box-drawing chars are 1 cell each.
+        assert_eq!(max_line_display_width(&lines), Some(11));
+    }
+
+    #[test]
+    fn max_line_display_width_counts_unicode_box_drawing_correctly() {
+        // ┌──┐ is 4 cells (each char is 1 cell wide in monospace).
+        let lines = vec![
+            Line::from(Span::raw("┌────────┐".to_string())),
+            Line::from(Span::raw("│ Worker │".to_string())),
+            Line::from(Span::raw("└────────┘".to_string())),
+        ];
+        assert_eq!(max_line_display_width(&lines), Some(10));
+    }
 }

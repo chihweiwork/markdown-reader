@@ -520,31 +520,55 @@ impl App {
 
     /// Build the link picker from the active tab's internal `#anchor` links,
     /// deduplicated by anchor, and open it.
+    ///
+    /// Source order matters — the picker lists links top-to-bottom as they
+    /// appear in the document. Two pieces matter:
+    ///
+    /// 1. **Sort defensively** by `(line, col_start)` before iterating.
+    ///    `tab.view.links` is built from `recompute_positions` which IS
+    ///    source-ordered today, but a future refactor (parallel block
+    ///    rendering, async re-layout, etc.) could break that invariant
+    ///    silently. This sort is a no-op when the input is already ordered
+    ///    and is a guard otherwise.
+    ///
+    /// 2. **Dedup AFTER the `has_target` check**, not before. The old order
+    ///    let a missing-target link claim the anchor in the dedup set,
+    ///    silently hiding a later same-anchor link that DID have a target.
     pub(super) fn open_link_picker(&mut self) {
         let Some(tab) = self.tabs.active_tab() else {
             return;
         };
 
+        // Defensive: sort by source position. Cheap (Vec is already small,
+        // typically a few dozen items) and protects against any future
+        // path that pushes links out of order.
+        let mut links_sorted: Vec<&crate::ui::markdown_view::AbsoluteLink> =
+            tab.view.links.iter().collect();
+        links_sorted.sort_by_key(|l| (l.line, l.col_start));
+
         // Collect unique anchors preserving first-occurrence order.
         let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
         let mut items: Vec<crate::ui::link_picker::LinkPickerItem> = Vec::new();
 
-        for link in &tab.view.links {
+        for link in links_sorted {
             if !link.url.starts_with('#') {
                 continue;
             }
             let anchor = &link.url[1..];
+            // Only consider links that resolve to a known heading anchor.
+            // Filter BEFORE dedup so an early non-resolving link never
+            // shadows a later resolving link with the same URL fragment.
+            let has_target = tab.view.heading_anchors.iter().any(|a| a.anchor == anchor);
+            if !has_target {
+                continue;
+            }
             if !seen.insert(anchor.to_string()) {
                 continue;
             }
-            // Only include links that resolve to a known heading anchor.
-            let has_target = tab.view.heading_anchors.iter().any(|a| a.anchor == anchor);
-            if has_target {
-                items.push(crate::ui::link_picker::LinkPickerItem {
-                    text: link.text.clone(),
-                    anchor: anchor.to_string(),
-                });
-            }
+            items.push(crate::ui::link_picker::LinkPickerItem {
+                text: link.text.clone(),
+                anchor: anchor.to_string(),
+            });
         }
 
         if items.is_empty() {

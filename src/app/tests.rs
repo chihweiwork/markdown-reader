@@ -1358,6 +1358,157 @@ fn pending_jump_not_cleared_on_different_path_failure() {
     );
 }
 
+/// Heading-anchor lookup must NOT lose a usable link just because an
+/// EARLIER same-anchor link had no target. Regression fix for a
+/// dedup-then-filter ordering bug: previously we added the anchor to
+/// the dedup set BEFORE checking `has_target`, so a stray link to a
+/// non-existent anchor would shadow a later valid same-anchor link.
+#[test]
+fn open_link_picker_dedup_after_target_check() {
+    use crate::markdown::renderer::render_markdown;
+    use crate::theme::{Palette, Theme};
+    // First link points at `#missing` (no such heading), second link
+    // points at `#real` (heading exists). After fix: both shown if
+    // anchors differ. With the buggy order, if BOTH pointed at
+    // `#missing` first then `#real` second... actually that's not the
+    // bug — the bug is specifically when SAME anchor appears twice,
+    // first with no target, then with a target. Mock that:
+    let src = r"# Top
+
+See [BadFirst](#real) and [GoodSecond](#real).
+
+## Real
+.
+";
+    let palette = Palette::from_theme(Theme::Default);
+    let blocks = render_markdown(src, &palette, Theme::Default);
+
+    let mut app = App::new(PathBuf::from("."), None);
+    app.tabs
+        .open_or_focus(&PathBuf::from("/fake/dedup.md"), true);
+    if let Some(tab) = app.tabs.active_tab_mut() {
+        tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
+        tab.view.rendered = blocks;
+        tab.view.recompute_positions();
+    }
+    app.focus = Focus::Viewer;
+
+    app.open_link_picker();
+    let picker = app.link_picker.expect("picker must open");
+    let labels: Vec<&str> = picker.items.iter().map(|i| i.text.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec!["BadFirst"],
+        "first occurrence wins for dedup; both link to a real anchor here so just one entry",
+    );
+}
+
+/// Reproducer for a possible link-picker order bug where lists or
+/// nested structures break the source-order invariant.
+#[test]
+fn open_link_picker_handles_lists_and_mixed_structures() {
+    use crate::markdown::renderer::render_markdown;
+    use crate::theme::{Palette, Theme};
+    let src = r"# Top
+
+- First, see [Apple](#apple).
+- Second, see [Banana](#banana).
+
+Then prose with [Cherry](#cherry).
+
+1. Numbered: [Date](#date).
+2. Numbered: [Elderberry](#elderberry).
+
+Final prose link: [Fig](#fig).
+
+## Apple
+.
+## Banana
+.
+## Cherry
+.
+## Date
+.
+## Elderberry
+.
+## Fig
+.
+";
+    let palette = Palette::from_theme(Theme::Default);
+    let blocks = render_markdown(src, &palette, Theme::Default);
+
+    let mut app = App::new(PathBuf::from("."), None);
+    app.tabs
+        .open_or_focus(&PathBuf::from("/fake/lists.md"), true);
+    if let Some(tab) = app.tabs.active_tab_mut() {
+        tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
+        tab.view.rendered = blocks;
+        tab.view.recompute_positions();
+    }
+    app.focus = Focus::Viewer;
+
+    app.open_link_picker();
+    let picker = app.link_picker.expect("picker must open");
+    let labels: Vec<&str> = picker.items.iter().map(|i| i.text.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec!["Apple", "Banana", "Cherry", "Date", "Elderberry", "Fig"],
+        "picker must list links in source order even across lists, got: {labels:?}",
+    );
+}
+
+/// Reproducer: pressing `f` on a doc with multiple internal links must
+/// list them in source order, not in some other order.
+#[test]
+fn open_link_picker_lists_links_in_source_order() {
+    use crate::markdown::renderer::render_markdown;
+    use crate::theme::{Palette, Theme};
+    let src = r"# Top
+
+See [Apple](#apple) and [Zebra](#zebra) at the top.
+
+## Middle
+
+Then [Banana](#banana) and [Yellow](#yellow) here.
+
+### Sub
+
+Finally [Cherry](#cherry).
+
+## Apple
+.
+## Banana
+.
+## Cherry
+.
+## Yellow
+.
+## Zebra
+.
+";
+    let palette = Palette::from_theme(Theme::Default);
+    let blocks = render_markdown(src, &palette, Theme::Default);
+
+    let mut app = App::new(PathBuf::from("."), None);
+    app.tabs
+        .open_or_focus(&PathBuf::from("/fake/links.md"), true);
+    if let Some(tab) = app.tabs.active_tab_mut() {
+        tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
+        tab.view.rendered = blocks;
+        tab.view.recompute_positions();
+    }
+    app.focus = Focus::Viewer;
+
+    app.open_link_picker();
+    let picker = app.link_picker.expect("picker must open");
+    let labels: Vec<&str> = picker.items.iter().map(|i| i.text.as_str()).collect();
+    assert_eq!(
+        labels,
+        vec!["Apple", "Zebra", "Banana", "Yellow", "Cherry"],
+        "picker must list links in source order, got: {labels:?}",
+    );
+}
+
 // ── Mermaid-modal tests ──────────────────────────────────────────────
 
 /// Build a mermaid block helper, mirroring `make_table_block`.

@@ -5,6 +5,56 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.1] - 2026-04-22
+
+### Fixed
+
+- **Oversized text-mode mermaid diagrams no longer render as
+  word-wrapped garbage in place.** When the diagram's natural width
+  exceeds the viewer rect, `Paragraph` was wrapping each long line
+  onto multiple terminal rows, fragmenting box-drawing chars
+  (`┌──┐│└─┘`) into a 2D scatter of pieces. Now the in-place
+  renderer detects overflow (max line width > rect inner width) and
+  substitutes a clean placeholder that reports the natural vs
+  available widths and points the user at `Enter` for the
+  full-screen modal:
+
+  ```
+  ┌──────────────────────────────────────────────────────┐
+  │                                                      │
+  │     Mermaid diagram too wide to display in place    │
+  │                                                      │
+  │  Natural width: 142 cells, available: 78            │
+  │                                                      │
+  │            Press Enter to open in fullscreen        │
+  │                                                      │
+  └──────────────────────────────────────────────────────┘
+  ```
+
+  The full-screen modal continues to handle the same diagram fine
+  via h_scroll/v_scroll. Only the in-place display changed —
+  diagrams that fit are unaffected.
+
+- **Link picker (`f`) is more defensive about source order.** Two
+  small changes guarantee top-to-bottom ordering even if a future
+  refactor breaks the underlying invariant:
+  1. Sort the link list by `(line, col_start)` before iteration —
+     a no-op when the input is already in source order, a guard
+     otherwise.
+  2. Move the `has_target` (anchor exists) check **before** the
+     dedup check. Previously a missing-target link could claim its
+     anchor in the dedup set and silently shadow a later
+     same-anchor link that DID have a target.
+
+### Added
+
+- 5 new tests:
+  - `open_link_picker_lists_links_in_source_order`
+  - `open_link_picker_handles_lists_and_mixed_structures`
+  - `open_link_picker_dedup_after_target_check`
+  - `max_line_display_width_handles_empty_and_unicode`
+  - `max_line_display_width_counts_unicode_box_drawing_correctly`
+
 ## [1.17.0] - 2026-04-22
 
 ### Added
