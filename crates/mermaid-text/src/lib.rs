@@ -99,17 +99,15 @@
 #![forbid(unsafe_code)]
 
 pub mod detect;
+pub mod er;
 pub mod layout;
 pub mod parser;
-pub mod render;
-pub mod er;
 pub mod pie;
+pub mod render;
 pub mod sequence;
 pub mod types;
 
-pub use er::{
-    Attribute, AttributeKey, Cardinality, Entity, ErDiagram, LineStyle, Relationship,
-};
+pub use er::{Attribute, AttributeKey, Cardinality, Entity, ErDiagram, LineStyle, Relationship};
 pub use pie::{PieChart, PieSlice};
 pub use sequence::{Message, MessageStyle, Participant, SequenceDiagram};
 pub use types::{Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape};
@@ -1366,7 +1364,8 @@ mod tests {
     #[test]
     fn unknown_diagram_types_still_error() {
         // `pie` was added in 0.9.4; `journey` remains unsupported.
-        let err = render("journey\ntitle Onboarding\nsection sign-up\nfill out form: 5: User").unwrap_err();
+        let err = render("journey\ntitle Onboarding\nsection sign-up\nfill out form: 5: User")
+            .unwrap_err();
         assert!(
             matches!(err, Error::UnsupportedDiagram(_)),
             "expected UnsupportedDiagram, got {err:?}"

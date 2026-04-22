@@ -1012,12 +1012,12 @@ mod tests {
     #[test]
     fn plain_code_in_untagged_fence_stays_a_code_block() {
         let cases = [
-            "let x = 42;",                      // Rust
-            "fn main() {}",                     // Rust
-            "graph = {};",                      // JS object containing word "graph"
-            "sequenceDiagram is great",         // doc-style sentence
-            "// comment about graph TD",        // comment
-            "import { graph } from 'lib';",     // import statement
+            "let x = 42;",                  // Rust
+            "fn main() {}",                 // Rust
+            "graph = {};",                  // JS object containing word "graph"
+            "sequenceDiagram is great",     // doc-style sentence
+            "// comment about graph TD",    // comment
+            "import { graph } from 'lib';", // import statement
         ];
         for src in cases {
             let md = format!("```\n{src}\n```\n");

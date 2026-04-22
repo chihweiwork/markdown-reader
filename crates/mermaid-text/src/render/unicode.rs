@@ -277,7 +277,14 @@ fn route_via_waypoints(
     fwd_tip: char,
 ) -> Option<Vec<(usize, usize)>> {
     if waypoints.is_empty() {
-        return grid.route_edge(src.col, src.row, dst.col, dst.row, horizontal_first, fwd_tip);
+        return grid.route_edge(
+            src.col,
+            src.row,
+            dst.col,
+            dst.row,
+            horizontal_first,
+            fwd_tip,
+        );
     }
 
     // Internal segments use a path-glyph as their "tip" so they
@@ -310,7 +317,14 @@ fn route_via_waypoints(
         (cur_col, cur_row) = (*wp_col, *wp_row);
     }
     // Final segment: last waypoint → destination, with the real tip.
-    let seg = grid.route_edge(cur_col, cur_row, dst.col, dst.row, horizontal_first, fwd_tip)?;
+    let seg = grid.route_edge(
+        cur_col,
+        cur_row,
+        dst.col,
+        dst.row,
+        horizontal_first,
+        fwd_tip,
+    )?;
     if let Some((_, rest)) = seg.split_first() {
         combined.extend_from_slice(rest);
     }
@@ -896,9 +910,7 @@ fn render_inner(
         draw_node_box(&mut grid, node, pos, geom);
 
         // Apply node color (`style <id> fill:#…,stroke:#…,color:#…`).
-        if with_color
-            && let Some(style) = graph.node_styles.get(&node.id).copied()
-        {
+        if with_color && let Some(style) = graph.node_styles.get(&node.id).copied() {
             paint_node_colors(&mut grid, pos, geom, style);
         }
     }

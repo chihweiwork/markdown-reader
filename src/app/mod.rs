@@ -775,10 +775,7 @@ impl App {
                 // synchronously (AsciiDiagram or SourceOnly).  Stale image
                 // results arriving from pre-switch tasks must not overwrite
                 // the fresh entry.
-                if !matches!(
-                    self.mermaid_cache.get(id),
-                    Some(MermaidEntry::Pending)
-                ) {
+                if !matches!(self.mermaid_cache.get(id), Some(MermaidEntry::Pending)) {
                     return;
                 }
                 let entry = *entry;

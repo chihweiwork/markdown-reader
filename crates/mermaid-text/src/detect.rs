@@ -103,7 +103,10 @@ mod tests {
 
     #[test]
     fn detects_pie_keyword() {
-        assert_eq!(detect("pie title Pets\n\"Dogs\" : 5").unwrap(), DiagramKind::Pie);
+        assert_eq!(
+            detect("pie title Pets\n\"Dogs\" : 5").unwrap(),
+            DiagramKind::Pie
+        );
         assert_eq!(detect("PIE\n\"X\" : 1").unwrap(), DiagramKind::Pie);
     }
 

@@ -82,7 +82,11 @@ pub fn render(chart: &PieChart, max_width: Option<usize>) -> String {
     }
 
     for (i, slice) in chart.slices.iter().enumerate() {
-        let share = if total > 0.0 { slice.value / total } else { 0.0 };
+        let share = if total > 0.0 {
+            slice.value / total
+        } else {
+            0.0
+        };
         let filled = (share * bar_w as f64).round() as usize;
         let filled = filled.min(bar_w);
         let unfilled = bar_w - filled;

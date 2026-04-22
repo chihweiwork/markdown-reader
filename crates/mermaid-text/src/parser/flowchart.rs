@@ -91,7 +91,6 @@ pub fn parse(input: &str) -> Result<Graph, Error> {
     Ok(graph)
 }
 
-
 // ---------------------------------------------------------------------------
 // Header parsing
 // ---------------------------------------------------------------------------
@@ -869,7 +868,6 @@ fn soft_wrap_into(line: &str, out: &mut String) {
 // Style directive parsing
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1148,7 +1146,8 @@ mod tests {
 
     #[test]
     fn parse_link_style_directive_per_index() {
-        let src = "graph LR\nA-->B\nA-->C\nlinkStyle 0 stroke:#f00\nlinkStyle 1 stroke:#0f0,color:#fff";
+        let src =
+            "graph LR\nA-->B\nA-->C\nlinkStyle 0 stroke:#f00\nlinkStyle 1 stroke:#0f0,color:#fff";
         let g = parse(src).unwrap();
         let e0 = g.edge_styles.get(&0).copied().unwrap();
         assert_eq!(e0.stroke, Some(Rgb(0xff, 0, 0)));

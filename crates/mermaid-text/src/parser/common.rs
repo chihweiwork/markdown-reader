@@ -477,8 +477,14 @@ mod tests {
 
     #[test]
     fn strip_keyword_prefix_basic() {
-        assert_eq!(strip_keyword_prefix("note left of A", "note"), Some("left of A"));
-        assert_eq!(strip_keyword_prefix("Note left of A", "note"), Some("left of A"));
+        assert_eq!(
+            strip_keyword_prefix("note left of A", "note"),
+            Some("left of A")
+        );
+        assert_eq!(
+            strip_keyword_prefix("Note left of A", "note"),
+            Some("left of A")
+        );
         assert_eq!(strip_keyword_prefix("note", "note"), None); // no whitespace after
         assert_eq!(strip_keyword_prefix("notes", "note"), None); // not whitespace
         assert_eq!(strip_keyword_prefix("class A foo", "class"), Some("A foo"));
@@ -655,18 +661,12 @@ mod tests {
     fn parse_sequence_note_anchor_over_pair() {
         assert_eq!(
             parse_sequence_note_anchor("over Alice,Bob"),
-            Some(NoteAnchor::OverPair(
-                "Alice".to_string(),
-                "Bob".to_string()
-            ))
+            Some(NoteAnchor::OverPair("Alice".to_string(), "Bob".to_string()))
         );
         // Whitespace around the comma is tolerated.
         assert_eq!(
             parse_sequence_note_anchor("over Alice , Bob"),
-            Some(NoteAnchor::OverPair(
-                "Alice".to_string(),
-                "Bob".to_string()
-            ))
+            Some(NoteAnchor::OverPair("Alice".to_string(), "Bob".to_string()))
         );
     }
 
@@ -684,7 +684,10 @@ mod tests {
     fn strip_activation_marker_plus() {
         assert_eq!(strip_activation_marker("+B"), ("B".to_string(), Some(true)));
         // Whitespace inside `+ B` is tolerated; the id trims clean.
-        assert_eq!(strip_activation_marker("+ B"), ("B".to_string(), Some(true)));
+        assert_eq!(
+            strip_activation_marker("+ B"),
+            ("B".to_string(), Some(true))
+        );
     }
 
     #[test]

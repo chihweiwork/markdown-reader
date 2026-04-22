@@ -34,7 +34,9 @@ use crate::{
         parse_class_def_directive, parse_class_directive, parse_link_style_directive,
         parse_note_anchor, parse_style_directive, strip_inline_comment, strip_keyword_prefix,
     },
-    types::{BarOrientation, Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape, Subgraph},
+    types::{
+        BarOrientation, Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape, Subgraph,
+    },
 };
 
 const START_PREFIX: &str = "__start__";
@@ -690,11 +692,7 @@ impl Walker {
             if self.composite_ids.contains(id) {
                 continue;
             }
-            let shape = self
-                .shapes
-                .get(id)
-                .copied()
-                .unwrap_or(NodeShape::Rounded);
+            let shape = self.shapes.get(id).copied().unwrap_or(NodeShape::Rounded);
             let label = if self.is_marker(id) {
                 MARKER_LABEL.to_string()
             } else if let Some(explicit) = self.explicit_labels.get(id) {
@@ -887,7 +885,6 @@ fn parse_composite_header(body: &str, lineno: usize) -> Result<(String, String),
     Ok((id, label))
 }
 
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -1039,8 +1036,7 @@ mod tests {
 
     #[test]
     fn multi_line_note_now_synthesises_an_edge() {
-        let src =
-            "stateDiagram-v2\nA --> B\nnote right of A\n  some text\n  more text\nend note\nB --> C";
+        let src = "stateDiagram-v2\nA --> B\nnote right of A\n  some text\n  more text\nend note\nB --> C";
         let g = parse(src).unwrap();
         assert_eq!(g.edges.len(), 3, "2 user edges + 1 note connector");
         assert_eq!(g.node("__note_1__").unwrap().label, "some text\nmore text");
@@ -1048,7 +1044,8 @@ mod tests {
 
     #[test]
     fn classdef_and_style_silently_skipped() {
-        let src = "stateDiagram-v2\nclassDef foo fill:#f00\nclass A foo\nstyle A fill:#0f0\nA --> B";
+        let src =
+            "stateDiagram-v2\nclassDef foo fill:#f00\nclass A foo\nstyle A fill:#0f0\nA --> B";
         let g = parse(src).unwrap();
         assert_eq!(g.edges.len(), 1);
     }

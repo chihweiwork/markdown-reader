@@ -120,7 +120,9 @@ pub fn parse(src: &str) -> Result<SequenceDiagram, Error> {
             let state = if rest.eq_ignore_ascii_case("off") {
                 AutonumberState::Off
             } else {
-                let start: u32 = rest.split_whitespace().next()
+                let start: u32 = rest
+                    .split_whitespace()
+                    .next()
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(1);
                 AutonumberState::On { next_value: start }
@@ -232,9 +234,7 @@ pub fn parse(src: &str) -> Result<SequenceDiagram, Error> {
         }
         if matches!(head, "else" | "and" | "option") {
             let top = block_stack.last_mut().ok_or_else(|| {
-                Error::ParseError(format!(
-                    "`{head}` continuation keyword outside any block"
-                ))
+                Error::ParseError(format!("`{head}` continuation keyword outside any block"))
             })?;
             let expected = continuation_keyword_for(top.kind);
             if expected != Some(head) {
@@ -262,9 +262,7 @@ pub fn parse(src: &str) -> Result<SequenceDiagram, Error> {
         }
         if head == "end" {
             let mut frame = block_stack.pop().ok_or_else(|| {
-                Error::ParseError(
-                    "`end` with no matching block opener".to_string(),
-                )
+                Error::ParseError("`end` with no matching block opener".to_string())
             })?;
             let last_msg = diag.messages.len().saturating_sub(1);
             // Patch the in-flight branch's end_message.
@@ -354,10 +352,7 @@ pub fn parse(src: &str) -> Result<SequenceDiagram, Error> {
 /// participant nest correctly). An orphan close is a hard error; an
 /// unclosed open auto-closes at the last message — matches Mermaid's
 /// lenient behaviour and the doc-comment on `Activation::end_message`.
-fn finalize_activations(
-    events: &[ActEvent],
-    diag: &mut SequenceDiagram,
-) -> Result<(), Error> {
+fn finalize_activations(events: &[ActEvent], diag: &mut SequenceDiagram) -> Result<(), Error> {
     let mut stacks: HashMap<String, Vec<usize>> = HashMap::new();
     for ev in events {
         match ev {
@@ -623,8 +618,8 @@ mod tests {
 
     #[test]
     fn parse_autonumber_off() {
-        let diag = parse("sequenceDiagram\nautonumber\nA->>B: hi\nautonumber off\nB->>A: bye")
-            .unwrap();
+        let diag =
+            parse("sequenceDiagram\nautonumber\nA->>B: hi\nautonumber off\nB->>A: bye").unwrap();
         assert_eq!(diag.autonumber_changes.len(), 2);
         assert_eq!(diag.autonumber_changes[1].at_message, 1);
         assert_eq!(diag.autonumber_changes[1].state, AutonumberState::Off);
@@ -705,8 +700,7 @@ mod tests {
     fn parse_floating_note_silently_skipped() {
         // `note "text" as N1` — out of scope, parse without error
         // and produce no NoteEvent.
-        let diag =
-            parse("sequenceDiagram\nA->>B: hi\nnote \"floating\" as N1").unwrap();
+        let diag = parse("sequenceDiagram\nA->>B: hi\nnote \"floating\" as N1").unwrap();
         assert!(diag.notes.is_empty());
     }
 
@@ -824,8 +818,7 @@ mod tests {
 
     #[test]
     fn parse_activate_missing_participant_errors() {
-        let err = parse("sequenceDiagram\nactivate")
-            .expect_err("bare `activate` is malformed");
+        let err = parse("sequenceDiagram\nactivate").expect_err("bare `activate` is malformed");
         assert!(err.to_string().contains("activate"));
     }
 
@@ -874,10 +867,7 @@ mod tests {
 
     #[test]
     fn parse_opt_block() {
-        let diag = parse(
-            "sequenceDiagram\nopt cache hit\nA->>B: get\nend",
-        )
-        .unwrap();
+        let diag = parse("sequenceDiagram\nopt cache hit\nA->>B: get\nend").unwrap();
         assert_eq!(diag.blocks[0].kind, BlockKind::Opt);
         assert_eq!(diag.blocks[0].branches[0].label, "cache hit");
     }
@@ -917,10 +907,7 @@ mod tests {
 
     #[test]
     fn parse_break_block() {
-        let diag = parse(
-            "sequenceDiagram\nbreak quota exceeded\nA->>B: 429\nend",
-        )
-        .unwrap();
+        let diag = parse("sequenceDiagram\nbreak quota exceeded\nA->>B: 429\nend").unwrap();
         assert_eq!(diag.blocks[0].kind, BlockKind::Break);
     }
 
@@ -948,15 +935,13 @@ mod tests {
 
     #[test]
     fn parse_orphan_end_errors() {
-        let err =
-            parse("sequenceDiagram\nA->>B: hi\nend").expect_err("orphan end");
+        let err = parse("sequenceDiagram\nA->>B: hi\nend").expect_err("orphan end");
         assert!(err.to_string().contains("end"));
     }
 
     #[test]
     fn parse_else_outside_alt_errors() {
-        let err = parse("sequenceDiagram\nA->>B: hi\nelse foo\nA->>B: x")
-            .expect_err("orphan else");
+        let err = parse("sequenceDiagram\nA->>B: hi\nelse foo\nA->>B: x").expect_err("orphan else");
         assert!(err.to_string().contains("else"));
     }
 
@@ -978,8 +963,7 @@ mod tests {
 
     #[test]
     fn parse_unclosed_block_at_eof_errors() {
-        let err = parse("sequenceDiagram\nloop forever\nA->>B: hi")
-            .expect_err("unclosed loop");
+        let err = parse("sequenceDiagram\nloop forever\nA->>B: hi").expect_err("unclosed loop");
         assert!(err.to_string().contains("unclosed"));
     }
 

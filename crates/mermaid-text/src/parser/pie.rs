@@ -55,9 +55,7 @@ pub fn parse(src: &str) -> Result<PieChart, Error> {
     }
 
     if !header_seen {
-        return Err(Error::ParseError(
-            "missing `pie` header line".to_string(),
-        ));
+        return Err(Error::ParseError("missing `pie` header line".to_string()));
     }
     if chart.slices.is_empty() {
         return Err(Error::ParseError(

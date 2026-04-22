@@ -30,9 +30,7 @@
 //! ```
 
 use crate::Error;
-use crate::er::{
-    Attribute, AttributeKey, Cardinality, ErDiagram, LineStyle, Relationship,
-};
+use crate::er::{Attribute, AttributeKey, Cardinality, ErDiagram, LineStyle, Relationship};
 use crate::parser::common::strip_inline_comment;
 
 pub fn parse(src: &str) -> Result<ErDiagram, Error> {
@@ -134,12 +132,12 @@ fn parse_attribute_row(line: &str) -> Result<Attribute, Error> {
     };
 
     let mut tokens = head.split_whitespace();
-    let type_name = tokens.next().ok_or_else(|| {
-        Error::ParseError(format!("attribute row missing type: {line:?}"))
-    })?;
-    let name = tokens.next().ok_or_else(|| {
-        Error::ParseError(format!("attribute row missing name: {line:?}"))
-    })?;
+    let type_name = tokens
+        .next()
+        .ok_or_else(|| Error::ParseError(format!("attribute row missing type: {line:?}")))?;
+    let name = tokens
+        .next()
+        .ok_or_else(|| Error::ParseError(format!("attribute row missing name: {line:?}")))?;
 
     let mut keys = Vec::new();
     for tok in tokens {
@@ -342,23 +340,38 @@ mod tests {
              A }o--o{ B : optionalMany",
         )
         .unwrap();
-        assert_eq!(diag.relationships[0].from_cardinality, Cardinality::ExactlyOne);
-        assert_eq!(diag.relationships[0].to_cardinality, Cardinality::ExactlyOne);
-        assert_eq!(diag.relationships[1].from_cardinality, Cardinality::ZeroOrOne);
+        assert_eq!(
+            diag.relationships[0].from_cardinality,
+            Cardinality::ExactlyOne
+        );
+        assert_eq!(
+            diag.relationships[0].to_cardinality,
+            Cardinality::ExactlyOne
+        );
+        assert_eq!(
+            diag.relationships[1].from_cardinality,
+            Cardinality::ZeroOrOne
+        );
         assert_eq!(diag.relationships[1].to_cardinality, Cardinality::ZeroOrOne);
-        assert_eq!(diag.relationships[2].from_cardinality, Cardinality::OneOrMany);
+        assert_eq!(
+            diag.relationships[2].from_cardinality,
+            Cardinality::OneOrMany
+        );
         assert_eq!(diag.relationships[2].to_cardinality, Cardinality::OneOrMany);
-        assert_eq!(diag.relationships[3].from_cardinality, Cardinality::ZeroOrMany);
-        assert_eq!(diag.relationships[3].to_cardinality, Cardinality::ZeroOrMany);
+        assert_eq!(
+            diag.relationships[3].from_cardinality,
+            Cardinality::ZeroOrMany
+        );
+        assert_eq!(
+            diag.relationships[3].to_cardinality,
+            Cardinality::ZeroOrMany
+        );
     }
 
     #[test]
     fn parse_non_identifying_line_style() {
         let diag = parse("erDiagram\nA ||..o{ B").unwrap();
-        assert_eq!(
-            diag.relationships[0].line_style,
-            LineStyle::NonIdentifying
-        );
+        assert_eq!(diag.relationships[0].line_style, LineStyle::NonIdentifying);
     }
 
     #[test]
@@ -369,10 +382,7 @@ mod tests {
 
     #[test]
     fn parse_quoted_label_strips_quotes() {
-        let diag = parse(
-            "erDiagram\nCUSTOMER ||--o{ ORDER : \"places multiple\"",
-        )
-        .unwrap();
+        let diag = parse("erDiagram\nCUSTOMER ||--o{ ORDER : \"places multiple\"").unwrap();
         assert_eq!(
             diag.relationships[0].label.as_deref(),
             Some("places multiple")
@@ -406,10 +416,7 @@ mod tests {
 
     #[test]
     fn parse_attribute_with_comment() {
-        let diag = parse(
-            "erDiagram\nA {\n  string id PK \"the unique identifier\"\n}",
-        )
-        .unwrap();
+        let diag = parse("erDiagram\nA {\n  string id PK \"the unique identifier\"\n}").unwrap();
         let a = &diag.entities[0].attributes[0];
         assert_eq!(a.comment.as_deref(), Some("the unique identifier"));
         assert_eq!(a.keys, vec![AttributeKey::PrimaryKey]);

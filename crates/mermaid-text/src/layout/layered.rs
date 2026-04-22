@@ -248,16 +248,14 @@ fn compute_edge_waypoints(
 
     let mut out: Vec<EdgeWaypoints> = Vec::new();
     for (edge_idx, edge) in graph.edges.iter().enumerate() {
-        let (Some(&from_layer), Some(&to_layer)) =
-            (layers.get(&edge.from), layers.get(&edge.to))
+        let (Some(&from_layer), Some(&to_layer)) = (layers.get(&edge.from), layers.get(&edge.to))
         else {
             continue;
         };
         if to_layer <= from_layer + 1 {
             continue; // short edge or back-edge — no waypoints
         }
-        let (Some(&src), Some(&tgt)) = (positions.get(&edge.from), positions.get(&edge.to))
-        else {
+        let (Some(&src), Some(&tgt)) = (positions.get(&edge.from), positions.get(&edge.to)) else {
             continue;
         };
 
@@ -354,7 +352,9 @@ fn layer_perpendicular_ranges(
         if size == 0 {
             continue;
         }
-        out.entry(layer).or_default().push((start, start + size - 1));
+        out.entry(layer)
+            .or_default()
+            .push((start, start + size - 1));
     }
     out
 }
@@ -1091,9 +1091,7 @@ fn label_gap(
             // Edge crosses the gap in either direction.
             (fl == layer_a && tl == layer_b) || (fl == layer_b && tl == layer_a)
         })
-        .filter_map(|(i, e)| {
-            e.label.as_deref().map(|l| (i, UnicodeWidthStr::width(l)))
-        })
+        .filter_map(|(i, e)| e.label.as_deref().map(|l| (i, UnicodeWidthStr::width(l))))
         .collect();
 
     if crossings.is_empty() {
@@ -1259,11 +1257,15 @@ fn layer_parallel_label_extra(
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut max_extra: usize = 0;
     for nid in layer_nodes {
-        let Some(sg_id) = node_to_sg.get(nid) else { continue };
+        let Some(sg_id) = node_to_sg.get(nid) else {
+            continue;
+        };
         if !seen.insert(sg_id.as_str()) {
             continue;
         }
-        let Some(sg) = graph.find_subgraph(sg_id) else { continue };
+        let Some(sg) = graph.find_subgraph(sg_id) else {
+            continue;
+        };
         let (w, h) = parallel_label_extra(graph, sg);
         let extra = if axis_w { w } else { h };
         max_extra = max_extra.max(extra);
@@ -1312,11 +1314,7 @@ fn compute_positions(
                     .map(|id| node_box_width(graph, id))
                     .max()
                     .unwrap_or(6);
-                let extra_w = layer_parallel_label_extra_width(
-                    graph,
-                    layer_nodes,
-                    &node_to_sg,
-                );
+                let extra_w = layer_parallel_label_extra_width(graph, layer_nodes, &node_to_sg);
                 let layer_width = base_layer_width + extra_w;
 
                 let mut row = 0usize;
@@ -1387,11 +1385,7 @@ fn compute_positions(
                     .map(|id| node_box_height(graph, id))
                     .max()
                     .unwrap_or(3);
-                let extra_h = layer_parallel_label_extra_height(
-                    graph,
-                    layer_nodes,
-                    &node_to_sg,
-                );
+                let extra_h = layer_parallel_label_extra_height(graph, layer_nodes, &node_to_sg);
                 let layer_height = base_layer_height + extra_h;
 
                 let mut col = 0usize;

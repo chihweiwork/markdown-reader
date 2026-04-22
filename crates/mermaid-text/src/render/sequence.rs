@@ -209,10 +209,7 @@ fn compute_layout(diag: &SequenceDiagram) -> Vec<ParticipantLayout> {
         let center = if i == 0 {
             left_margin
         } else {
-            prev_center
-                + box_widths[i - 1] / 2
-                + gap_mins[i - 1]
-                + box_widths[i] / 2
+            prev_center + box_widths[i - 1] / 2 + gap_mins[i - 1] + box_widths[i] / 2
         };
         layouts.push(ParticipantLayout {
             center,
@@ -538,11 +535,7 @@ pub fn render(diag: &SequenceDiagram) -> String {
     } else {
         // Budget one row per message slot; self-messages need an extra
         // row each for their loop's second leg.
-        let self_msg_count = diag
-            .messages
-            .iter()
-            .filter(|m| m.from == m.to)
-            .count();
+        let self_msg_count = diag.messages.iter().filter(|m| m.from == m.to).count();
         let regular_count = num_messages - self_msg_count;
         1 + regular_count * EVENT_ROW_H + self_msg_count * SELF_MSG_ROW_H
     };
@@ -757,13 +750,7 @@ pub fn render(diag: &SequenceDiagram) -> String {
         message_arrow_rows.push(arrow_row);
 
         if si == ti {
-            draw_self_message(
-                &mut canvas,
-                layouts[si].center,
-                arrow_row,
-                label,
-                msg.style,
-            );
+            draw_self_message(&mut canvas, layouts[si].center, arrow_row, label, msg.style);
             arrow_row += SELF_MSG_ROW_H;
         } else {
             draw_message(
@@ -836,14 +823,10 @@ pub fn render(diag: &SequenceDiagram) -> String {
     //    arrows).
     for (i, b) in diag.blocks.iter().enumerate() {
         // Empty block (no inner messages) — nothing to draw.
-        if b.start_message > b.end_message
-            || message_arrow_rows.get(b.start_message).is_none()
-        {
+        if b.start_message > b.end_message || message_arrow_rows.get(b.start_message).is_none() {
             continue;
         }
-        let Some((natural_left, natural_right)) =
-            block_column_range(b, diag, &layouts)
-        else {
+        let Some((natural_left, natural_right)) = block_column_range(b, diag, &layouts) else {
             continue;
         };
         // Depth-based horizontal inset so nested rectangles don't draw
@@ -897,8 +880,7 @@ fn block_depth(idx: usize, blocks: &[Block]) -> usize {
             *j != idx
                 && b.start_message <= me.start_message
                 && b.end_message >= me.end_message
-                && (b.start_message < me.start_message
-                    || b.end_message > me.end_message)
+                && (b.start_message < me.start_message || b.end_message > me.end_message)
         })
         .count()
 }
@@ -923,7 +905,9 @@ fn block_column_range(
     }
     let lo = min_idx?;
     let hi = max_idx?;
-    let left = layouts[lo].center.saturating_sub(layouts[lo].box_width / 2 + 1);
+    let left = layouts[lo]
+        .center
+        .saturating_sub(layouts[lo].box_width / 2 + 1);
     let right = layouts[hi].center + layouts[hi].box_width / 2 + 1;
     Some((left, right))
 }
@@ -987,9 +971,7 @@ fn draw_block_frame(
         return;
     }
 
-    let paintable = |ch: char| -> bool {
-        ch == ' ' || ch == LIFELINE || ch == ACTIVATION_BAR
-    };
+    let paintable = |ch: char| -> bool { ch == ' ' || ch == LIFELINE || ch == ACTIVATION_BAR };
 
     // Top border with corners.
     if paintable(canvas.grid[top][left]) {

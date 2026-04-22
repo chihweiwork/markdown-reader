@@ -36,10 +36,8 @@ pub fn render(chart: &ErDiagram, _max_width: Option<usize>) -> String {
     // Per-entity box geometry: box width (widest content column +
     // padding) and box height (3 header rows + 1 divider + per-
     // attribute rows).
-    let entity_widths: Vec<usize> =
-        chart.entities.iter().map(entity_box_width).collect();
-    let entity_heights: Vec<usize> =
-        chart.entities.iter().map(entity_box_height).collect();
+    let entity_widths: Vec<usize> = chart.entities.iter().map(entity_box_width).collect();
+    let entity_heights: Vec<usize> = chart.entities.iter().map(entity_box_height).collect();
     let tallest = *entity_heights.iter().max().unwrap_or(&HEADER_ROWS);
 
     // Per-pair gap: widen to fit the relationship label when one
@@ -98,10 +96,9 @@ pub fn render(chart: &ErDiagram, _max_width: Option<usize>) -> String {
     // entity-name row (always present in every box) and meets the
     // border via `┤` / `├` tee glyphs.
     for rel in &chart.relationships {
-        let (Some(from_idx), Some(to_idx)) = (
-            chart.entity_index(&rel.from),
-            chart.entity_index(&rel.to),
-        ) else {
+        let (Some(from_idx), Some(to_idx)) =
+            (chart.entity_index(&rel.from), chart.entity_index(&rel.to))
+        else {
             continue;
         };
         if from_idx == to_idx {
@@ -135,8 +132,12 @@ fn compute_pair_gaps(chart: &ErDiagram) -> Vec<usize> {
     }
     let mut gaps = vec![MIN_ENTITY_GAP; n];
     for rel in &chart.relationships {
-        let Some(from_idx) = chart.entity_index(&rel.from) else { continue };
-        let Some(to_idx) = chart.entity_index(&rel.to) else { continue };
+        let Some(from_idx) = chart.entity_index(&rel.from) else {
+            continue;
+        };
+        let Some(to_idx) = chart.entity_index(&rel.to) else {
+            continue;
+        };
         if from_idx == to_idx {
             continue;
         }
@@ -361,7 +362,11 @@ fn draw_relationship_line(
         return; // entities touch or overlap; can't draw a line
     }
 
-    let line_glyph = if rel.line_style.is_dashed() { '┄' } else { '─' };
+    let line_glyph = if rel.line_style.is_dashed() {
+        '┄'
+    } else {
+        '─'
+    };
 
     // 1. Merge the side borders with tee glyphs so the line meets
     //    each box visually. Don't merge dashed lines — `┤`/`├` are
@@ -414,7 +419,6 @@ fn draw_relationship_line(
         }
     }
 }
-
 
 /// Single-character glyph at a relationship endpoint, conveying
 /// cardinality. Chosen to read unambiguously in any monospace font:
@@ -494,10 +498,7 @@ mod tests {
 
     #[test]
     fn renders_isolated_entity_with_attributes() {
-        let chart = parse(
-            "erDiagram\nCUSTOMER {\n  string name\n  string email PK\n}",
-        )
-        .unwrap();
+        let chart = parse("erDiagram\nCUSTOMER {\n  string name\n  string email PK\n}").unwrap();
         let out = render(&chart, None);
         assert!(out.contains("CUSTOMER"));
         // Attribute rows should render inside the box.

@@ -57,15 +57,17 @@ pub fn parallel_label_extra(graph: &Graph, sg: &Subgraph) -> (usize, usize) {
     if parallel_groups.is_empty() {
         return (0, 0);
     }
-    let members: std::collections::HashSet<&str> =
-        sg.node_ids.iter().map(|s| s.as_str()).collect();
+    let members: std::collections::HashSet<&str> = sg.node_ids.iter().map(|s| s.as_str()).collect();
 
     let mut max_label_width: usize = 0;
     for group in &parallel_groups {
-        let Some(&first_idx) = group.first() else { continue };
-        let Some(first_edge) = graph.edges.get(first_idx) else { continue };
-        if !members.contains(first_edge.from.as_str())
-            || !members.contains(first_edge.to.as_str())
+        let Some(&first_idx) = group.first() else {
+            continue;
+        };
+        let Some(first_edge) = graph.edges.get(first_idx) else {
+            continue;
+        };
+        if !members.contains(first_edge.from.as_str()) || !members.contains(first_edge.to.as_str())
         {
             continue;
         }

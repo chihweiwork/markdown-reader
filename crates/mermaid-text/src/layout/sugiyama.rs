@@ -1,4 +1,6 @@
-//! Sugiyama layout via the [`ascii-dag`] crate.
+//! Sugiyama layout via the [`ascii-dag`][ascii-dag] crate.
+//!
+//! [ascii-dag]: https://crates.io/crates/ascii-dag
 //!
 //! Wraps `ascii_dag::Graph::compute_layout` so we can use its
 //! mature crossing-minimisation + Brandes-Köpf coordinate
@@ -98,10 +100,8 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
         adag.add_node_with_size(aid, &node.id, adag_w, adag_h);
     }
     for edge in &graph.edges {
-        let (Some(&from), Some(&to)) = (
-            id_to_usize.get(&edge.from),
-            id_to_usize.get(&edge.to),
-        ) else {
+        let (Some(&from), Some(&to)) = (id_to_usize.get(&edge.from), id_to_usize.get(&edge.to))
+        else {
             continue;
         };
         adag.add_edge(from, to, edge.label.as_deref());
@@ -139,7 +139,9 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
         if matches!(n.kind, ascii_dag::NodeKind::Dummy) {
             continue;
         }
-        let Some(real_id) = usize_to_id.get(&n.id) else { continue };
+        let Some(real_id) = usize_to_id.get(&n.id) else {
+            continue;
+        };
         let (col, row) = if transpose { (n.y, n.x) } else { (n.x, n.y) };
         raw_positions.push((real_id.clone(), col, row, n.level));
         max_x = max_x.max(col);
@@ -199,10 +201,8 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
 
     let mut edge_waypoints: Vec<EdgeWaypoints> = Vec::new();
     for (idx, edge) in graph.edges.iter().enumerate() {
-        let (Some(&from), Some(&to)) = (
-            id_to_usize.get(&edge.from),
-            id_to_usize.get(&edge.to),
-        ) else {
+        let (Some(&from), Some(&to)) = (id_to_usize.get(&edge.from), id_to_usize.get(&edge.to))
+        else {
             continue;
         };
         // Find the corresponding ascii-dag edge.
@@ -223,7 +223,11 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
                     // offset, which keeps them in the right ballpark.
                     let level = coord_to_level.get(&(raw_x, raw_y)).copied().unwrap_or(0);
                     let level_offset = level * extra_per_layer;
-                    let (col, row) = if transpose { (raw_y, raw_x) } else { (raw_x, raw_y) };
+                    let (col, row) = if transpose {
+                        (raw_y, raw_x)
+                    } else {
+                        (raw_x, raw_y)
+                    };
                     let (col, row) = match graph.direction {
                         Direction::LeftToRight | Direction::RightToLeft => {
                             (col + level_offset, row)
@@ -312,7 +316,10 @@ mod tests {
         let queue_col = out.positions["Queue"].0;
         let worker_col = out.positions["Worker"].0;
         let db_col = out.positions["DB"].0;
-        assert!(app_col < cache_col, "App should precede Cache: {app_col} < {cache_col}");
+        assert!(
+            app_col < cache_col,
+            "App should precede Cache: {app_col} < {cache_col}"
+        );
         assert_eq!(cache_col, queue_col, "Cache and Queue share a layer");
         assert!(queue_col < worker_col, "Worker is its own layer");
         assert!(worker_col < db_col, "DB is the rightmost layer");

@@ -324,7 +324,10 @@ fn cicd_parallel_styles_to_same_target() {
     T -.->|skip| D";
     let out = mermaid_text::render(src).unwrap();
     // No `│pass` (label puncturing CI's right border).
-    assert!(!out.contains("│pass│"), "pass label punctured subgraph border:\n{out}");
+    assert!(
+        !out.contains("│pass│"),
+        "pass label punctured subgraph border:\n{out}"
+    );
     assert_snapshot!("cicd_parallel_styles_to_same_target", out);
 }
 
@@ -362,7 +365,10 @@ fn color_disabled_is_byte_identical() {
     let plain = mermaid_text::render(src).unwrap();
     let opts = mermaid_text::RenderOptions::default();
     let via_options = mermaid_text::render_with_options(src, &opts).unwrap();
-    assert_eq!(plain, via_options, "color=false path must be byte-identical");
+    assert_eq!(
+        plain, via_options,
+        "color=false path must be byte-identical"
+    );
     assert!(
         !via_options.contains('\x1b'),
         "no ANSI escape bytes when color=false"
@@ -404,8 +410,14 @@ fn classdef_and_class_directives() {
     };
     let out = mermaid_text::render_with_options(src, &opts).unwrap();
     // Both A and B should pick up the class fill colour.
-    assert!(out.contains("\x1b[48;2;34;51;68m"), "datastore fill SGR present");
-    assert!(out.contains("\x1b[38;2;153;204;255m"), "datastore stroke SGR present");
+    assert!(
+        out.contains("\x1b[48;2;34;51;68m"),
+        "datastore fill SGR present"
+    );
+    assert!(
+        out.contains("\x1b[38;2;153;204;255m"),
+        "datastore stroke SGR present"
+    );
     assert_snapshot!("classdef_and_class_directives", out);
 }
 
@@ -450,7 +462,10 @@ class Working warn";
         ..Default::default()
     };
     let out = mermaid_text::render_with_options(src, &opts).unwrap();
-    assert!(out.contains("\x1b[38;2;153;204;255m"), "accent stroke present");
+    assert!(
+        out.contains("\x1b[38;2;153;204;255m"),
+        "accent stroke present"
+    );
     assert!(out.contains("\x1b[48;2;255;0;0m"), "warn fill present");
     assert_snapshot!("state_diagram_classdef", out);
 }
@@ -678,7 +693,10 @@ fn color_plus_ascii_composes() {
         ..Default::default()
     };
     let out = mermaid_text::render_with_options(src, &opts).unwrap();
-    assert!(out.contains("\x1b[48;2;51;51;102m"), "fill SGR survives ascii");
+    assert!(
+        out.contains("\x1b[48;2;51;51;102m"),
+        "fill SGR survives ascii"
+    );
     // Strip SGR; remainder must be pure ASCII.
     let stripped: String = {
         let mut s = String::with_capacity(out.len());
@@ -1002,7 +1020,10 @@ fn er_canonical_three_entities() {
 fn er_non_identifying_renders_dashed_line() {
     let src = "erDiagram\nPARENT ||..o{ CHILD : optional";
     let out = mermaid_text::render(src).unwrap();
-    assert!(out.contains("┄"), "non-identifying relationship must use dashed glyph");
+    assert!(
+        out.contains("┄"),
+        "non-identifying relationship must use dashed glyph"
+    );
     assert_snapshot!("er_non_identifying_renders_dashed_line", out);
 }
 
@@ -1025,7 +1046,8 @@ fn pie_with_title() {
 
 #[test]
 fn pie_with_show_data() {
-    let src = "pie showData title Browser Share\n\"Chrome\" : 60\n\"Firefox\" : 25\n\"Safari\" : 15";
+    let src =
+        "pie showData title Browser Share\n\"Chrome\" : 60\n\"Firefox\" : 25\n\"Safari\" : 15";
     let out = mermaid_text::render(src).unwrap();
     assert!(out.contains("(60)"));
     assert!(out.contains("(25)"));
@@ -1058,5 +1080,8 @@ fn sequence_end_note_returns_helpful_error() {
 participant U
 end note";
     let err = mermaid_text::render(src).unwrap_err().to_string();
-    assert!(err.contains("<br>"), "error should point at <br> syntax: {err}");
+    assert!(
+        err.contains("<br>"),
+        "error should point at <br> syntax: {err}"
+    );
 }
