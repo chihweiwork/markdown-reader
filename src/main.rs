@@ -15,7 +15,10 @@ use app::App;
 use clap::Parser;
 use crossterm::{
     cursor::Show,
-    event::{DisableMouseCapture, EnableMouseCapture},
+    event::{
+        DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    },
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -34,6 +37,10 @@ struct TerminalGuard;
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
+        // Best-effort pop of the keyboard enhancement flags. Pushed in
+        // `main` after `enable_raw_mode`; popping is harmless (no-op)
+        // on terminals that didn't accept the request.
+        let _ = execute!(std::io::stdout(), PopKeyboardEnhancementFlags);
         let _ = execute!(
             std::io::stdout(),
             LeaveAlternateScreen,
@@ -161,6 +168,24 @@ async fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    // Request the Kitty keyboard enhancement protocol. Modern terminals
+    // (Ghostty, Kitty, WezTerm, recent iTerm2, foot) honour it and start
+    // sending precise modifier flags — Cmd surfaces as
+    // `KeyModifiers::SUPER`, distinguishable from `ALT` (Option / Esc-
+    // prefixed sequences). Without it Cmd+arrow and Option+arrow both
+    // arrive as ALT-modified to the legacy keyboard layer, so the viewer
+    // can't bind them to different actions. Older terminals ignore the
+    // request silently and we keep the legacy fallbacks below working.
+    //
+    // `ignore_or_log` because the request is best-effort — failures
+    // (e.g. a stripped-down stdout) shouldn't tank the app.
+    let _ = execute!(
+        stdout,
+        PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+        )
+    );
 
     let _guard = TerminalGuard;
 

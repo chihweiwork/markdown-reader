@@ -5,6 +5,31 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.2] - 2026-04-22
+
+### Added
+
+- **Request the Kitty keyboard enhancement protocol on startup.**
+  Modern terminals (Ghostty, Kitty, WezTerm, recent iTerm2, foot)
+  honour `PushKeyboardEnhancementFlags` and start sending precise
+  modifier flags — Cmd surfaces as `KeyModifiers::SUPER`,
+  distinguishable from `ALT` (Option / Esc-prefixed sequences).
+  Without it, Cmd+arrow and Option+arrow both arrived as
+  ALT-modified to the legacy keyboard layer, so the viewer couldn't
+  bind them to different actions.
+
+  Concrete win for Ghostty users with `macos-option-as-alt = true`:
+  Cmd+Left/Right now triggers the line-start/end binding (via
+  `SUPER+arrow`, added in 1.20.1) while Option+Left/Right keeps
+  doing word jumps. macOS-native cursor behaviour out of the box.
+
+  Older terminals (Terminal.app, Alacritty) silently ignore the
+  request and keep working with the legacy fallbacks (Esc+f / Esc+b
+  / Alt+arrow CSI codes — all still wired).
+
+  Pop the flags on shutdown via `TerminalGuard::drop` so the
+  terminal returns to its default mode after the app exits.
+
 ## [1.20.1] - 2026-04-22
 
 ### Fixed
