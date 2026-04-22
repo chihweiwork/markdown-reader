@@ -316,7 +316,19 @@ impl MdRenderer {
         for (event, span) in parser.into_offset_iter() {
             // Stamp the current source line from the event's start offset
             // before dispatching.  All `lines.push` paths below inherit this.
-            self.current_source_line = byte_offset_to_line(span.start, &self.line_boundaries);
+            //
+            // Skip End events: their span starts at the *opening* of the
+            // block (e.g. `End(Paragraph)` for a multi-line paragraph spans
+            // 0..N, so `span.start` resets us to the first source line).
+            // When `TagEnd::Paragraph` then calls `flush_line` to emit the
+            // trailing accumulated spans (the last source line of the
+            // paragraph), it should record the line where that text
+            // *actually lives*, not where the paragraph began. Leaving
+            // `current_source_line` at whatever the last inline event
+            // (Text / SoftBreak / Code) set it to gives the correct value.
+            if !matches!(event, Event::End(_)) {
+                self.current_source_line = byte_offset_to_line(span.start, &self.line_boundaries);
+            }
 
             match event {
                 Event::Start(tag) => self.start_tag(tag, &span),
@@ -339,8 +351,32 @@ impl MdRenderer {
                     }
                 }
                 Event::SoftBreak => {
-                    self.current_spans
-                        .push(Span::styled(" ".to_string(), self.current_style()));
+                    // Preserve the source line break instead of joining the
+                    // two sides with a space. Joining produced a single
+                    // ratatui `Line` per paragraph that `Paragraph::wrap`
+                    // would then word-wrap into N visual rows, but
+                    // `block.height()` (which drives scroll math) only ever
+                    // counted it as one logical line. The mismatch made
+                    // tables and following text shift on screen as the user
+                    // scrolled, "revealing" lines that were previously
+                    // hidden behind the wrap overflow.
+                    //
+                    // Inside a link we still emit a space — `LinkInfo` can
+                    // only describe a single rendered line, so splitting
+                    // would orphan the second half. Inside a table cell we
+                    // also keep the space because cells render as joined
+                    // strings via the table layout, not via flush_line.
+                    // Inside a list item we keep the space because the
+                    // bullet/indent prefix is only emitted on `Tag::Item`;
+                    // splitting would leave the continuation line at
+                    // column 0 instead of aligning under the marker.
+                    let in_list = self.list_depth > 0;
+                    if self.current_link_url.is_some() || self.in_table || in_list {
+                        self.current_spans
+                            .push(Span::styled(" ".to_string(), self.current_style()));
+                    } else {
+                        self.flush_line();
+                    }
                 }
                 Event::HardBreak => {
                     self.flush_line();
@@ -1336,6 +1372,78 @@ mod tests {
         assert_eq!(
             source_lines[para_idx], 2,
             "paragraph should map to source line 2"
+        );
+    }
+
+    /// A paragraph whose source spans three lines (separated by single
+    /// newlines, not blank lines) must render as three rendered lines, not
+    /// one joined line. The viewer's scroll math counts logical lines, but
+    /// `Paragraph::wrap` would visually wrap a joined line into multiple
+    /// rows — the mismatch made tables and following text shift on screen
+    /// during scrolling. Preserving source line breaks keeps logical and
+    /// visual line counts aligned for the common prose case.
+    #[test]
+    fn soft_breaks_preserve_source_line_count() {
+        let md = "line one\nline two\nline three\n";
+        let blocks = render_markdown(md, &default_palette(), Theme::Default);
+        let text_block = blocks
+            .iter()
+            .find(|b| matches!(b, DocBlock::Text { .. }))
+            .expect("expected a Text block");
+        let DocBlock::Text {
+            text, source_lines, ..
+        } = text_block
+        else {
+            panic!("expected Text block");
+        };
+        // Three source lines + one trailing blank from TagEnd::Paragraph.
+        let content_lines: Vec<&str> = text
+            .lines
+            .iter()
+            .filter(|l| l.spans.iter().any(|s| !s.content.trim().is_empty()))
+            .map(|l| {
+                let s = l
+                    .spans
+                    .iter()
+                    .map(|sp| sp.content.as_ref())
+                    .collect::<String>();
+                Box::leak(s.into_boxed_str()) as &str
+            })
+            .collect();
+        assert_eq!(content_lines, vec!["line one", "line two", "line three"]);
+        // Each rendered content line should map back to its own source line.
+        let positions: Vec<u32> = text
+            .lines
+            .iter()
+            .enumerate()
+            .filter(|(_, l)| l.spans.iter().any(|s| !s.content.trim().is_empty()))
+            .map(|(i, _)| source_lines[i])
+            .collect();
+        assert_eq!(positions, vec![0, 1, 2]);
+    }
+
+    /// A link whose visible text spans a soft break must remain a single
+    /// rendered line so its `LinkInfo` (line + col range) stays valid. The
+    /// soft break inside the link is rendered as a space.
+    #[test]
+    fn soft_break_inside_link_stays_joined() {
+        let md = "[two\nwords](http://example.com)\n";
+        let blocks = render_markdown(md, &default_palette(), Theme::Default);
+        let text_block = blocks
+            .iter()
+            .find(|b| matches!(b, DocBlock::Text { .. }))
+            .expect("expected a Text block");
+        let DocBlock::Text { text, links, .. } = text_block else {
+            panic!("expected Text block");
+        };
+        // The link's visible text is on a single rendered line.
+        assert_eq!(links.len(), 1);
+        let link = &links[0];
+        let line = &text.lines[link.line as usize];
+        let rendered: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            rendered.contains("two words"),
+            "link text should be joined with a space; got {rendered:?}",
         );
     }
 

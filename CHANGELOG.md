@@ -5,6 +5,38 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.3] - 2026-04-21
+
+### Fixed
+
+- **Lines near tables no longer "shift" or "appear" while scrolling.**
+  Reported on a long-prose-followed-by-table layout: scrolling past the
+  paragraph would reveal a line of text or a blank that wasn't visible
+  a moment earlier, and the table itself would shift up/down by one or
+  two rows.
+
+  Root cause: pulldown-cmark joined every soft break inside a paragraph
+  into a single `ratatui::Line` (with a space between the joined parts).
+  When that single Line was wider than the viewport, `Paragraph::wrap`
+  expanded it to N visual rows, but the scroll math counted it as 1
+  logical line. The mismatch left N-1 visual rows worth of content
+  hiding behind the wrap overflow, only to "reveal" themselves once
+  scrolling shifted the line out of the rendered rect.
+
+  Fix: preserve source line breaks during rendering so each source
+  line becomes its own `ratatui::Line` and the logical/visual line
+  counts match for the common prose case. Soft breaks inside links,
+  table cells, and list items still emit a space because those
+  contexts can't represent a per-line split correctly (LinkInfo
+  records a single line/col range; table cells render via the table
+  layout; list items track their bullet/indent only at `Tag::Item`).
+
+  Also: stopped restamping `current_source_line` on `Event::End`,
+  which previously rewound source-line tracking to the start of a
+  multi-line paragraph and put the trailing rendered line on the
+  wrong source line. The two changes ship together because the soft
+  break flush surfaced the latent stamping bug.
+
 ## [1.18.2] - 2026-04-22
 
 ### Added
