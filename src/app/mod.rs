@@ -259,12 +259,6 @@ pub struct MermaidModalState {
     pub text_zoom: i32,
 }
 
-/// How many columns one zoom step shifts the text-mode `max_width` budget.
-/// Picked to be large enough to cross most of the discrete compaction
-/// thresholds in `mermaid-text` (whose `LayoutConfig` levels step by
-/// ~3–5 gap units, each affecting ~10–15 cols of total width).
-pub const TEXT_ZOOM_STEP: i32 = 20;
-
 /// Transient state for the settings popup.
 ///
 /// The popup exposes a flat list of options across two sections. [`SECTIONS`]

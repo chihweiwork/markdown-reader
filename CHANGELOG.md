@@ -5,6 +5,29 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.1] - 2026-04-22
+
+### Fixed
+
+- **Mermaid modal text-zoom now actually changes the diagram.** 1.19.0
+  shifted the budget by ±20 cols per press, but `mermaid-text` only
+  triggers compaction when the budget is *below* the natural rendering
+  AND it returns the first compact level that fits — so a 20-col delta
+  rarely crossed a threshold and the user only saw the footer change,
+  not the diagram itself.
+
+  The new formula:
+  - `+` → request **natural** size (`max_width = None`, no compaction).
+  - `-` → multiplicative shrink, budget = `modal_width × 0.7^|zoom|`.
+    Each press shaves ~30% off the budget so the renderer reliably
+    walks down its three discrete compaction levels.
+  - `=` → reset to `0` (budget = modal width).
+
+  Caveat unchanged: sequence diagrams have no compaction pass at all
+  (fixed layout), so zoom is a no-op there. Pie / erDiagram honour the
+  budget directly. Flowchart / state run through the three-level
+  compaction pipeline.
+
 ## [1.19.0] - 2026-04-22
 
 ### Added

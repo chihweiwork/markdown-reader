@@ -107,22 +107,35 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             // Capture the diagram out of the borrow so we can call
             // `draw_text` (which takes `&mut Frame`).
             let cached = diagram.clone();
-            // When text_zoom != 0, re-render the source at an adjusted
-            // max_width budget. The base budget is the modal's content
-            // width (the cached diagram was sized for the source pane,
-            // typically narrower). `+` widens the budget, `-` narrows it
-            // — narrowing triggers more aggressive compaction in
-            // `mermaid-text`. Falls back to the cached diagram if the
-            // re-render fails (unsupported diagram type, etc).
-            let diagram = if text_zoom == 0 {
-                cached
-            } else {
-                let base_width = usize::from(content_rect.width);
-                let delta = text_zoom * crate::app::TEXT_ZOOM_STEP;
-                let target_width = (base_width as i64 + i64::from(delta)).max(20) as usize;
-                crate::mermaid::try_text_render_public(&source, Some(target_width))
-                    .unwrap_or(cached)
+            // Re-render at an adjusted budget per zoom level. The cached
+            // diagram was sized for the source pane (typically narrower
+            // than the modal), so we always re-render at the modal's
+            // content width even at zoom 0.
+            //
+            // `mermaid-text` only triggers progressive compaction when
+            // the budget is *smaller* than the natural rendering, AND it
+            // returns the first compact level that fits — so a budget
+            // shaved by 20 cols rarely crosses a threshold. The
+            // multiplicative factor below (0.7^|zoom|) ensures each `-`
+            // press meaningfully shrinks the budget so the renderer
+            // walks down its three discrete compaction levels.
+            //
+            // `+` zoom passes `None` so the renderer uses natural size
+            // (no compaction at all). That's the only useful "make it
+            // bigger" knob — mermaid-text can't enlarge past natural.
+            let modal_width = usize::from(content_rect.width);
+            let target_width: Option<usize> = match text_zoom {
+                0 => Some(modal_width),
+                n if n > 0 => None,
+                n => {
+                    // n < 0
+                    let factor = 0.7_f32.powi(n.unsigned_abs() as i32);
+                    let w = ((modal_width as f32) * factor) as usize;
+                    Some(w.max(20))
+                }
             };
+            let diagram =
+                crate::mermaid::try_text_render_public(&source, target_width).unwrap_or(cached);
             draw_text(f, content_rect, &diagram, h_scroll, v_scroll, foreground);
             text_footer(&diagram, h_scroll, v_scroll, text_zoom)
         }
