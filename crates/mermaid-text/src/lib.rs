@@ -386,6 +386,16 @@ pub struct RenderOptions {
     /// flat dependency graphs (see [`LayoutBackend`] docs for the
     /// trade-offs and current coverage gaps).
     pub backend: LayoutBackend,
+    /// Optional explicit `(layer_gap, node_gap)` override for flowchart
+    /// and state diagrams. When set, bypasses the
+    /// `max_width`-driven compaction pipeline entirely and renders
+    /// directly with the given gaps. Lets callers expose continuous
+    /// zoom/spacing controls (e.g. a `+`/`-` keymap in a viewer) without
+    /// being limited to the three preset compaction levels.
+    ///
+    /// Ignored by sequence, pie, and erDiagram (those have their own
+    /// layout pipelines).
+    pub gaps_override: Option<(usize, usize)>,
 }
 
 /// Render a Mermaid diagram with the full set of opt-in knobs.
@@ -436,13 +446,25 @@ pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, 
         }
         DiagramKind::Flowchart => {
             let graph = parser::parse(input)?;
-            render_flowchart_with_color(&graph, opts.max_width, opts.color, opts.backend)
+            render_flowchart_with_color(
+                &graph,
+                opts.max_width,
+                opts.color,
+                opts.backend,
+                opts.gaps_override,
+            )
         }
         DiagramKind::State => {
             // State diagrams become a flowchart Graph at parse time, so the
             // same compaction + color pipeline applies.
             let graph = parser::state::parse(input)?;
-            render_flowchart_with_color(&graph, opts.max_width, opts.color, opts.backend)
+            render_flowchart_with_color(
+                &graph,
+                opts.max_width,
+                opts.color,
+                opts.backend,
+                opts.gaps_override,
+            )
         }
     };
 
@@ -462,8 +484,19 @@ fn render_flowchart_with_color(
     max_width: Option<usize>,
     with_color: bool,
     backend: LayoutBackend,
+    gaps_override: Option<(usize, usize)>,
 ) -> String {
     let with_backend = |c: LayoutConfig| LayoutConfig { backend, ..c };
+
+    // Explicit gap override skips the whole compaction pipeline — render
+    // directly at the requested spacing. This is the path used by the
+    // viewer's `+`/`-` modal zoom so each press maps to a deterministic
+    // layout rather than to one of three preset compaction levels.
+    if let Some((layer_gap, node_gap)) = gaps_override {
+        let cfg = with_backend(LayoutConfig::with_gaps(layer_gap, node_gap));
+        return render_with_config_color(graph, &cfg, with_color);
+    }
+
     let compact_configs: [LayoutConfig; 3] = [
         with_backend(LayoutConfig::with_gaps(4, 2)),
         with_backend(LayoutConfig::with_gaps(2, 1)),

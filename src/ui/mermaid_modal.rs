@@ -107,35 +107,25 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             // Capture the diagram out of the borrow so we can call
             // `draw_text` (which takes `&mut Frame`).
             let cached = diagram.clone();
-            // Re-render at an adjusted budget per zoom level. The cached
-            // diagram was sized for the source pane (typically narrower
-            // than the modal), so we always re-render at the modal's
-            // content width even at zoom 0.
+            // For zoom != 0, re-render with explicit `(layer_gap, node_gap)`
+            // overrides instead of going through the `max_width`
+            // compaction pipeline. Compaction has only three discrete
+            // levels and triggers conditionally on natural width vs
+            // budget; explicit gaps give one deterministic layout per
+            // step so each `+` / `-` press is visibly different.
             //
-            // `mermaid-text` only triggers progressive compaction when
-            // the budget is *smaller* than the natural rendering, AND it
-            // returns the first compact level that fits — so a budget
-            // shaved by 20 cols rarely crosses a threshold. The
-            // multiplicative factor below (0.7^|zoom|) ensures each `-`
-            // press meaningfully shrinks the budget so the renderer
-            // walks down its three discrete compaction levels.
-            //
-            // `+` zoom passes `None` so the renderer uses natural size
-            // (no compaction at all). That's the only useful "make it
-            // bigger" knob — mermaid-text can't enlarge past natural.
-            let modal_width = usize::from(content_rect.width);
-            let target_width: Option<usize> = match text_zoom {
-                0 => Some(modal_width),
-                n if n > 0 => None,
-                n => {
-                    // n < 0
-                    let factor = 0.7_f32.powi(n.unsigned_abs() as i32);
-                    let w = ((modal_width as f32) * factor) as usize;
-                    Some(w.max(20))
-                }
+            // Default gaps are (6, 2). We step layer_gap by 2 and
+            // node_gap by 1 per zoom level, clamped at 0 below and at
+            // (24, 10) above. zoom = 0 uses cached (natural).
+            let diagram = if text_zoom == 0 {
+                cached
+            } else {
+                let default_layer = 6i32;
+                let default_node = 2i32;
+                let layer = (default_layer + text_zoom * 2).clamp(0, 24) as usize;
+                let node = (default_node + text_zoom).clamp(0, 10) as usize;
+                crate::mermaid::try_text_render_with_gaps(&source, layer, node).unwrap_or(cached)
             };
-            let diagram =
-                crate::mermaid::try_text_render_public(&source, target_width).unwrap_or(cached);
             draw_text(f, content_rect, &diagram, h_scroll, v_scroll, foreground);
             text_footer(&diagram, h_scroll, v_scroll, text_zoom)
         }

@@ -3,6 +3,25 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.14.4 — 2026-04-22
+
+### Added
+
+- New `RenderOptions::gaps_override: Option<(usize, usize)>` field
+  exposing `(layer_gap, node_gap)` directly. When set, bypasses the
+  `max_width`-driven compaction pipeline and renders flowchart /
+  state diagrams at the given spacing. Lets callers expose
+  continuous zoom/spacing controls (e.g. a `+` / `-` keymap in a
+  viewer) without being limited to the three preset compaction
+  levels (`(4, 2)`, `(2, 1)`, `(1, 0)`).
+
+  Sequence, pie, and erDiagram ignore the override — they have
+  their own layout pipelines.
+
+  Non-breaking: existing `RenderOptions { max_width, ascii, color,
+  backend }` callers see no behaviour change because
+  `gaps_override` defaults to `None`.
+
 ## 0.14.3 — 2026-04-22
 
 ### Internal

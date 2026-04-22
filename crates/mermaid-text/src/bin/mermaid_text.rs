@@ -118,6 +118,7 @@ fn main() {
             ascii: ascii_mode,
             color: color_mode,
             backend: backend_mode,
+            gaps_override: None,
         },
     );
 

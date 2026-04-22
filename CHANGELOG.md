@@ -5,6 +5,39 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.2] - 2026-04-22
+
+### Fixed
+
+- **Mermaid modal text-zoom now responds to every press.** 1.19.1
+  used `max_width`-based compaction, but mermaid-text only has three
+  discrete compaction levels and only triggers them when budget <
+  natural width — so once the diagram fit the budget, further
+  presses did nothing (the user reported `+` worked once then `-`
+  reset and that was it).
+
+  Switched to driving the renderer with explicit `(layer_gap,
+  node_gap)` overrides instead of a width budget. Defaults are
+  `(6, 2)`; each `+` step adds `+2`/`+1`, each `-` step subtracts
+  `2`/`1`, clamped to `[0, 24]` and `[0, 10]`. Result: every press
+  produces a deterministically different layout (until the clamp
+  hits), so the diagram visibly grows or shrinks as you'd expect.
+
+  Required a new `gaps_override: Option<(usize, usize)>` field on
+  `mermaid_text::RenderOptions` (mermaid-text 0.14.4) and a new
+  `crate::mermaid::try_text_render_with_gaps` helper.
+
+  Sequence diagrams still ignore zoom (no compaction pipeline at
+  all). Pie / erDiagram ignore the gap override too — they have
+  their own layout pipelines and respond only to `max_width`.
+
+### Changed
+
+- **mermaid-text 0.14.4**: add `RenderOptions::gaps_override` to
+  expose `(layer_gap, node_gap)` directly, bypassing the
+  `max_width`-driven compaction pipeline. Existing callers see no
+  behaviour change (default `None`).
+
 ## [1.19.1] - 2026-04-22
 
 ### Fixed

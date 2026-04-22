@@ -526,6 +526,26 @@ pub fn try_text_render_public(source: &str, max_width: Option<usize>) -> Result<
     try_text_render(source, max_width)
 }
 
+/// Render mermaid source with an explicit `(layer_gap, node_gap)` override,
+/// bypassing the `max_width` compaction pipeline. Used by the full-screen
+/// mermaid modal's `+`/`-` zoom keys so each press maps to a deterministic
+/// layout step (no "stuck on a discrete compaction level" surprises).
+///
+/// Sequence, pie, and erDiagram diagrams ignore the gap override —
+/// they have their own layout pipelines. For those types the result is the
+/// same as [`try_text_render_public`] with `max_width = None`.
+pub fn try_text_render_with_gaps(
+    source: &str,
+    layer_gap: usize,
+    node_gap: usize,
+) -> Result<String, String> {
+    let opts = mermaid_text::RenderOptions {
+        gaps_override: Some((layer_gap, node_gap)),
+        ..Default::default()
+    };
+    mermaid_text::render_with_options(source, &opts).map_err(|e| format!("{e}"))
+}
+
 fn has_limited_rendering(source: &str) -> bool {
     let t = source.trim_start();
     t.starts_with("stateDiagram")
