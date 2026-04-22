@@ -5,6 +5,23 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.4] - 2026-04-22
+
+### Fixed
+
+- **Nested-list rendering: each child bullet now gets its own line.**
+  Previously, the FIRST nested item under each parent was concatenated
+  to the parent's line (e.g. `• System overview ◦ One-sentence
+  description` on one line, with subsequent siblings indented
+  correctly on their own lines). Visible on any markdown TOC with
+  nested bullets — including the user-reported `personal_notes.md`
+  case. The bug was in `Tag::Item`: it didn't flush the parent's
+  still-open content line before pushing the nested bullet.
+  Subsequent nested items rendered correctly because the prior
+  sibling's `TagEnd::Item` flushed for them. New regression test
+  asserts each of 7 items in a 2-level nested list lands on its
+  own line and contains no other items' text.
+
 ## [1.16.3] - 2026-04-22
 
 ### Fixed

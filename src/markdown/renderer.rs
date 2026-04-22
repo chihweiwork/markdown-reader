@@ -491,6 +491,17 @@ impl MdRenderer {
                 self.list_counters.push(start);
             }
             Tag::Item => {
+                // Flush any content held on the still-open line before
+                // we push a new bullet. Without this, the FIRST nested
+                // item under a parent ends up concatenated to the
+                // parent's line (its preceding `TagEnd::Item` hasn't
+                // fired yet — the parent is still mid-item, with its
+                // text already in `current_spans`). Subsequent nested
+                // items work because each one IS preceded by the prior
+                // sibling's `TagEnd::Item` flush.
+                if !self.current_spans.is_empty() {
+                    self.flush_line();
+                }
                 let indent = "  ".repeat(self.list_depth.saturating_sub(1));
                 let bullet = if let Some(counter) = self.list_counters.last_mut() {
                     if let Some(n) = counter {
@@ -1183,6 +1194,82 @@ mod tests {
                 *w, first,
                 "line {i} has display width {w}, expected {first} (right border misaligned)",
             );
+        }
+    }
+
+    /// Nested list items must each render on their own line. Regression
+    /// guard for a bug where the FIRST nested item under each parent was
+    /// concatenated to the parent's line (because `Tag::Item` didn't
+    /// flush the parent's still-open content line before pushing the
+    /// nested bullet). Subsequent nested items rendered correctly
+    /// because the prior sibling's `TagEnd::Item` flushed for them.
+    #[test]
+    fn nested_list_items_each_get_own_line() {
+        let md = "\
+- Top one
+  - Nested one-A
+  - Nested one-B
+  - Nested one-C
+- Top two
+  - Nested two-A
+  - Nested two-B
+";
+        let blocks = render_markdown(md, &default_palette(), Theme::Default);
+        let DocBlock::Text { text, .. } =
+            blocks.iter().find(|b| matches!(b, DocBlock::Text { .. })).unwrap()
+        else {
+            panic!("expected a Text block");
+        };
+        // Build a map of (line text, count) so we can assert each
+        // bullet is its own line. Stripping markers and whitespace.
+        let line_strs: Vec<String> = text
+            .lines
+            .iter()
+            .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+            .collect();
+        // Each of the 7 list items should appear on a SEPARATE line.
+        // (There may be a trailing blank line after the list — that's
+        // fine.)
+        for label in [
+            "Top one",
+            "Nested one-A",
+            "Nested one-B",
+            "Nested one-C",
+            "Top two",
+            "Nested two-A",
+            "Nested two-B",
+        ] {
+            let containing_lines: Vec<&String> = line_strs
+                .iter()
+                .filter(|l| l.contains(label))
+                .collect();
+            assert_eq!(
+                containing_lines.len(),
+                1,
+                "expected `{label}` on exactly one line; found {}: {:?}\n\nfull lines:\n{}",
+                containing_lines.len(),
+                containing_lines,
+                line_strs.join("\n"),
+            );
+            // The line containing the label must NOT contain any OTHER
+            // bullet's text — the bug-symptom was concatenated bullets.
+            let line = containing_lines[0];
+            for other in [
+                "Top one",
+                "Nested one-A",
+                "Nested one-B",
+                "Nested one-C",
+                "Top two",
+                "Nested two-A",
+                "Nested two-B",
+            ] {
+                if other != label {
+                    assert!(
+                        !line.contains(other),
+                        "line for `{label}` also contains `{other}`: {line:?}",
+                    );
+                }
+            }
         }
     }
 
