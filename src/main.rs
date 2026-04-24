@@ -52,7 +52,11 @@ impl Drop for TerminalGuard {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "markdown-reader", about = "A TUI markdown file viewer")]
+#[command(
+    name = "markdown-reader",
+    about = "A TUI markdown file viewer",
+    version
+)]
 struct Cli {
     /// Path to browse: a directory opens the tree at that root; a file opens
     /// the tree at its parent directory and immediately displays the file.

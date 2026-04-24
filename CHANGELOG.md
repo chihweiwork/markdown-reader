@@ -5,6 +5,16 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.1] - 2026-04-24
+
+### Fixed
+
+- **`--version` flag now works.** clap's derive macro doesn't auto-enable
+  `--version`; it needs `#[command(version)]` on the `Cli` struct.
+  Without this, `markdown-reader --version` errored with
+  "unexpected argument '--version' found", leaving users with no
+  way to verify which build is running. Trivial one-line fix.
+
 ## [1.27.0] - 2026-04-24
 
 ### Fixed
