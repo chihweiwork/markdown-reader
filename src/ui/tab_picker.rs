@@ -1,7 +1,8 @@
 use crate::app::App;
+use crate::ui::layout::centered_rect;
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -167,15 +168,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         };
         app.tab_picker_rects.push((tab.id, row_rect));
     }
-}
-
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let vertical = Layout::vertical([Constraint::Length(height)])
-        .flex(Flex::Center)
-        .split(area);
-    Layout::horizontal([Constraint::Length(width)])
-        .flex(Flex::Center)
-        .split(vertical[0])[0]
 }
 
 /// Handle a key event when the tab picker is focused.

@@ -1,7 +1,7 @@
 use crate::app::App;
+use crate::ui::layout::centered_rect;
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -140,13 +140,4 @@ fn shortcut_line<'a>(key: &'a str, desc: &'a str, key_style: Style, desc_style: 
         Span::styled(format!("  {key:<20}"), key_style),
         Span::styled(desc, desc_style),
     ])
-}
-
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let vertical = Layout::vertical([Constraint::Length(height)])
-        .flex(Flex::Center)
-        .split(area);
-    Layout::horizontal([Constraint::Length(width)])
-        .flex(Flex::Center)
-        .split(vertical[0])[0]
 }

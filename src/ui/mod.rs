@@ -5,6 +5,7 @@ pub mod editor;
 pub mod file_tree;
 pub mod goto_line_bar;
 pub mod help;
+pub mod layout;
 pub mod link_picker;
 pub mod markdown_view;
 pub mod mermaid_modal;

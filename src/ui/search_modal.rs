@@ -10,9 +10,10 @@
 use crate::app::App;
 use crate::config::SearchPreview;
 use crate::theme::Spacing;
+use crate::ui::layout::percent_rect;
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Flex, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -481,18 +482,6 @@ fn truncate_str(s: &str, max_chars: usize) -> String {
         let truncated: String = s.chars().take(max_chars.saturating_sub(1)).collect();
         format!("{truncated}…")
     }
-}
-
-/// Compute a percentage-sized [`Rect`] centred within `area`.
-fn percent_rect(width_pct: u16, height_pct: u16, area: Rect) -> Rect {
-    let height = (area.height * height_pct / 100).max(4);
-    let width = (area.width * width_pct / 100).max(20);
-    let vertical = Layout::vertical([Constraint::Length(height)])
-        .flex(Flex::Center)
-        .split(area);
-    Layout::horizontal([Constraint::Length(width)])
-        .flex(Flex::Center)
-        .split(vertical[0])[0]
 }
 
 #[cfg(test)]

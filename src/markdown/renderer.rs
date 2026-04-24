@@ -16,7 +16,7 @@ use crate::markdown::{
     TextBlockId, cell_to_string, heading_to_anchor, highlight::highlight_code,
 };
 use crate::mermaid::DEFAULT_MERMAID_HEIGHT;
-use crate::theme::{Palette, Theme};
+use crate::theme::{Palette, Theme, Tokens};
 
 /// Render a markdown string into a sequence of [`DocBlock`] values.
 ///
@@ -45,7 +45,11 @@ pub fn render_markdown(content: &str, palette: &Palette, theme: Theme) -> Vec<Do
         | Options::ENABLE_TASKLISTS
         | Options::ENABLE_MATH;
     let parser = Parser::new_ext(content, opts);
-    let renderer = MdRenderer::new(palette, theme);
+    // Derive tokens from the theme once; the renderer stores them so that
+    // `render_code_block` can read from semantic slots (e.g. `tokens.surface.raised`)
+    // rather than opaque palette field names.
+    let tokens = Tokens::from_theme(theme);
+    let renderer = MdRenderer::new(palette, tokens, theme);
     renderer.render(content, parser)
 }
 
@@ -130,6 +134,12 @@ struct MdRenderer {
     /// Syntect theme name corresponding to the active UI theme. Used to
     /// resolve the correct token colors when highlighting fenced code blocks.
     syntax_theme_name: &'static str,
+    /// Semantic design tokens for the active theme. `render_code_block` reads
+    /// directly from these rather than the cached per-color fields, making the
+    /// sourcing decisions visible at the call site (e.g. `tokens.surface.raised`
+    /// makes it clear that code-block backgrounds share the raised-surface tier
+    /// with popups and the status bar).
+    tokens: Tokens,
 
     // ── Source-line tracking ─────────────────────────────────────────────────
     /// Start byte offset of each source line: `line_boundaries[i]` is the byte
@@ -159,7 +169,7 @@ struct MdRenderer {
 }
 
 impl MdRenderer {
-    fn new(palette: &Palette, theme: Theme) -> Self {
+    fn new(palette: &Palette, tokens: Tokens, theme: Theme) -> Self {
         Self {
             lines: Vec::new(),
             blocks: Vec::new(),
@@ -199,6 +209,7 @@ impl MdRenderer {
             block_quote_border: palette.block_quote_border,
             dim: palette.dim,
             syntax_theme_name: theme.syntax_theme_name(),
+            tokens,
             line_boundaries: Vec::new(),
             current_source_line: 0,
             current_source_lines: Vec::new(),
@@ -768,7 +779,8 @@ impl MdRenderer {
     }
 
     fn render_code_block(&mut self) {
-        let border_style = Style::default().fg(self.code_border);
+        // `tokens.syntax.code_border` — the chrome color for fenced code boxes.
+        let border_style = Style::default().fg(self.tokens.syntax.code_border);
 
         // Capture the fence's source line before any mutable borrows below.
         let code_start_line = self.code_block_start_line;
@@ -792,8 +804,11 @@ impl MdRenderer {
             &source,
             self.code_block_lang.as_deref(),
             self.syntax_theme_name,
-            self.code_fg,
-            self.code_bg,
+            // `tokens.syntax.code_fg` — default foreground for unhighlighted tokens.
+            self.tokens.syntax.code_fg,
+            // `tokens.surface.raised` — code blocks share the raised surface tier
+            // with popups and the status bar; see `Syntax` doc in tokens.rs.
+            self.tokens.surface.raised,
         );
 
         // Blank line before the box — maps to whatever was current before the block.
@@ -824,11 +839,13 @@ impl MdRenderer {
 
             let mut spans: Vec<Span<'static>> = Vec::with_capacity(token_line.len() + 3);
 
-            // Left border + leading space (border color for `│`, code_bg for
+            // Left border + leading space (border color for `│`, surface.raised for
             // the space so it blends with the token background).
             spans.push(Span::styled(
                 "│ ".to_string(),
-                Style::default().fg(self.code_border).bg(self.code_bg),
+                Style::default()
+                    .fg(self.tokens.syntax.code_border)
+                    .bg(self.tokens.surface.raised),
             ));
 
             // Syntax-highlighted token spans.
@@ -840,14 +857,16 @@ impl MdRenderer {
             if pad_len > 0 {
                 spans.push(Span::styled(
                     " ".repeat(pad_len),
-                    Style::default().bg(self.code_bg),
+                    Style::default().bg(self.tokens.surface.raised),
                 ));
             }
 
             // Right border.
             spans.push(Span::styled(
                 "│".to_string(),
-                Style::default().fg(self.code_border).bg(self.code_bg),
+                Style::default()
+                    .fg(self.tokens.syntax.code_border)
+                    .bg(self.tokens.surface.raised),
             ));
 
             self.lines.push(Line::from(spans));

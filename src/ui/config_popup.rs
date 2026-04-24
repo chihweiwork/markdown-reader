@@ -1,6 +1,6 @@
+use crate::ui::layout::centered_rect;
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -263,13 +263,4 @@ fn option_line(
         Span::styled(" ", text_style),
         Span::styled(label, label_style),
     ])
-}
-
-fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
-    let vertical = Layout::vertical([Constraint::Length(height)])
-        .flex(Flex::Center)
-        .split(area);
-    Layout::horizontal([Constraint::Length(width)])
-        .flex(Flex::Center)
-        .split(vertical[0])[0]
 }

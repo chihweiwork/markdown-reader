@@ -19,38 +19,22 @@ _Nothing actively in progress._
 
 ## Next up (ordered roughly by ROI)
 
-### Per-call-site spacing migration — `markdown-tui-explorer`
+### Caller migration off `Palette` to `Tokens` (continuing) — `markdown-tui-explorer`
 
-Ship 2 (1.24.0) introduced `theme::Spacing` and migrated five
-single-row strip sites (status bar, editor footer, search modal
-query/footer). About 15 more `Constraint::Length(N)` sites
-remain across `src/ui/` — modal centering helpers, popup heights,
-config UI rows. Mechanical migration, can be one PR per file or
-one sweep. Ordering candidates from highest to lowest payoff:
+Ship 2 follow-up C (1.25.0) migrated `render_code_block` —
+the highest-leverage cluster, where `surface.raised` revealed a
+non-obvious sourcing decision the old `code_bg` name hid. Same
+treatment available for the rest of the codebase, smaller per-site
+gain since most palette field names are already self-explanatory:
 
-- `centered_rect`-style helpers in `help.rs`, `tab_picker.rs`,
-  `link_picker.rs`, `config_popup.rs`, `copy_menu.rs`,
-  `mermaid_modal.rs`, `table_modal.rs` — 7 files, same shape.
-  Could fold into a shared `theme::layout::centered_rect`
-  helper. Some `Length(N)` values here are content-policy
-  (popup widths) rather than spacing — leave those alone.
-- `gutter.rs` width constants.
-- `tabs.rs` height constants.
-
-### Caller migration off `Palette` to `Tokens` — `markdown-tui-explorer`
-
-Ship 2 kept every existing caller on `palette.<field>` for
-backward compat. Future migration can swap `palette.foreground`
-→ `tokens.text.primary` site-by-site, with `App` carrying both
-during the transition (or `Palette` becoming a thin `&Tokens`
-view). Pure rename, no behavior change. Highest-payoff first
-clusters:
-
-- `markdown::renderer::render_code_block` (15 field reads — one
-  function, big visibility win).
+- Other `render_*` functions in `src/markdown/renderer.rs` (heading,
+  list, blockquote, link, table chrome). After all of them migrate,
+  the per-color cached struct fields on `MdRenderer` can be deleted —
+  that's the secondary structural payoff beyond semantic naming.
 - `ui::markdown_view::*` (search modal, mermaid draw, gutter,
-  highlight, draw — all read `palette.code_*` and
-  `palette.selection_*`).
+  highlight, draw — all read `palette.code_*` and `palette.selection_*`).
+- Eventually drop `Palette` entirely once nothing reads from it,
+  collapsing to `Tokens` as the single typed surface.
 
 ### Pie chart slice colours
 

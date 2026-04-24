@@ -5,6 +5,61 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.25.0] - 2026-04-24
+
+### Internal — centered-popup layout helpers consolidated (Ship 2 follow-up B)
+
+`centered_rect` / `centered_pct` / `percent_rect` were duplicated
+across 8 popup files (`help`, `link_picker`, `config_popup`,
+`copy_menu`, `tab_picker`, `mermaid_modal`, `table_modal`,
+`search_modal`). Consolidated into `src/ui/layout.rs` — one source
+of truth for centered-popup math.
+
+Three helpers, two with shared shape + one that diverges:
+
+- **`centered_rect(width, height, area)`** — fixed cells, used by
+  5 files (help, link_picker, config_popup, copy_menu, tab_picker).
+  Byte-for-byte identical across all 5 — pure consolidation.
+- **`centered_pct(w_pct, h_pct, area)`** — percentage with floor
+  10×5, used by 2 files (mermaid_modal, table_modal). Identical.
+- **`percent_rect(w_pct, h_pct, area)`** — percentage with floor
+  20×4, used by search_modal only. Kept separate from
+  `centered_pct` because the search modal needs more vertical
+  space at small terminal sizes (load-bearing difference).
+
+Net: ~65 lines of duplicated definitions deleted, 55 lines added
+to one place.
+
+Module location: `src/ui/layout.rs` (not `src/theme/layout.rs`)
+because these are rect-math primitives, not theme tokens.
+`theme::Spacing` answers "how many cells of padding"; `centered_rect`
+answers "where does this popup go" — different layers.
+
+### Internal — render_code_block migrated to Tokens (Ship 2 follow-up C)
+
+First validation of the Ship 2 token-migration story. The renderer
+now derives `Tokens` from the active theme alongside the existing
+`Palette` reference, and `render_code_block` reads its three
+relevant fields from semantic slots:
+
+| Was (Palette) | Now (Tokens) |
+|---|---|
+| `palette.code_border` | `tokens.syntax.code_border` |
+| `palette.code_fg` | `tokens.syntax.code_fg` |
+| `palette.code_bg` | `tokens.surface.raised` ← non-obvious sourcing now visible |
+
+The `surface.raised` rename is the standout win: a reviewer reading
+`palette.code_bg` had no way to know that code blocks, popups, and
+the status bar all share the same raised-surface tier — that
+sourcing decision lived inside `From<Tokens> for Palette`. The
+new name surfaces it at every call site.
+
+Public API unchanged. Per-color cached struct fields stay in place
+for now because `DisplayMath` and other render paths still read them;
+finishing that migration is a follow-up.
+
+842 tests pass, clippy + fmt clean.
+
 ## [1.24.1] - 2026-04-24
 
 ### Internal — spacing migration audit (Ship 2 follow-up A)

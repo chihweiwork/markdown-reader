@@ -1,9 +1,10 @@
 use crate::app::{App, TableModalState};
 use crate::theme::Palette;
+use crate::ui::layout::centered_pct;
 use crate::ui::table_render::{border_line, emit_row_lines, wrap_table_rows};
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -211,17 +212,6 @@ pub fn slice_line_at(line: &Line<'static>, h_scroll: usize, visible_width: usize
     }
 
     Line::from(out)
-}
-
-fn centered_pct(w_pct: u16, h_pct: u16, area: Rect) -> Rect {
-    let w = (area.width * w_pct / 100).max(10);
-    let h = (area.height * h_pct / 100).max(5);
-    let vertical = Layout::vertical([Constraint::Length(h)])
-        .flex(Flex::Center)
-        .split(area);
-    Layout::horizontal([Constraint::Length(w)])
-        .flex(Flex::Center)
-        .split(vertical[0])[0]
 }
 
 /// Compute the maximum visible horizontal extent of the rendered table.

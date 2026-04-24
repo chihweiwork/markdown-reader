@@ -22,9 +22,10 @@
 
 use crate::app::App;
 use crate::mermaid::MermaidEntry;
+use crate::ui::layout::centered_pct;
 use ratatui::{
     Frame,
-    layout::{Constraint, Flex, Layout, Rect},
+    layout::Rect,
     style::Style,
     text::{Line, Span, Text},
     widgets::{Block, Borders, Clear, Paragraph},
@@ -234,18 +235,6 @@ fn text_footer(diagram: &str, h_scroll: u16, v_scroll: u16, text_zoom: i32) -> S
         max_width,
         zoom,
     )
-}
-
-/// Centred popup helper — same shape as `table_modal::centered_pct`.
-fn centered_pct(w_pct: u16, h_pct: u16, area: Rect) -> Rect {
-    let w = (area.width * w_pct / 100).max(10);
-    let h = (area.height * h_pct / 100).max(5);
-    let vertical = Layout::vertical([Constraint::Length(h)])
-        .flex(Flex::Center)
-        .split(area);
-    Layout::horizontal([Constraint::Length(w)])
-        .flex(Flex::Center)
-        .split(vertical[0])[0]
 }
 
 #[cfg(test)]
