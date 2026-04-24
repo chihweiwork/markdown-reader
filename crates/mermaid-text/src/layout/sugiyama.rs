@@ -13,11 +13,6 @@
 //! pipeline (renderer, subgraph bounds, edge routing) consumes
 //! the same `LayoutResult` shape regardless of layout backend.
 //!
-//! Per-edge waypoints are extracted from `EdgePath::MultiSegment`
-//! (the variant ascii-dag emits for edges spanning multiple
-//! layers via dummy nodes) so our long-edge router threads
-//! through them the same way it does for our native layered
-//! layout.
 //!
 //! ## Coverage
 //!
@@ -39,11 +34,9 @@
 
 use std::collections::HashMap;
 
-use ascii_dag::{EdgePath, Graph as AGraph, LayoutConfig as ALayoutConfig};
+use ascii_dag::{Graph as AGraph, LayoutConfig as ALayoutConfig};
 
-use crate::layout::layered::{
-    EdgeWaypoints, LayoutConfig, LayoutResult, node_box_height, node_box_width,
-};
+use crate::layout::layered::{LayoutConfig, LayoutResult, node_box_height, node_box_width};
 use crate::types::{Direction, Graph};
 
 /// Compute positions + edge waypoints for `graph` using `ascii-dag`.
@@ -118,8 +111,10 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
     let mut cfg = ALayoutConfig::standard();
     cfg.level_spacing = _config.layer_gap;
     cfg.node_spacing = _config.node_gap;
-    // We need dummy nodes in the IR to look up the level of each
-    // long-edge waypoint when applying per-layer offsets in step 6.
+    // Dummy nodes carry the `level` field used in step 4.5 to compute
+    // per-layer spacing offsets. Real nodes' `level` values are sufficient
+    // for this but enabling dummies gives ascii-dag the full IR it needs
+    // for its internal crossing minimisation.
     cfg.include_dummy_nodes = true;
     let ir = adag.compute_layout_with_config(&cfg);
 
@@ -134,8 +129,7 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
     let mut max_y = 0usize;
     for n in ir.nodes() {
         // Skip dummy nodes — they don't correspond to real graph
-        // nodes and we don't render them. The waypoint extraction
-        // below pulls their coords from the edge path instead.
+        // nodes and we don't render them.
         if matches!(n.kind, ascii_dag::NodeKind::Dummy) {
             continue;
         }
@@ -181,88 +175,7 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
         }
     }
 
-    // 6. Extract edge waypoints. ascii-dag emits `MultiSegment`
-    //    for any edge that crossed dummy nodes on its way; the
-    //    `waypoints` list is the chain of dummy positions. We
-    //    transpose them the same way as node positions, and apply
-    //    the same per-level offset (from step 4.5) so waypoints
-    //    line up with the expanded node positions.
-    //
-    //    Build a (raw_x, raw_y) → level map by scanning every
-    //    node in the IR (real + dummy, since `include_dummy_nodes`
-    //    is on). Waypoints land at dummy node positions, so we can
-    //    look up each waypoint's level by exact-coordinate match
-    //    against this map.
-    let mut coord_to_level: HashMap<(usize, usize), usize> =
-        HashMap::with_capacity(ir.nodes().len());
-    for n in ir.nodes() {
-        coord_to_level.insert((n.x, n.y), n.level);
-    }
-
-    let mut edge_waypoints: Vec<EdgeWaypoints> = Vec::new();
-    for (idx, edge) in graph.edges.iter().enumerate() {
-        let (Some(&from), Some(&to)) = (id_to_usize.get(&edge.from), id_to_usize.get(&edge.to))
-        else {
-            continue;
-        };
-        // Find the corresponding ascii-dag edge.
-        let Some(adag_edge) = ir
-            .edges()
-            .iter()
-            .find(|e| e.from_id == from && e.to_id == to)
-        else {
-            continue;
-        };
-        if let EdgePath::MultiSegment { waypoints, .. } = &adag_edge.path {
-            let mut points: Vec<(usize, usize)> = waypoints
-                .iter()
-                .map(|&(raw_x, raw_y)| {
-                    // Apply the per-layer offset using the dummy node's
-                    // level. Waypoints not landing on a known node
-                    // coord (rare — interpolated path cells) get no
-                    // offset, which keeps them in the right ballpark.
-                    let level = coord_to_level.get(&(raw_x, raw_y)).copied().unwrap_or(0);
-                    let level_offset = level * extra_per_layer;
-                    let (col, row) = if transpose {
-                        (raw_y, raw_x)
-                    } else {
-                        (raw_x, raw_y)
-                    };
-                    let (col, row) = match graph.direction {
-                        Direction::LeftToRight | Direction::RightToLeft => {
-                            (col + level_offset, row)
-                        }
-                        Direction::TopToBottom | Direction::BottomToTop => {
-                            (col, row + level_offset)
-                        }
-                    };
-                    (col, row)
-                })
-                .collect();
-            // Mirror axis for RL/BT to match the position transform above.
-            if matches!(graph.direction, Direction::RightToLeft) {
-                for (col, _) in points.iter_mut() {
-                    *col = max_x.saturating_sub(*col);
-                }
-            }
-            if matches!(graph.direction, Direction::BottomToTop) {
-                for (_, row) in points.iter_mut() {
-                    *row = max_y.saturating_sub(*row);
-                }
-            }
-            if !points.is_empty() {
-                edge_waypoints.push(EdgeWaypoints {
-                    edge_idx: idx,
-                    waypoints: points,
-                });
-            }
-        }
-    }
-
-    LayoutResult {
-        positions,
-        edge_waypoints,
-    }
+    LayoutResult { positions }
 }
 
 #[cfg(test)]
@@ -275,7 +188,6 @@ mod tests {
         let g = Graph::new(Direction::TopToBottom);
         let out = sugiyama_layout(&g, &LayoutConfig::default());
         assert!(out.positions.is_empty());
-        assert!(out.edge_waypoints.is_empty());
     }
 
     #[test]
@@ -323,25 +235,6 @@ mod tests {
         assert_eq!(cache_col, queue_col, "Cache and Queue share a layer");
         assert!(queue_col < worker_col, "Worker is its own layer");
         assert!(worker_col < db_col, "DB is the rightmost layer");
-
-        // Long edge App→DB must produce waypoints (otherwise it'd
-        // route as a single A* call and might cross intermediate
-        // nodes, the very thing sugiyama is fixing).
-        let app_db_idx = g
-            .edges
-            .iter()
-            .position(|e| e.from == "App" && e.to == "DB")
-            .expect("App→DB edge exists");
-        let app_db_wp = out
-            .edge_waypoints
-            .iter()
-            .find(|w| w.edge_idx == app_db_idx)
-            .expect("App→DB has waypoints");
-        assert!(
-            !app_db_wp.waypoints.is_empty(),
-            "App→DB long edge gets at least one dummy waypoint: {:?}",
-            app_db_wp.waypoints,
-        );
     }
 
     #[test]

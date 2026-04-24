@@ -1,6 +1,5 @@
 ---
 source: crates/mermaid-text/tests/snapshots.rs
-assertion_line: 284
 expression: out
 ---
 ╭─Supervisor───────────╮

@@ -11,8 +11,9 @@ use unicode_width::UnicodeWidthStr;
 use crate::{
     layout::{
         Grid, SubgraphBounds,
-        grid::{EdgeLineStyle, arrow, endpoint},
+        grid::{Attach, EdgeLineStyle, arrow, endpoint},
         layered::GridPos,
+        router,
     },
     types::{
         BarOrientation, Direction, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape, NodeStyle, Rgb,
@@ -134,13 +135,6 @@ impl NodeGeom {
 // Attachment point computation
 // ---------------------------------------------------------------------------
 
-/// A pixel-precise attachment point on a node's border.
-#[derive(Debug, Clone, Copy)]
-struct Attach {
-    pub col: usize,
-    pub row: usize,
-}
-
 /// Compute the exit (source) attachment point for a given edge direction.
 fn exit_point(pos: GridPos, geom: NodeGeom, dir: Direction) -> Attach {
     let (c, r) = pos;
@@ -251,84 +245,6 @@ fn entry_point_back_edge(pos: GridPos, geom: NodeGeom, dir: Direction) -> Attach
             row: r + geom.cy(),
         },
     }
-}
-
-/// Return the arrow-tip character appropriate when a back-edge *arrives* at its
-/// destination via the perpendicular side.
-///
-/// For LR/RL: the edge enters from below the target node, so the tip points UP.
-/// For TD/BT: the edge enters from the right of the target node, so the tip
-/// points LEFT.
-/// Route a long edge through the supplied waypoints as a chain of
-/// short A* segments. Each segment is `route_edge` from the previous
-/// position to the next waypoint, with the arrowhead suppressed for
-/// internal segments and stamped only at the final endpoint.
-///
-/// Returns the concatenated path (excluding duplicated endpoints) so
-/// the caller can do label placement and tip post-processing the same
-/// way as a single-call route. Returns `None` if any segment fails
-/// to route (lets the caller fall back to a normal `route_edge` call).
-fn route_via_waypoints(
-    grid: &mut Grid,
-    src: Attach,
-    dst: Attach,
-    waypoints: &[GridPos],
-    horizontal_first: bool,
-    fwd_tip: char,
-) -> Option<Vec<(usize, usize)>> {
-    if waypoints.is_empty() {
-        return grid.route_edge(
-            src.col,
-            src.row,
-            dst.col,
-            dst.row,
-            horizontal_first,
-            fwd_tip,
-        );
-    }
-
-    // Internal segments use a path-glyph as their "tip" so they
-    // visually merge into the next segment instead of leaving a stray
-    // arrowhead at every dummy. Keep the real tip for the final hop.
-    let internal_tip = if horizontal_first { '─' } else { '│' };
-
-    // First segment: src → first waypoint.
-    let mut combined: Vec<(usize, usize)> = Vec::new();
-    let (mut cur_col, mut cur_row) = (src.col, src.row);
-    for (wp_col, wp_row) in waypoints {
-        let seg = grid.route_edge(
-            cur_col,
-            cur_row,
-            *wp_col,
-            *wp_row,
-            horizontal_first,
-            internal_tip,
-        )?;
-        // Drop the duplicated endpoint when chaining segments together.
-        if combined.is_empty() {
-            combined.extend_from_slice(&seg);
-        } else if let Some((_, rest)) = seg.split_first() {
-            combined.extend_from_slice(rest);
-        }
-        // Unprotect the waypoint cell so the next segment can route
-        // through it cleanly (otherwise the path-glyph "tip" sits
-        // with protection and the next segment sees an obstacle).
-        grid.unprotect_cell(*wp_col, *wp_row);
-        (cur_col, cur_row) = (*wp_col, *wp_row);
-    }
-    // Final segment: last waypoint → destination, with the real tip.
-    let seg = grid.route_edge(
-        cur_col,
-        cur_row,
-        dst.col,
-        dst.row,
-        horizontal_first,
-        fwd_tip,
-    )?;
-    if let Some((_, rest)) = seg.split_first() {
-        combined.extend_from_slice(rest);
-    }
-    Some(combined)
 }
 
 fn tip_char_for_back_edge(dir: Direction) -> char {
@@ -538,9 +454,8 @@ pub fn render(
     graph: &Graph,
     positions: &HashMap<String, GridPos>,
     sg_bounds: &[SubgraphBounds],
-    edge_waypoints: &[crate::layout::layered::EdgeWaypoints],
 ) -> String {
-    render_inner(graph, positions, sg_bounds, edge_waypoints, false)
+    render_inner(graph, positions, sg_bounds, false)
 }
 
 /// Render `graph` with embedded ANSI 24-bit color SGR sequences derived from
@@ -557,16 +472,14 @@ pub fn render_color(
     graph: &Graph,
     positions: &HashMap<String, GridPos>,
     sg_bounds: &[SubgraphBounds],
-    edge_waypoints: &[crate::layout::layered::EdgeWaypoints],
 ) -> String {
-    render_inner(graph, positions, sg_bounds, edge_waypoints, true)
+    render_inner(graph, positions, sg_bounds, true)
 }
 
 fn render_inner(
     graph: &Graph,
     positions: &HashMap<String, GridPos>,
     sg_bounds: &[SubgraphBounds],
-    edge_waypoints: &[crate::layout::layered::EdgeWaypoints],
     with_color: bool,
 ) -> String {
     // Pre-compute geometry for every node
@@ -641,8 +554,10 @@ fn render_inner(
     // Pass 1: Route all edges using A* obstacle-aware routing.
     //
     // Edge style rendering approach:
-    //   1. Route with a temporary solid arrow tip — this populates the
-    //      direction-bit canvas (needed for junction resolution).
+    //   1. Route all edges via `router::route_all` (straight → L → A* per edge,
+    //      shortest-first ordering). Routing draws each path on the grid and
+    //      marks cells as EdgeOccupied* so subsequent edges pay a higher cost to
+    //      cross them.
     //   2. After routing, call `overdraw_path_style` to replace path cells
     //      with thick or dotted glyphs based on the edge's `EdgeStyle`.
     //   3. Override the destination tip glyph based on `EdgeEndpoint`.
@@ -650,35 +565,42 @@ fn render_inner(
     //
     // This keeps all junction-merging logic in the direction-bit canvas while
     // still producing visually distinct dotted/thick lines.
-    //
-    // Collect edge label placements for a deferred write — labels must be
-    // written *after* all routing so that no subsequent A* path overwrites them.
-    // Each entry is `(col, row, label_text)`.
-    let mut pending_labels: Vec<(usize, usize, String, Option<crate::types::Rgb>)> = Vec::new();
-    // Collision registry: `(col, row, display_width, height)` of committed labels.
-    let mut placed_labels: Vec<(usize, usize, usize, usize)> = Vec::new();
+
+    // Pre-compute per-edge flags needed by the router and post-processing loop.
+    let edge_is_back_flags: Vec<bool> = graph
+        .edges
+        .iter()
+        .map(|e| {
+            let fp = positions.get(&e.from).copied();
+            let tp = positions.get(&e.to).copied();
+            match (fp, tp) {
+                (Some(fp), Some(tp)) => is_back_edge(fp, tp, graph.direction),
+                _ => false,
+            }
+        })
+        .collect();
+
+    // Pre-compute forward outgoing counts for label placement.
     let mut forward_outgoing_counts: HashMap<&str, usize> = HashMap::new();
-    for edge in &graph.edges {
-        let from_pos = positions.get(&edge.from).copied();
-        let to_pos = positions.get(&edge.to).copied();
-        let edge_is_back = match (from_pos, to_pos) {
-            (Some(fp), Some(tp)) => is_back_edge(fp, tp, graph.direction),
-            _ => false,
-        };
-        if !edge_is_back {
+    for (edge_idx, edge) in graph.edges.iter().enumerate() {
+        if !edge_is_back_flags[edge_idx] {
             *forward_outgoing_counts
                 .entry(edge.from.as_str())
                 .or_default() += 1;
         }
     }
+
+    // Pre-compute directed pair counts for parallel-edge detection.
     let mut directed_pair_counts: HashMap<(&str, &str), usize> = HashMap::new();
     for edge in &graph.edges {
         *directed_pair_counts
             .entry((edge.from.as_str(), edge.to.as_str()))
             .or_default() += 1;
     }
-    let mut prior_path_cells_by_pair: HashMap<(&str, &str), HashSet<(usize, usize)>> =
-        HashMap::new();
+
+    // Pre-compute back-edge connector points. These are recorded before routing
+    // so that pass 2a.5 can stamp junction glyphs after node boxes are drawn.
+    //
     // Back-edge connector points: where to stamp `┬` / `┴` (LR) or `├` / `┤`
     // (TD) after node boxes are drawn, so the perimeter back-edge path
     // connects visibly to its source and destination borders.
@@ -686,103 +608,61 @@ fn render_inner(
     let mut back_edge_border_joins: Vec<(usize, usize, bool)> = Vec::new();
     // First-path-cell joins (source end only — destination end is the arrow tip).
     let mut back_edge_path_joins: Vec<(usize, usize)> = Vec::new();
-
     for (edge_idx, edge) in graph.edges.iter().enumerate() {
-        let Some(Some((src, dst))) = attach_points.get(edge_idx) else {
+        if !edge_is_back_flags[edge_idx] {
             continue;
-        };
-        let (src, dst) = (*src, *dst);
-        let edge_pair = (edge.from.as_str(), edge.to.as_str());
-        let has_parallel_same_direction =
-            directed_pair_counts.get(&edge_pair).copied().unwrap_or(0) > 1;
-
-        // Determine whether this edge is a back-edge so we can select the
-        // correct tip character. Back-edges enter their target from a
-        // perpendicular side, so the tip must point in the perpendicular
-        // direction rather than the primary flow direction.
-        let edge_is_back = {
-            let from_pos = positions.get(&edge.from).copied();
-            let to_pos = positions.get(&edge.to).copied();
-            match (from_pos, to_pos) {
-                (Some(fp), Some(tp)) => is_back_edge(fp, tp, graph.direction),
-                _ => false,
-            }
-        };
-
-        // For back-edges, the perimeter path attaches one cell past the
-        // source's perpendicular border (below for LR, right for TB). The
-        // node border there is drawn solid by pass 2, which visually
-        // disconnects the path. Record the border cell and the adjacent
-        // path cell so a post-pass can stamp junction glyphs.
-        if edge_is_back
-            && let (Some(fp), Some(fg), Some(tp), Some(tg)) = (
-                positions.get(&edge.from).copied(),
-                geoms.get(&edge.from).copied(),
-                positions.get(&edge.to).copied(),
-                geoms.get(&edge.to).copied(),
-            )
-        {
+        }
+        if let (Some(fp), Some(fg), Some(tp), Some(tg)) = (
+            positions.get(&edge.from).copied(),
+            geoms.get(&edge.from).copied(),
+            positions.get(&edge.to).copied(),
+            geoms.get(&edge.to).copied(),
+        ) {
             let (sb, sp) = back_edge_border_cells(fp, fg, graph.direction);
             let (db, _) = back_edge_border_cells(tp, tg, graph.direction);
             back_edge_border_joins.push((sb.0, sb.1, false));
             back_edge_border_joins.push((db.0, db.1, true));
             back_edge_path_joins.push(sp);
         }
+    }
 
-        // Select the forward tip character (destination end).
-        // For EdgeEndpoint::None (plain line), we route with the normal arrow
-        // so the path is drawn correctly by route_edge, then immediately clear
-        // the tip protection so the no-arrow cell merges into the path glyph.
-        let fwd_tip = if edge_is_back {
-            tip_char_for_back_edge(graph.direction)
-        } else {
-            tip_char(graph.direction)
+    // Route all edges end-to-end with one A* call per edge (preceded by
+    // straight-line and L-shape fast paths). Edges are routed in ascending
+    // Manhattan-distance order so short edges claim clean corridors first.
+    let paths = router::route_all(
+        &mut grid,
+        graph,
+        &attach_points,
+        |edge_idx| {
+            if edge_is_back_flags.get(edge_idx).copied().unwrap_or(false) {
+                tip_char_for_back_edge(graph.direction)
+            } else {
+                tip_char(graph.direction)
+            }
+        },
+        |edge_idx| edge_is_back_flags.get(edge_idx).copied().unwrap_or(false),
+    );
+
+    // Collect edge label placements for a deferred write — labels must be
+    // written *after* all routing so that no subsequent A* path overwrites them.
+    // Each entry is `(col, row, label_text, color)`.
+    let mut pending_labels: Vec<(usize, usize, String, Option<crate::types::Rgb>)> = Vec::new();
+    // Collision registry: `(col, row, display_width, height)` of committed labels.
+    let mut placed_labels: Vec<(usize, usize, usize, usize)> = Vec::new();
+    let mut prior_path_cells_by_pair: HashMap<(&str, &str), HashSet<(usize, usize)>> =
+        HashMap::new();
+
+    for (edge_idx, edge) in graph.edges.iter().enumerate() {
+        let Some(Some((src, dst))) = attach_points.get(edge_idx) else {
+            continue;
         };
+        let (src, _dst) = (*src, *dst);
+        let edge_pair = (edge.from.as_str(), edge.to.as_str());
+        let has_parallel_same_direction =
+            directed_pair_counts.get(&edge_pair).copied().unwrap_or(0) > 1;
+        let edge_is_back = edge_is_back_flags[edge_idx];
         let horizontal_first = graph.direction.is_horizontal();
-
-        // Long-edge routing via waypoints: if this edge has dummy-node
-        // waypoints from the layout pass, route as a chain of short
-        // segments through them. Each segment gets its own A* call so
-        // long edges thread cleanly through reserved channels instead
-        // of forcing the router to detour around real nodes in the
-        // intermediate layers. Forward-edges only — back-edges still
-        // use the perimeter route (waypoints aren't generated for
-        // those upstream).
-        let waypoints = (!edge_is_back)
-            .then(|| edge_waypoints.iter().find(|w| w.edge_idx == edge_idx))
-            .flatten();
-        let path = if let Some(waypoints) = waypoints {
-            route_via_waypoints(
-                &mut grid,
-                src,
-                dst,
-                &waypoints.waypoints,
-                horizontal_first,
-                fwd_tip,
-            )
-        } else if edge_is_back {
-            // Back-edges go through `route_back_edge` so A* charges
-            // an extra cost for crossing `InnerArea` cells (the
-            // bounding-box interior between nodes), steering them to
-            // the perimeter corridor.
-            grid.route_back_edge(
-                src.col,
-                src.row,
-                dst.col,
-                dst.row,
-                horizontal_first,
-                fwd_tip,
-            )
-        } else {
-            grid.route_edge(
-                src.col,
-                src.row,
-                dst.col,
-                dst.row,
-                horizontal_first,
-                fwd_tip,
-            )
-        };
+        let path = &paths[edge_idx];
 
         // Post-process the destination tip cell for non-arrow endpoints.
         //
@@ -792,7 +672,7 @@ fn render_inner(
         //   - Circle  → ○
         //   - Cross   → ×
         //   - Arrow   → keep the arrow (no action needed)
-        if let Some(ref path) = path
+        if let Some(path) = path.as_ref()
             && let Some(&(tip_c, tip_r)) = path.last()
             && edge.end != EdgeEndpoint::Arrow
         {
@@ -822,7 +702,7 @@ fn render_inner(
             }
         }
 
-        if let Some(ref path) = path {
+        if let Some(path) = path.as_ref() {
             // Apply styled (dotted/thick) glyphs to all non-tip path cells.
             let line_style = match edge.style {
                 EdgeStyle::Solid => EdgeLineStyle::Solid,
@@ -855,7 +735,7 @@ fn render_inner(
         }
 
         // Compute edge label position using the actual routed path.
-        if let (Some(lbl), Some(path)) = (&edge.label, &path)
+        if let (Some(lbl), Some(path)) = (&edge.label, path.as_ref())
             && let Some((lbl_col, lbl_row)) = {
                 let has_sibling_outgoing = forward_outgoing_counts
                     .get(edge.from.as_str())
@@ -890,7 +770,7 @@ fn render_inner(
             pending_labels.push((lbl_col, lbl_row, lbl.clone(), lbl_color));
         }
 
-        if has_parallel_same_direction && let Some(path) = &path {
+        if has_parallel_same_direction && let Some(path) = path.as_ref() {
             prior_path_cells_by_pair
                 .entry(edge_pair)
                 .or_default()
@@ -1965,12 +1845,10 @@ mod tests {
 
     fn render_diagram(src: &str) -> String {
         let graph = parser::parse(src).unwrap();
-        let crate::layout::layered::LayoutResult {
-            positions,
-            edge_waypoints,
-        } = layout(&graph, &LayoutConfig::default());
+        let crate::layout::layered::LayoutResult { positions, .. } =
+            layout(&graph, &LayoutConfig::default());
         let sg_bounds = crate::layout::subgraph::compute_subgraph_bounds(&graph, &positions);
-        render(&graph, &positions, &sg_bounds, &edge_waypoints)
+        render(&graph, &positions, &sg_bounds)
     }
 
     #[test]

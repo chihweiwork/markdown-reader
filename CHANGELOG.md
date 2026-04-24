@@ -5,6 +5,25 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.21.1] - 2026-04-23
+
+### Changed — Phase 4 of the architecture cleanup
+
+- **mermaid-text 0.15.0**: edge routing consolidated into a single A\*
+  pass per edge with try-straight → try-L fast path. Direction-aware
+  crossing costs (`EdgeOccupiedHorizontal` / `EdgeOccupiedVertical`)
+  let A\* avoid ugly overlaps while accepting clean perpendicular
+  crossings. ~450 LOC of waypoint-hinting machinery deleted from the
+  layered backend; per-edge dispatch consolidated into a new
+  `layout::router` module. 19 new crossing-counter regression tests +
+  5 dense-graph fixtures guard against tuning drift. See
+  `crates/mermaid-text/CHANGELOG.md` for the full deletion list.
+
+User-visible: flowcharts route more cleanly on average — fewer
+zigzags through unrelated nodes, edge crossings prefer perpendicular
+junctions over same-axis overlaps. All 63 existing visual snapshots
+either match or have been reviewed and accepted as improvements.
+
 ## [1.21.0] - 2026-04-23
 
 ### Changed — Phase 3 of the architecture cleanup: own prose wrapping; visual_rows.rs deleted

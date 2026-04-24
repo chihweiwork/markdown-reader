@@ -629,10 +629,7 @@ fn render_with_config_color(
     config: &LayoutConfig,
     with_color: bool,
 ) -> String {
-    let layout::layered::LayoutResult {
-        mut positions,
-        mut edge_waypoints,
-    } = match config.backend {
+    let layout::layered::LayoutResult { mut positions, .. } = match config.backend {
         LayoutBackend::Native => layout::layered::layout(graph, config),
         LayoutBackend::Sugiyama => layout::sugiyama::sugiyama_layout(graph, config),
     };
@@ -644,20 +641,14 @@ fn render_with_config_color(
                 *col += col_offset;
                 *row += row_offset;
             }
-            for waypoints in &mut edge_waypoints {
-                for (col, row) in &mut waypoints.waypoints {
-                    *col += col_offset;
-                    *row += row_offset;
-                }
-            }
         }
     }
 
     let sg_bounds = layout::subgraph::compute_subgraph_bounds(graph, &positions);
     if with_color {
-        render::render_color(graph, &positions, &sg_bounds, &edge_waypoints)
+        render::render_color(graph, &positions, &sg_bounds)
     } else {
-        render::render(graph, &positions, &sg_bounds, &edge_waypoints)
+        render::render(graph, &positions, &sg_bounds)
     }
 }
 
@@ -673,8 +664,7 @@ fn render_with_config_color(
 /// `saturating_sub` clipping to 0.
 ///
 /// Pure (read-only) so the caller can apply the same shift uniformly
-/// to both node positions AND long-edge waypoints — they need to move
-/// together so waypoints stay aligned with the nodes they pass between.
+/// to all node positions.
 fn subgraph_position_offset(
     graph: &crate::types::Graph,
     positions: &std::collections::HashMap<String, (usize, usize)>,

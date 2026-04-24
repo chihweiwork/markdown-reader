@@ -146,8 +146,25 @@ enum Obstacle {
     Free,
     /// Cell belongs to a node bounding box. Edges must not enter.
     NodeBox,
-    /// Cell already has a routed edge. Crossings are allowed at extra cost.
-    EdgeOccupied,
+    /// Cell already has a routed horizontal edge (`─`, `┄`, etc.).
+    ///
+    /// A new edge that also runs horizontally through this cell is a
+    /// same-axis overlap — A\* charges `SAME_AXIS_COST` (10) so it
+    /// prefers a fresh row but will still share when the alternative is
+    /// a long detour. A new edge crossing it vertically produces a
+    /// perpendicular crossing (`┼`), charged `CROSS_AXIS_COST` (3) —
+    /// visually acceptable, so A\* takes the clean crossing instead of
+    /// a detour. Both costs are tuned in `Grid::route_edge_with_inner_cost`;
+    /// see the comment block there for the rationale (lower than
+    /// graph-easy's 30/6 to keep bidirectional pairs inside their
+    /// subgraph box).
+    EdgeOccupiedHorizontal,
+    /// Cell already has a routed vertical edge (`│`, `┆`, etc.).
+    ///
+    /// Symmetric to [`Obstacle::EdgeOccupiedHorizontal`]: same-axis
+    /// (vertical) overlap costs `SAME_AXIS_COST` (10); horizontal
+    /// crossing costs `CROSS_AXIS_COST` (3).
+    EdgeOccupiedVertical,
     /// Cell is *between* node boxes — inside the convex hull of all
     /// node positions but not on any node itself, not yet edge-occupied.
     /// Routed at standard cost in normal mode; back-edge routing pays a
@@ -220,6 +237,23 @@ pub enum EdgeLineStyle {
     /// Replace path cells using thick box-drawing glyphs (`━`, `┃`, `╋`, etc.),
     /// recomputed from the existing direction bitmask.
     Thick,
+}
+
+// ---------------------------------------------------------------------------
+// Edge attach point
+// ---------------------------------------------------------------------------
+
+/// A pixel-precise attachment point on a node's border.
+///
+/// Used by the router to identify where an edge begins (source side) and
+/// where it ends (destination side). Produced by the attachment-point
+/// computation in `render/unicode.rs` and consumed by `layout/router.rs`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Attach {
+    /// Column index of the attach cell (0 = leftmost column).
+    pub col: usize,
+    /// Row index of the attach cell (0 = top row).
+    pub row: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -335,10 +369,10 @@ impl Grid {
 
     /// Mark every currently-`Free` cell inside the rectangular area
     /// `[col, col+w) × [row, row+h)` as `InnerArea`. Cells already
-    /// classified as `NodeBox` or `EdgeOccupied` are left untouched
-    /// (their classifications are stronger). Used by the renderer to
-    /// flag the bounding-box interior so back-edge A* routing knows
-    /// to prefer the perimeter outside this rectangle.
+    /// classified as `NodeBox` or `EdgeOccupiedHorizontal/Vertical` are
+    /// left untouched (their classifications are stronger). Used by the
+    /// renderer to flag the bounding-box interior so back-edge A* routing
+    /// knows to prefer the perimeter outside this rectangle.
     pub fn mark_inner_area(&mut self, col: usize, row: usize, w: usize, h: usize) {
         for dy in 0..h {
             let r = row + dy;
@@ -409,6 +443,40 @@ impl Grid {
     pub fn set_unless_protected(&mut self, col: usize, row: usize, ch: char) {
         if row < self.height && col < self.width && !self.protected[row][col] {
             self.cells[row][col] = ch;
+        }
+    }
+
+    /// Return `true` if the cell at `(col, row)` is a hard obstacle (NodeBox).
+    ///
+    /// Used by the router's fast-path checks to detect whether a straight or
+    /// L-shaped route is clear before committing to a full A\* search.
+    /// Out-of-bounds cells are treated as obstacles so routes don't wander off
+    /// the grid edge.
+    pub(crate) fn is_node_box(&self, col: usize, row: usize) -> bool {
+        if row >= self.height || col >= self.width {
+            return true; // treat out-of-bounds as impassable
+        }
+        self.obstacles[row][col] == Obstacle::NodeBox
+    }
+
+    /// Return a soft-obstacle weight for cell `(col, row)`.
+    ///
+    /// Used by the router's L-route cost estimation to compare two bend
+    /// orientations without running a full A\*. Returns 0 for free/InnerArea
+    /// cells and 1 for already-edge-occupied cells (directional variant
+    /// doesn't matter for gross cost comparison). Returns `u32::MAX / 2` for
+    /// NodeBox cells so that the router treats a blocked L-route as
+    /// infinitely expensive.
+    ///
+    /// Out-of-bounds cells return `u32::MAX / 2` (treated as blocked).
+    pub(crate) fn edge_occupied_cost(&self, col: usize, row: usize) -> u32 {
+        if row >= self.height || col >= self.width {
+            return u32::MAX / 2;
+        }
+        match self.obstacles[row][col] {
+            Obstacle::Free | Obstacle::InnerArea => 0,
+            Obstacle::EdgeOccupiedHorizontal | Obstacle::EdgeOccupiedVertical => 1,
+            Obstacle::NodeBox => u32::MAX / 2,
         }
     }
 
@@ -1067,14 +1135,19 @@ impl Grid {
     ) -> Option<Vec<(usize, usize)>> {
         // Cost constants.
         //
-        // `EDGE_SOFT_COST` is the penalty added when A* enters a cell that
-        // a previously-routed edge has already painted. Higher values push
-        // edges apart into distinct corridors; lower values let them share
-        // trunks. Tuned to favor legibility without sending edges on wide
-        // detours — a value of ~4 is enough to split 2-3 parallel edges
-        // onto adjacent columns while still accepting a shared trunk when
-        // no free column is reachable.
-        const EDGE_SOFT_COST: f32 = 4.0;
+        // Direction-aware crossing costs (tuned from graph-easy):
+        //   SAME_AXIS_COST  — penalty for a new edge running *along* the same
+        //     axis as an already-routed edge in a cell (e.g. two horizontal
+        //     lines sharing a cell). Hard to read; A* prefers a fresh
+        //     column/row but will still share when no alternative is reachable
+        //     without a very long detour (kept at 10 rather than graph-easy's
+        //     30 so that bidirectional pairs in tight subgraphs don't route
+        //     outside the subgraph box).
+        //   CROSS_AXIS_COST — penalty for a new edge *crossing* an existing
+        //     edge perpendicularly (producing `┼`). Visually acceptable; a
+        //     low cost lets A* take a clean crossing instead of a long detour.
+        const SAME_AXIS_COST: f32 = 10.0;
+        const CROSS_AXIS_COST: f32 = 3.0;
         const CORNER_PENALTY: f32 = 0.5;
         // 4-directional movement: Right, Down, Left, Up (indices 0..3).
         const DIRS: [(isize, isize); 4] = [(1, 0), (0, 1), (-1, 0), (0, -1)];
@@ -1131,9 +1204,26 @@ impl Grid {
 
                 // Base step cost.
                 let mut step = 1.0f32;
-                // Soft obstacle: crossing an existing edge costs more.
-                if self.obstacles[nr][nc] == Obstacle::EdgeOccupied {
-                    step += EDGE_SOFT_COST;
+                // Direction-aware edge-crossing cost.
+                // Moving in direction `dir_idx`: 0=Right, 1=Down, 2=Left, 3=Up.
+                // Directions 0/2 are horizontal; 1/3 are vertical.
+                let moving_horizontal = dir_idx == 0 || dir_idx == 2;
+                match self.obstacles[nr][nc] {
+                    Obstacle::EdgeOccupiedHorizontal => {
+                        step += if moving_horizontal {
+                            SAME_AXIS_COST // overlap — strongly avoid
+                        } else {
+                            CROSS_AXIS_COST // clean cross — acceptable
+                        };
+                    }
+                    Obstacle::EdgeOccupiedVertical => {
+                        step += if moving_horizontal {
+                            CROSS_AXIS_COST // clean cross — acceptable
+                        } else {
+                            SAME_AXIS_COST // overlap — strongly avoid
+                        };
+                    }
+                    _ => {}
                 }
                 // InnerArea penalty (back-edges only; zero for forward
                 // edges): biases A* to prefer the perimeter corridor
@@ -1254,8 +1344,10 @@ impl Grid {
     ///
     /// The final waypoint is overwritten with the arrow tip and protected
     /// so later edges can't erase it. Each drawn cell is marked as
-    /// [`Obstacle::EdgeOccupied`] so subsequent edges pay a higher cost
-    /// to cross it.
+    /// [`Obstacle::EdgeOccupiedHorizontal`] or
+    /// [`Obstacle::EdgeOccupiedVertical`] based on the cell's axis in the
+    /// path, so subsequent edges pay a lower cost for perpendicular crossings
+    /// than for same-axis overlaps.
     fn draw_routed_path(&mut self, path: &[(usize, usize)], tip: char) {
         if path.len() < 2 {
             return;
@@ -1265,9 +1357,41 @@ impl Grid {
         for i in 0..=last {
             let (c, r) = path[i];
 
-            // Mark as edge-occupied so future routes prefer fresh corridors.
+            // Mark as edge-occupied with the correct axis variant so that
+            // subsequent edges pay a lower penalty for perpendicular crossings
+            // (6) than for same-axis overlaps (30). We determine the axis from
+            // the path segments adjacent to this cell — at a corner cell the
+            // cell has both H and V neighbors, so we classify by the outbound
+            // direction (toward the next cell) which is the dominant segment.
             if r < self.height && c < self.width && self.obstacles[r][c] != Obstacle::NodeBox {
-                self.obstacles[r][c] = Obstacle::EdgeOccupied;
+                let obstacle = if i < last {
+                    let (nc, nr) = path[i + 1];
+                    // At corners, use the outbound direction for classification.
+                    if nc != c {
+                        Obstacle::EdgeOccupiedHorizontal
+                    } else if nr != r {
+                        Obstacle::EdgeOccupiedVertical
+                    } else {
+                        // Same cell (degenerate) — keep whatever was there.
+                        self.obstacles[r][c]
+                    }
+                } else {
+                    // Arrow-tip cell: classify by the inbound direction.
+                    let (pc, _) = path[i - 1];
+                    if pc != c {
+                        Obstacle::EdgeOccupiedHorizontal
+                    } else {
+                        Obstacle::EdgeOccupiedVertical
+                    }
+                };
+                // Only upgrade Free / InnerArea cells — don't downgrade an
+                // already-classified EdgeOccupied* to the wrong axis.
+                if !matches!(
+                    self.obstacles[r][c],
+                    Obstacle::EdgeOccupiedHorizontal | Obstacle::EdgeOccupiedVertical
+                ) {
+                    self.obstacles[r][c] = obstacle;
+                }
             }
 
             if i == last {

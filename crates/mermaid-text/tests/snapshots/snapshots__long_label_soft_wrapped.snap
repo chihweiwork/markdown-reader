@@ -6,12 +6,12 @@ expression: out
 │ "This is a very long label that should │
 │    be soft-wrapped by the renderer"    │
 └────────────────────────────────────────┘
-                     │
-                     │
-                     │
-                     │
-                     │
-    ┌────────────────┘
+    ┌─────────────────
+    │
+    │
+    │
+    │
+    │
 ┌───▾──┐
 │ Done │
 └──────┘

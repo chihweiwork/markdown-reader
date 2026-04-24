@@ -3,6 +3,57 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.15.0 — 2026-04-23
+
+### Layout
+
+- **Edge routing consolidated into a single A\* pass per edge.** Phase 4
+  of the markdown-reader architecture cleanup. Previously the layered
+  backend computed per-layer "waypoint hints" that fragmented routing
+  into N short A\* searches forced through hand-picked cells; now A\*
+  sees the whole problem at once with a try-straight → try-L fast path
+  for the easy 70% of edges.
+
+- **Direction-aware crossing costs.** `Obstacle::EdgeOccupied` is split
+  into `EdgeOccupiedHorizontal` and `EdgeOccupiedVertical`. A new edge
+  running along the same axis as an existing one (overlap) costs 10;
+  a clean perpendicular crossing (`┼`) costs 3. Differentiating the
+  two lets A\* avoid ugly overlaps while still accepting clean
+  crossings — graph-easy's tuned numbers, scaled down for our smaller
+  diagrams (subgraph-friendly bidirectional pairs stay inside their
+  box).
+
+- **New private module** `layout::router` orchestrates the per-edge
+  dispatch (straight → L → A\*) and edge ordering (Manhattan distance
+  ascending, declaration-order tie-break). `Grid::route_edge` and
+  `Grid::route_back_edge` stay where they are — the strategy layer is
+  the only new module.
+
+### Deletions (per the architecture plan's "no dead surface area" gate)
+
+- `layered::compute_edge_waypoints` and its helpers
+  (`layer_axis_anchors`, `layer_perpendicular_ranges`, `nearest_clear`,
+  `interpolate`) — superseded by A\* end-to-end routing.
+- `layered::EdgeWaypoints` struct + `LayoutResult::edge_waypoints`
+  field — output is now per-edge polylines from the router, owned by
+  the renderer.
+- `render::unicode::route_via_waypoints` — fragmented per-layer
+  routing replaced by a single `router::route_all` call.
+- Sugiyama backend's waypoint extraction loop — `LayoutResult` now
+  carries only positions; A\* produces the path itself.
+- ~450 LOC net deleted.
+
+### Tests
+
+- New `tests/crossings.rs` — 19 tests assert the crossing count for
+  each fixture in the snapshot corpus + 5 new dense-graph fixtures
+  (fan-out 1→6, fan-in 6→1, 3×3 bipartite, multiple back-edges, TD
+  forced-crossing). Future cost-tuning regressions fail loud.
+- 8 unit tests in `router.rs` covering straight / L / A\*-fallback
+  cases.
+- All 63 existing snapshot tests pass; 39 doctests pass.
+- 472 tests total (was 453).
+
 ## 0.14.5 — 2026-04-23
 
 ### Layout
