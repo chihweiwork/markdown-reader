@@ -5,6 +5,40 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.0] - 2026-04-24
+
+### Fixed
+
+- **Text-mode overflow placeholder is now scroll-position-stable.** Previously
+  the "diagram too wide" placeholder measured the diagram width *after* draining
+  the prefix rows that had already scrolled off-screen. As the user scrolled past
+  the widest rows the check would pass and fragments of the box-drawing diagram
+  would appear instead of the placeholder. The fix: measure the full `Text`
+  (all lines from the cache) before any clipping. The natural width is a
+  property of the diagram, not of the visible window.
+
+### Performance
+
+- **Scrolling large text-mode mermaid diagrams no longer re-allocates per
+  frame.** The styled `Text<'static>` for each `AsciiDiagram`, `SourceOnly`,
+  and `Failed` entry is now cached inside the entry via a
+  `RefCell<Option<Text<'static>>>` field. Subsequent render frames return a
+  single `Text::clone()` instead of allocating one `String` + `Span` + `Line`
+  per source line. The cache is invalidated automatically when
+  `MermaidCache::clear()` drops the entry (theme change or mode switch); the
+  next render rebuilds it under the new theme. The `Vec::drain` scroll
+  mechanism is replaced with `Paragraph::scroll((y, 0))` so the cached
+  `Text` is never mutated. Highlight is applied to a cloned copy only when
+  the cursor or visual selection touches the block.
+
+### Changed
+
+- **`MermaidMode` default changed from `Auto` to `Text`.** Image mode is
+  laggy on entry to the full-screen modal; text mode renders cleanly and is
+  CPU-light. Works in tmux and SSH terminals without graphics protocol support.
+  Existing config files with an explicit `mermaid_mode = "auto"` are
+  unaffected — Serde reads the explicit value.
+
 ## [1.26.2] - 2026-04-24
 
 ### Changed

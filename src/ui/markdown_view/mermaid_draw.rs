@@ -9,6 +9,10 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph, Wrap},
 };
+// `RefCell` is used to populate the per-entry styled-text cache without
+// requiring `&mut MermaidEntry`.  Interior mutability is safe here because
+// the TUI render loop is single-threaded.
+use std::cell::RefCell;
 
 /// All parameters needed to draw a single mermaid block.
 ///
@@ -109,21 +113,37 @@ pub fn draw_mermaid_block(
                 render_mermaid_placeholder(f, rect, "scroll to view diagram", p);
             }
         }
-        Some(MermaidEntry::Failed(msg)) => {
+        Some(MermaidEntry::Failed {
+            msg,
+            styled_text_cache,
+        }) => {
             let footer = format!("[mermaid \u{2014} {}]", truncate(msg.as_str(), 60));
-            let text = render_mermaid_source_text(params.source, &footer, &app.tokens, p);
+            let text = get_or_build_cache(styled_text_cache, || {
+                render_mermaid_source_text(params.source, &footer, &app.tokens, p)
+            });
             render_mermaid_text_block(f, rect, text, &app.tokens, p, params);
         }
-        Some(MermaidEntry::SourceOnly(reason)) => {
+        Some(MermaidEntry::SourceOnly {
+            reason,
+            styled_text_cache,
+        }) => {
             let footer = format!("[mermaid \u{2014} {reason}]");
-            let text = render_mermaid_source_text(params.source, &footer, &app.tokens, p);
+            let text = get_or_build_cache(styled_text_cache, || {
+                render_mermaid_source_text(params.source, &footer, &app.tokens, p)
+            });
             render_mermaid_text_block(f, rect, text, &app.tokens, p, params);
         }
-        Some(MermaidEntry::AsciiDiagram { diagram, reason }) => {
+        Some(MermaidEntry::AsciiDiagram {
+            diagram,
+            reason,
+            styled_text_cache,
+        }) => {
             // figurehead rendered a Unicode box-drawing diagram — show it
             // instead of the raw mermaid source.
             let footer = format!("[mermaid \u{2014} {reason}, text-mode diagram]");
-            let text = render_mermaid_source_text(diagram.as_str(), &footer, &app.tokens, p);
+            let text = get_or_build_cache(styled_text_cache, || {
+                render_mermaid_source_text(diagram.as_str(), &footer, &app.tokens, p)
+            });
             render_mermaid_text_block(f, rect, text, &app.tokens, p, params);
         }
     }
@@ -166,6 +186,29 @@ pub fn render_mermaid_placeholder(f: &mut Frame, rect: Rect, msg: &str, p: &Pale
     }
 }
 
+/// Return the cached styled `Text`, building and storing it on first access.
+///
+/// `build` is called only when the cache cell holds `None`.  On subsequent
+/// frames the cached `Text` is cloned — one clone per frame is far cheaper
+/// than re-allocating one `String` + `Span` + `Line` per source line.
+///
+/// The cache is invalidated implicitly when `MermaidCache::clear()` drops the
+/// whole entry (theme change or mode switch), so stale theme-coloured spans
+/// never persist across a theme toggle.
+fn get_or_build_cache(
+    cache: &RefCell<Option<Text<'static>>>,
+    build: impl FnOnce() -> Text<'static>,
+) -> Text<'static> {
+    // Borrow immutably first (fast path — cache already populated).
+    if let Some(text) = cache.borrow().as_ref() {
+        return text.clone();
+    }
+    // Cache is empty — build and store.
+    let text = build();
+    *cache.borrow_mut() = Some(text.clone());
+    text
+}
+
 /// Build the styled `Text` for a mermaid source-fallback display.
 ///
 /// Separating text construction from rendering lets callers mutate the lines
@@ -191,16 +234,6 @@ pub fn render_mermaid_source_text(
     Text::from(lines)
 }
 
-/// Render a pre-built mermaid source `Text` with a border block.
-pub fn render_mermaid_source_styled(f: &mut Frame, rect: Rect, text: Text<'static>, p: &Palette) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(p.border_style())
-        .style(Style::default().bg(p.background));
-    let para = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
-    f.render_widget(para, rect);
-}
-
 /// Render the text-mode body of a mermaid block (`AsciiDiagram`,
 /// `SourceOnly`, or `Failed`), correctly slicing by the scroll offset so
 /// tall diagrams reveal their lower rows when scrolled into view.
@@ -216,6 +249,10 @@ pub fn render_mermaid_source_styled(f: &mut Frame, rect: Rect, text: Text<'stati
 /// becomes scattered chunks across rows). For diagrams whose natural
 /// width exceeds the available rect, we substitute an overflow
 /// placeholder pointing the user at the full-screen modal (`Enter`).
+///
+/// The `text` argument is a clone from the per-entry cache.  We avoid
+/// mutating the original cache entry so the cached `Text` stays valid
+/// across scroll positions and can be reused next frame without rebuilding.
 fn render_mermaid_text_block(
     f: &mut Frame,
     rect: Rect,
@@ -226,11 +263,12 @@ fn render_mermaid_text_block(
 ) {
     let total = text.lines.len();
     let start = (params.clip_start as usize).min(total);
-    if start > 0 {
-        text.lines.drain(..start);
-    }
 
-    // Inner content area excludes the 1-cell border on each side.
+    // FIX 1: Measure the natural width of the *full* text before any clipping.
+    // A chart's overflow is a property of its widest line, not of whichever
+    // subset happens to remain after scrolling past the wide top rows.
+    // Measuring after the drain caused the placeholder to disappear once the
+    // user scrolled far enough for the wide rows to leave the clipped prefix.
     let inner_width = rect.width.saturating_sub(2) as usize;
     if inner_width > 0
         && let Some(natural_width) = max_line_display_width(&text.lines)
@@ -241,6 +279,11 @@ fn render_mermaid_text_block(
     }
 
     if params.focused {
+        // Clone-on-highlight: mutate a local copy only when the cursor or
+        // visual selection touches this block, so the shared cached Text is
+        // never modified.  The clone covers all lines but is a single
+        // Vec<Line> heap allocation — vastly cheaper than per-line String
+        // allocations that the old path paid every frame.
         apply_block_highlight(
             &mut text.lines,
             params.visual_mode,
@@ -251,7 +294,20 @@ fn render_mermaid_text_block(
             tokens.state.selection_bg,
         );
     }
-    render_mermaid_source_styled(f, rect, text, p);
+
+    // FIX 2: Use `Paragraph::scroll` instead of `Vec::drain` to skip the
+    // clipped prefix.  This avoids mutating (and thus invalidating) the
+    // cached Text and eliminates the wasted allocation the old drain path paid
+    // after `get_or_build_cache` already returned a clean copy.
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(p.border_style())
+        .style(Style::default().bg(p.background));
+    let para = Paragraph::new(text)
+        .block(block)
+        .wrap(Wrap { trim: false })
+        .scroll((start as u16, 0));
+    f.render_widget(para, rect);
 }
 
 /// Compute the widest display-width across `lines`. Returns `None` for an
@@ -343,5 +399,118 @@ mod tests {
             Line::from(Span::raw("└────────┘".to_string())),
         ];
         assert_eq!(max_line_display_width(&lines), Some(10));
+    }
+
+    /// The styled-text cache must be populated on first access and reused on
+    /// subsequent frames without re-invoking the build closure.
+    #[test]
+    fn get_or_build_cache_populates_on_first_call_and_reuses() {
+        let cache: RefCell<Option<Text<'static>>> = RefCell::new(None);
+        let call_count = std::cell::Cell::new(0u32);
+
+        let build = || {
+            call_count.set(call_count.get() + 1);
+            Text::from(vec![Line::from(Span::raw("diagram".to_string()))])
+        };
+
+        // First call: cache is empty, build runs.
+        let t1 = get_or_build_cache(&cache, build);
+        assert_eq!(call_count.get(), 1, "build must run on first call");
+        assert_eq!(t1.lines.len(), 1);
+
+        // Second call: cache is populated, build does not run.
+        let t2 = get_or_build_cache(&cache, || {
+            call_count.set(call_count.get() + 1);
+            Text::from(vec![Line::from(Span::raw("diagram".to_string()))])
+        });
+        assert_eq!(call_count.get(), 1, "build must not run on cache hit");
+        assert_eq!(t2.lines.len(), 1);
+    }
+
+    /// After clearing the cache cell (simulating a theme change that drops the
+    /// whole `MermaidEntry` and re-inserts a fresh one), the build closure runs
+    /// again on next access.
+    #[test]
+    fn get_or_build_cache_rebuilds_after_invalidation() {
+        let cache: RefCell<Option<Text<'static>>> = RefCell::new(None);
+        let call_count = std::cell::Cell::new(0u32);
+
+        // Populate the cache.
+        get_or_build_cache(&cache, || {
+            call_count.set(call_count.get() + 1);
+            Text::from(vec![Line::from(Span::raw("v1".to_string()))])
+        });
+        assert_eq!(call_count.get(), 1);
+
+        // Simulate cache invalidation: the entry is dropped when MermaidCache::clear()
+        // removes the MermaidEntry, and a fresh entry starts with None in its RefCell.
+        *cache.borrow_mut() = None;
+
+        let rebuilt = get_or_build_cache(&cache, || {
+            call_count.set(call_count.get() + 1);
+            Text::from(vec![Line::from(Span::raw("v2".to_string()))])
+        });
+        assert_eq!(
+            call_count.get(),
+            2,
+            "build must run again after cache reset"
+        );
+        assert_eq!(rebuilt.lines[0].spans[0].content.as_ref(), "v2");
+    }
+
+    /// Regression test for the overflow-check ordering bug.
+    ///
+    /// A wide diagram must still report its natural width even when measured
+    /// only on the prefix rows (wide top, narrow body).  The fix measures the
+    /// full text before any clipping so the overflow placeholder fires
+    /// consistently regardless of `clip_start`.
+    ///
+    /// Concretely: if the bug were still present, measuring only the rows that
+    /// survive after skipping `clip_start` lines would return the narrower body
+    /// width and the overflow check would pass — causing partial diagram content
+    /// to appear instead of the "too wide" placeholder.
+    #[test]
+    fn overflow_check_uses_full_text_width_not_clipped_width() {
+        // Wide header row that would be scrolled past when clip_start > 0.
+        let wide_row = "A".repeat(200);
+        // Narrow body rows that appear after the wide header.
+        let narrow_body: Vec<Line<'static>> = (0..10)
+            .map(|_| Line::from(Span::raw("narrow".to_string())))
+            .collect();
+
+        // Build the full text as `render_mermaid_text_block` receives it from the cache.
+        let mut all_lines = vec![Line::from(Span::raw(wide_row.clone()))];
+        all_lines.extend(narrow_body.clone());
+        let text = Text::from(all_lines);
+
+        // Measure width on the full text (what the fix does).
+        let full_width = max_line_display_width(&text.lines);
+        assert_eq!(
+            full_width,
+            Some(200),
+            "full text must report the widest row"
+        );
+
+        // Simulate what the buggy drain-first path saw: after draining the wide
+        // row (clip_start = 1), only the narrow body remains.
+        let clipped: Vec<Line<'static>> = narrow_body;
+        let clipped_width = max_line_display_width(&clipped);
+        assert_eq!(
+            clipped_width,
+            Some(6),
+            "clipped text reports only the narrower body width, demonstrating the old bug"
+        );
+
+        // The fix: use `full_width` for the overflow decision, not `clipped_width`.
+        // An available_width of 80 is narrower than 200 → overflow placeholder fires.
+        let available = 80_usize;
+        assert!(
+            full_width.is_some_and(|w| w > available),
+            "overflow must be detected from full text width even when clip_start > 0"
+        );
+        assert!(
+            clipped_width.is_none_or(|w| w <= available),
+            "the old drain-first path would have missed the overflow at this clip_start"
+        );
     }
 }

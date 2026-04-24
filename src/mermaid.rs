@@ -74,17 +74,39 @@ pub enum MermaidEntry {
         cell_height: u32,
     },
     /// Rendering failed; display the source with this short error message.
-    Failed(String),
+    ///
+    /// `styled_text_cache` lazily stores the styled `Text<'static>` produced from
+    /// the error message so that successive render frames skip the per-line
+    /// String/Span allocation.  It is `None` on first access and populated on the
+    /// first render call.  The cache is invalidated implicitly when the whole
+    /// `MermaidCache` is cleared (theme change or mode switch).
+    Failed {
+        /// Short error message shown in the footer.
+        msg: String,
+        /// Lazily-built styled text for the fallback display.
+        styled_text_cache: std::cell::RefCell<Option<ratatui::text::Text<'static>>>,
+    },
     /// Graphics are disabled (e.g. inside tmux); display the source with a hint.
-    SourceOnly(String),
+    ///
+    /// `styled_text_cache` has the same semantics as in [`MermaidEntry::Failed`].
+    SourceOnly {
+        /// Short reason shown in the footer.
+        reason: String,
+        /// Lazily-built styled text for the fallback display.
+        styled_text_cache: std::cell::RefCell<Option<ratatui::text::Text<'static>>>,
+    },
     /// Graphics are unavailable but the diagram was successfully rendered
     /// to Unicode box-drawing characters via `figurehead`.  The `String`
     /// contains the ready-to-display ASCII/Unicode art.
+    ///
+    /// `styled_text_cache` has the same semantics as in [`MermaidEntry::Failed`].
     AsciiDiagram {
         /// The rendered diagram text.
         diagram: String,
         /// Short reason why graphics aren't available (shown in the footer).
         reason: String,
+        /// Lazily-built styled text for the fallback display.
+        styled_text_cache: std::cell::RefCell<Option<ratatui::text::Text<'static>>>,
     },
 }
 
@@ -167,7 +189,7 @@ impl MermaidCache {
             None => DEFAULT_MERMAID_HEIGHT,
             Some(MermaidEntry::Pending) => MIN_MERMAID_HEIGHT,
             Some(MermaidEntry::Ready { cell_height, .. }) => *cell_height,
-            Some(MermaidEntry::Failed(_) | MermaidEntry::SourceOnly(_)) => {
+            Some(MermaidEntry::Failed { .. } | MermaidEntry::SourceOnly { .. }) => {
                 let source_lines = crate::cast::u32_sat(source.lines().count()) + 2;
                 source_lines.clamp(MIN_MERMAID_HEIGHT, max_height)
             }
@@ -221,10 +243,12 @@ impl MermaidCache {
                 Ok(diagram) => MermaidEntry::AsciiDiagram {
                     diagram,
                     reason: "text mode".to_string(),
+                    styled_text_cache: std::cell::RefCell::new(None),
                 },
-                Err(_) => {
-                    MermaidEntry::SourceOnly("figurehead render failed, showing source".to_string())
-                }
+                Err(_) => MermaidEntry::SourceOnly {
+                    reason: "figurehead render failed, showing source".to_string(),
+                    styled_text_cache: std::cell::RefCell::new(None),
+                },
             };
             self.entries.insert(id, entry);
             return false;
@@ -237,19 +261,23 @@ impl MermaidCache {
         if has_limited_rendering(source) {
             let entry = if cfg.mode == MermaidMode::Image {
                 // Image-only: skip figurehead, show raw source.
-                MermaidEntry::SourceOnly(
-                    "diagram type not supported by image renderer, showing source".to_string(),
-                )
+                MermaidEntry::SourceOnly {
+                    reason: "diagram type not supported by image renderer, showing source"
+                        .to_string(),
+                    styled_text_cache: std::cell::RefCell::new(None),
+                }
             } else {
                 // Auto mode: try figurehead first.
                 match try_text_render(source, cfg.content_width) {
                     Ok(diagram) => MermaidEntry::AsciiDiagram {
                         diagram,
                         reason: "diagram type uses text-mode rendering".to_string(),
+                        styled_text_cache: std::cell::RefCell::new(None),
                     },
-                    Err(_) => MermaidEntry::SourceOnly(
-                        "diagram type has limited rendering, showing source".to_string(),
-                    ),
+                    Err(_) => MermaidEntry::SourceOnly {
+                        reason: "diagram type has limited rendering, showing source".to_string(),
+                        styled_text_cache: std::cell::RefCell::new(None),
+                    },
                 }
             };
             self.entries.insert(id, entry);
@@ -266,14 +294,24 @@ impl MermaidCache {
 
             let entry = if cfg.mode == MermaidMode::Image {
                 // Image-only mode: don't try figurehead, just show source.
-                MermaidEntry::SourceOnly(reason)
+                MermaidEntry::SourceOnly {
+                    reason,
+                    styled_text_cache: std::cell::RefCell::new(None),
+                }
             } else {
                 // Auto mode: try text-mode rendering via figurehead before
                 // falling back to raw source.  This gives terminals without
                 // graphics protocol support a readable Unicode box-drawing diagram.
                 match try_text_render(source, cfg.content_width) {
-                    Ok(diagram) => MermaidEntry::AsciiDiagram { diagram, reason },
-                    Err(_) => MermaidEntry::SourceOnly(reason),
+                    Ok(diagram) => MermaidEntry::AsciiDiagram {
+                        diagram,
+                        reason,
+                        styled_text_cache: std::cell::RefCell::new(None),
+                    },
+                    Err(_) => MermaidEntry::SourceOnly {
+                        reason,
+                        styled_text_cache: std::cell::RefCell::new(None),
+                    },
                 }
             };
             self.entries.insert(id, entry);
@@ -308,7 +346,10 @@ impl MermaidCache {
                     protocol: Box::new(protocol),
                     cell_height,
                 },
-                Err(e) => MermaidEntry::Failed(e),
+                Err(e) => MermaidEntry::Failed {
+                    msg: e,
+                    styled_text_cache: std::cell::RefCell::new(None),
+                },
             };
             let _ = tx.send(crate::action::Action::MermaidReady(id, Box::new(entry)));
         });
@@ -667,7 +708,13 @@ mod tests {
     fn cache_height_failed_clamps_to_range() {
         let mut cache = MermaidCache::new();
         let id = MermaidBlockId(4);
-        cache.insert(id, MermaidEntry::Failed("err".to_string()));
+        cache.insert(
+            id,
+            MermaidEntry::Failed {
+                msg: "err".to_string(),
+                styled_text_cache: std::cell::RefCell::new(None),
+            },
+        );
         let h = cache.height(id, "line1\nline2\nline3", MAX_MERMAID_HEIGHT);
         assert!((MIN_MERMAID_HEIGHT..=MAX_MERMAID_HEIGHT).contains(&h));
     }
@@ -676,7 +723,13 @@ mod tests {
     fn cache_height_source_only_clamps_to_range() {
         let mut cache = MermaidCache::new();
         let id = MermaidBlockId(5);
-        cache.insert(id, MermaidEntry::SourceOnly("tmux".to_string()));
+        cache.insert(
+            id,
+            MermaidEntry::SourceOnly {
+                reason: "tmux".to_string(),
+                styled_text_cache: std::cell::RefCell::new(None),
+            },
+        );
         let mut source = String::new();
         for i in 0..100usize {
             source.push_str("line");
@@ -793,7 +846,7 @@ mod tests {
 
         let entry = cache.get(id).expect("entry must be present");
         assert!(
-            matches!(entry, MermaidEntry::SourceOnly(_)),
+            matches!(entry, MermaidEntry::SourceOnly { .. }),
             "expected SourceOnly in Image mode with no graphics, got a different variant"
         );
     }
@@ -813,6 +866,7 @@ mod tests {
             MermaidEntry::AsciiDiagram {
                 diagram,
                 reason: "test".to_string(),
+                styled_text_cache: std::cell::RefCell::new(None),
             },
         );
         let h = cache.height(id, "irrelevant", 30);
@@ -837,6 +891,7 @@ mod tests {
             MermaidEntry::AsciiDiagram {
                 diagram,
                 reason: "test".to_string(),
+                styled_text_cache: std::cell::RefCell::new(None),
             },
         );
         let h = cache.height(id, "", 30);
@@ -849,7 +904,13 @@ mod tests {
         let id = MermaidBlockId(200);
         // 50 source lines + 2 = 52; should be clamped to 25.
         let source: String = (0..50).map(|i| format!("line{i}\n")).collect();
-        cache.insert(id, MermaidEntry::SourceOnly("x".to_string()));
+        cache.insert(
+            id,
+            MermaidEntry::SourceOnly {
+                reason: "x".to_string(),
+                styled_text_cache: std::cell::RefCell::new(None),
+            },
+        );
         let h = cache.height(id, &source, 25);
         assert_eq!(h, 25, "height must be clamped to the supplied max_height");
     }

@@ -34,12 +34,14 @@ pub enum MermaidMode {
     ///
     /// For diagram types with known image-render issues (e.g. `stateDiagram`),
     /// figurehead is tried first; the image pipeline is skipped for those types.
-    #[default]
     Auto,
     /// Always use figurehead Unicode text rendering. Never spawns image tasks.
     ///
-    /// CPU-lighter than `Auto`, works inside tmux and any terminal without
-    /// graphics protocol support, but lower visual fidelity.
+    /// The default mode. CPU-lighter than `Auto`, works inside tmux and any
+    /// terminal without graphics protocol support.  Existing config files with
+    /// `mermaid_mode = "auto"` keep that setting; only users with no explicit
+    /// `mermaid_mode` in their TOML are affected by this default change.
+    #[default]
     Text,
     /// Only use the image pipeline when a graphics protocol is available.
     ///
@@ -200,11 +202,11 @@ mod tests {
         assert_eq!(deserialized.mermaid_mode, MermaidMode::Text);
     }
 
-    /// A TOML file without `mermaid_mode` must default to `Auto`.
+    /// A TOML file without `mermaid_mode` must default to `Text`.
     #[test]
-    fn mermaid_mode_missing_field_defaults_to_auto() {
+    fn mermaid_mode_missing_field_defaults_to_text() {
         let toml_str = r#"theme = "default""#;
         let config: Config = toml::from_str(toml_str).expect("deserialization failed");
-        assert_eq!(config.mermaid_mode, MermaidMode::Auto);
+        assert_eq!(config.mermaid_mode, MermaidMode::Text);
     }
 }

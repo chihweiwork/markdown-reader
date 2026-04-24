@@ -130,12 +130,12 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             draw_text(f, content_rect, &diagram, h_scroll, v_scroll, foreground);
             text_footer(&diagram, h_scroll, v_scroll, text_zoom)
         }
-        Some(MermaidEntry::SourceOnly(reason)) => {
+        Some(MermaidEntry::SourceOnly { reason, .. }) => {
             let reason = reason.clone();
             draw_text(f, content_rect, &source, h_scroll, v_scroll, foreground);
             format!(" source ({reason})  Esc/Enter close ")
         }
-        Some(MermaidEntry::Failed(msg)) => {
+        Some(MermaidEntry::Failed { msg, .. }) => {
             let msg = msg.clone();
             draw_text(f, content_rect, &source, h_scroll, v_scroll, foreground);
             format!(" render failed: {msg} \u{2014} Esc/Enter close ")

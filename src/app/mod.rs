@@ -171,7 +171,9 @@ pub fn collect_match_lines(
             DocBlock::Mermaid { id, source, .. } => {
                 let block_height = block.height();
                 let show_as_source = match mermaid_cache.get(*id) {
-                    None | Some(MermaidEntry::Failed(_) | MermaidEntry::SourceOnly(_)) => true,
+                    None | Some(MermaidEntry::Failed { .. } | MermaidEntry::SourceOnly { .. }) => {
+                        true
+                    }
                     // ASCII diagrams are rendered text, not searchable source.
                     Some(
                         MermaidEntry::Pending
@@ -850,7 +852,7 @@ impl App {
                 let entry = *entry;
                 // When image rendering failed, try the text-mode renderer
                 // as a secondary fallback.
-                let entry = if let MermaidEntry::Failed(ref msg) = entry {
+                let entry = if let MermaidEntry::Failed { ref msg, .. } = entry {
                     if let Some(source) = self.find_mermaid_source(id) {
                         // Use the stored layout_width as the column budget so
                         // the fallback diagram fits the current pane width.
@@ -866,6 +868,7 @@ impl App {
                             Ok(diagram) => MermaidEntry::AsciiDiagram {
                                 diagram,
                                 reason: format!("image failed: {msg}"),
+                                styled_text_cache: std::cell::RefCell::new(None),
                             },
                             Err(_) => entry,
                         }

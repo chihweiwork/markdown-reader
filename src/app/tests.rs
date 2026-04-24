@@ -86,7 +86,10 @@ fn source_only_cache(id: u64) -> MermaidCache {
     let mut cache = MermaidCache::new();
     cache.insert(
         MermaidBlockId(id),
-        MermaidEntry::SourceOnly("test".to_string()),
+        MermaidEntry::SourceOnly {
+            reason: "test".to_string(),
+            styled_text_cache: std::cell::RefCell::new(None),
+        },
     );
     cache
 }
@@ -99,7 +102,10 @@ fn ready_cache(id: u64) -> MermaidCache {
     let mut cache = MermaidCache::new();
     cache.insert(
         MermaidBlockId(id),
-        MermaidEntry::Failed("irrelevant".to_string()),
+        MermaidEntry::Failed {
+            msg: "irrelevant".to_string(),
+            styled_text_cache: std::cell::RefCell::new(None),
+        },
     );
     cache
 }
