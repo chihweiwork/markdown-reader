@@ -231,6 +231,27 @@ fn emit_wrapped_hard_line(
     max_width: usize,
     out: &mut Vec<WrappedLine>,
 ) {
+    // Short-circuit: if the whole line already fits, emit it verbatim
+    // (no whitespace splitting). Word-splitting collapses multi-space
+    // gaps to single spaces — fine for prose, wrong for pre-formatted
+    // ASCII art inside code blocks, where alignment between rows is
+    // load-bearing (e.g., box-drawing borders that must sit directly
+    // above/below their middle row's text).
+    let total_w: usize = chars.iter().map(|(_, w, _)| w).sum();
+    if total_w <= max_width {
+        if chars.is_empty() {
+            out.push(WrappedLine {
+                spans: vec![],
+                width: 0,
+            });
+        } else {
+            let pairs: Vec<(char, ratatui::style::Style)> =
+                chars.iter().map(|&(c, _, s)| (c, s)).collect();
+            out.push(pack_row(&pairs));
+        }
+        return;
+    }
+
     // Split into whitespace-separated words (slices of the input triple vec).
     let mut words: Vec<&[(char, usize, ratatui::style::Style)]> = Vec::new();
     let mut word_start: Option<usize> = None;
@@ -366,6 +387,24 @@ mod tests {
 
     fn bold() -> Style {
         Style::default().add_modifier(Modifier::BOLD)
+    }
+
+    /// Pre-formatted ASCII art (e.g. a code-block diagram) must keep its
+    /// inter-word whitespace exactly when the line fits — collapsing
+    /// multi-space gaps to single spaces would misalign the box-drawing
+    /// borders with the text row beneath them, making boxes look like
+    /// they have no top/bottom borders.
+    #[test]
+    fn wrap_spans_preserves_multispace_when_line_fits() {
+        let line = "┌───────┐      ┌──────┐      ┌────────┐";
+        let rows = wrap_spans(&[Span::raw(line)], 80);
+        assert_eq!(rows.len(), 1);
+        let s: String = rows[0]
+            .spans
+            .iter()
+            .map(|s| s.content.as_str())
+            .collect();
+        assert_eq!(s, line, "multi-space gaps must be preserved verbatim");
     }
 
     fn italic() -> Style {

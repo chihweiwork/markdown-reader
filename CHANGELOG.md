@@ -5,6 +5,28 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.4] - 2026-04-24
+
+### Fixed — code-block ASCII art alignment
+
+Pre-formatted multi-row text inside code blocks (e.g. the `┌──┐` /
+`│ Build │` / `└──┘` chart in the README) was rendering with
+top/bottom borders misaligned with the text row. Root cause: the
+text-wrapping pass split each line at whitespace and rejoined words
+with single spaces — fine for prose, wrong for ASCII art whose
+multi-space gaps between adjacent boxes are load-bearing for
+alignment. The middle row `│ Build │─────▸│ Test │─────▸│ Deploy │`
+has no internal whitespace so its widths were preserved, but the
+top row `┌───────┐      ┌──────┐      ┌────────┐` collapsed to
+`┌───────┐ ┌──────┐ ┌────────┐`, leaving the second/third boxes
+with their borders shifted left of their walls. Visual result: only
+the first box (Build) appeared to have a proper outline; subsequent
+boxes (Test, Deploy) looked like text-with-side-walls.
+
+Fix: short-circuit `emit_wrapped_hard_line` when the input fits in
+`max_width` — emit verbatim, no whitespace splitting. Word-splitting
+still runs when the line would actually overflow.
+
 ## [1.22.3] - 2026-04-24
 
 ### Fixed — mermaid-text 0.16.3 source-attach (final form)
