@@ -19,6 +19,7 @@ const INACTIVE_BULLET: &str = "○";
 /// * `state`   - Current cursor position and the path/name to copy.
 /// * `palette` - Active palette for border and accent colors.
 pub fn draw(f: &mut Frame, state: &CopyMenuState, palette: &Palette) {
+    // content-sized: 26 cols fits the longest menu item; 6 rows = border + 4 options + border
     let area = centered_rect(26, 6, f.area());
     f.render_widget(Clear, area);
 

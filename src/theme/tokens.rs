@@ -206,6 +206,10 @@ mod tests {
                 ));
             }
         }
-        assert!(failures.is_empty(), "focus state too low contrast:\n{}", failures.join("\n"));
+        assert!(
+            failures.is_empty(),
+            "focus state too low contrast:\n{}",
+            failures.join("\n")
+        );
     }
 }

@@ -94,11 +94,7 @@ impl ColorOps for Color {
             return self;
         };
         let f = factor.clamp(0.0, 1.0);
-        Color::Rgb(
-            blend(r, 0, f),
-            blend(g, 0, f),
-            blend(b, 0, f),
-        )
+        Color::Rgb(blend(r, 0, f), blend(g, 0, f), blend(b, 0, f))
     }
 
     fn lighten(self, factor: f64) -> Self {
@@ -155,7 +151,11 @@ mod tests {
     fn lighten_endpoints_and_identity() {
         let c = Color::Rgb(100, 150, 200);
         assert_eq!(c.lighten(0.0), c, "factor=0 is identity");
-        assert_eq!(c.lighten(1.0), Color::Rgb(255, 255, 255), "factor=1 is white");
+        assert_eq!(
+            c.lighten(1.0),
+            Color::Rgb(255, 255, 255),
+            "factor=1 is white"
+        );
         assert_eq!(Color::Yellow.lighten(0.5), Color::Yellow);
     }
 
@@ -166,7 +166,9 @@ mod tests {
     fn darken_50_percent_is_midway() {
         let c = Color::Rgb(200, 100, 50);
         let d = c.darken(0.5);
-        let Color::Rgb(r, g, b) = d else { panic!("expected RGB") };
+        let Color::Rgb(r, g, b) = d else {
+            panic!("expected RGB")
+        };
         assert!((i16::from(r) - 100).abs() <= 1, "r={r}");
         assert!((i16::from(g) - 50).abs() <= 1, "g={g}");
         assert!((i16::from(b) - 25).abs() <= 1, "b={b}");
@@ -177,9 +179,15 @@ mod tests {
         assert!(Color::Rgb(255, 255, 255).is_light(), "white is light");
         assert!(!Color::Rgb(0, 0, 0).is_light(), "black is dark");
         // Solarized base3 — the "lightest" surface.
-        assert!(Color::Rgb(253, 246, 227).is_light(), "solarized base3 is light");
+        assert!(
+            Color::Rgb(253, 246, 227).is_light(),
+            "solarized base3 is light"
+        );
         // Solarized base03 — the "darkest" surface.
-        assert!(!Color::Rgb(0, 43, 54).is_light(), "solarized base03 is dark");
+        assert!(
+            !Color::Rgb(0, 43, 54).is_light(),
+            "solarized base03 is dark"
+        );
         // Non-RGB returns false (caller treats as dark).
         assert!(!Color::Cyan.is_light());
     }

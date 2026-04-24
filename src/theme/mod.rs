@@ -335,9 +335,7 @@ mod tests {
                 if let Some(ratio) = contrast_ratio(*fg, *bg)
                     && ratio < AA_NORMAL
                 {
-                    failures.push(format!(
-                        "  {theme:?} {name}: {ratio:.2}:1 < {AA_NORMAL}:1",
-                    ));
+                    failures.push(format!("  {theme:?} {name}: {ratio:.2}:1 < {AA_NORMAL}:1",));
                 }
             }
         }

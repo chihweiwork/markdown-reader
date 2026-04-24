@@ -5,6 +5,31 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.1] - 2026-04-24
+
+### Internal — spacing migration audit (Ship 2 follow-up A)
+
+Audited every remaining `Constraint::Length(N)` site in `src/ui/`
+against the `theme::Spacing` scale to confirm whether more
+literal-N → `Spacing::*` migrations were possible. Result: **none.**
+Every remaining literal is a runtime variable (centered-popup
+heights/widths sized to fit content, tab-bar heights of 0/1
+depending on tab presence, gutter widths scaling with line-count).
+The five sites migrated in 1.24.0 were the complete scale-relevant
+set.
+
+Three content-policy sites (`help.rs`, `copy_menu.rs`,
+`config_popup.rs`) gained a brief `// content-sized: …` comment
+documenting *why* the literal is correct as a literal, so a future
+contributor doesn't try to migrate them by mistake. Plus a
+`cargo fmt` pass that fixed pre-existing style violations
+introduced during Ship 2.
+
+Confirmed observation worth following up: the `centered_rect` /
+`centered_pct` / `percent_rect` helpers are duplicated across 8
+files with the same shape. ROADMAP already tracks this as a
+`theme::layout::centered_rect` consolidation.
+
 ## [1.24.0] - 2026-04-24
 
 ### Added — design tokens, ColorOps, Spacing scale (Ship 2)

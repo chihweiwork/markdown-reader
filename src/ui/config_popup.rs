@@ -40,7 +40,8 @@ const INACTIVE_BULLET: &str = "○";
 /// * `f`      - Ratatui frame to render into.
 /// * `params` - All display parameters (theme, flags, palette, etc.).
 pub fn render_config_popup(f: &mut Frame, params: &ConfigPopupParams<'_>) {
-    // 27 rows: original 22 + 1 blank + 1 "Mermaid" section header + 3 mode options
+    // content-sized: 46 cols fits the longest config label; 27 rows = original 22 + 1 blank
+    //   + 1 "Mermaid" section header + 3 mode options
     let area = centered_rect(46, 27, f.area());
     f.render_widget(Clear, area);
 

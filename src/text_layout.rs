@@ -399,11 +399,7 @@ mod tests {
         let line = "┌───────┐      ┌──────┐      ┌────────┐";
         let rows = wrap_spans(&[Span::raw(line)], 80);
         assert_eq!(rows.len(), 1);
-        let s: String = rows[0]
-            .spans
-            .iter()
-            .map(|s| s.content.as_str())
-            .collect();
+        let s: String = rows[0].spans.iter().map(|s| s.content.as_str()).collect();
         assert_eq!(s, line, "multi-space gaps must be preserved verbatim");
     }
 

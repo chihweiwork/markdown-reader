@@ -119,7 +119,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     ];
 
     let height = crate::cast::u16_sat(lines.len()) + 2;
-    let width = 54;
+    let width = 54; // content-sized: fits the longest shortcut line + 2-char indent
 
     let area = centered_rect(width, height, f.area());
 
