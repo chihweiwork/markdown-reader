@@ -19,6 +19,60 @@ _Nothing actively in progress._
 
 ## Next up (ordered roughly by ROI)
 
+### Design-token pass + theme contrast audit — `markdown-tui-explorer`
+
+Today's `Palette` is a flat struct of named colour slots resolved
+per theme. It works, but two real defects surfaced in the
+2026-04-24 solarized_light testing session that a token system
+would prevent:
+
+- **No invariants across themes.** `solarized_light` ships
+  `selection_bg == code_bg` (`Rgb(238, 232, 213)`) — cursor
+  highlight is literally invisible inside code blocks. Each
+  theme is hand-tuned with no compile-time guard.
+- **Borderline contrast.** `code_fg` on `code_bg` measures
+  ~3.5:1 in solarized_light — fails WCAG AA for normal text and
+  makes thin `─` strokes hard to see (the symptom that triggered
+  this whole conversation).
+- **Magic spacing.** `Layout::Length(3)` / `Constraint::Length(1)`
+  values are scattered throughout `src/ui/`. A theme couldn't
+  change padding density even if it wanted to.
+
+**Scope (combined audit + design-token pass):**
+
+1. **Audit all themes** for: contrast ratio (`code_fg` vs
+   `code_bg`, `foreground` vs `background`, etc.) using the
+   WCAG formula; "selection invisible" (selection_bg ≈ code_bg
+   or background); link visibility; etc. One unit test per
+   invariant, parameterised over all 8 themes — failures
+   block CI.
+2. **Introduce semantic tokens** alongside the existing flat
+   palette (don't break it). Examples:
+   - `surface.base`, `surface.raised` (currently `background`,
+     `code_bg`)
+   - `text.primary`, `text.muted`, `text.code` (currently
+     `foreground`, `dim`, `code_fg`)
+   - `state.selection`, `state.focus`, `state.error` (currently
+     `selection_bg`, `border_focused`, etc.)
+3. **Derive interaction colours** from base colours where
+   possible (`state.selection = surface.base.darken(10%)` for
+   light themes, `.lighten(10%)` for dark) so a theme can't
+   ship a same-as-bg selection by accident.
+4. **Add a spacing scale** (`Spacing::xs/sm/md/lg/xl` →
+   `1/2/3/5/8` cells) and replace the magic numbers in
+   `src/ui/`.
+
+**Why combined:** the audit alone would land hand-fixes per
+theme that a future contributor could re-break. The token
+system without an audit would refactor working code with no
+visible win. Together: audit finds the bugs, tokens prevent
+recurrence, contrast tests catch new themes regressing.
+
+**Estimated effort:** 1 day for audit + immediate fixes; +1 day
+for token introduction + spacing scale + invariant tests.
+Two ships: contrast fixes first (visible win, no API change),
+token system second (refactor, behaviour-preserving).
+
 ### Pie chart slice colours
 
 `pie` charts ship monochrome in 0.9.4. Wiring the existing 24-bit
