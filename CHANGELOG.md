@@ -5,6 +5,82 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] - 2026-04-24
+
+### Added — design tokens, ColorOps, Spacing scale (Ship 2)
+
+Refactor of the theme system to introduce a semantic-token layer.
+Behavior-preserving — every existing caller continues to read
+`palette.foreground` etc. unchanged.
+
+**`theme::Tokens`** is the new source of truth for each theme. Tokens
+are nested into per-purpose sub-structs (`Surface`, `Text`, `State`,
+`Accent`, `Syntax`, `Heading`, `Status`, `List`, `Table`, `Git`) so
+`tokens.state.selection_bg` reads as "selection state, background"
+rather than "row 8 of a 33-field flat struct". Each theme is now a
+small `fn` in `theme::themes` listing its base hues + assignments.
+
+**`theme::Palette`** is now auto-generated from `Tokens` via
+`From<Tokens>`. The existing 33-field flat shape stays — every caller
+already on `palette.<field>` continues to compile and behave
+identically. The `From` impl is the migration boundary: forgetting a
+field there fails to compile, so no Palette slot can ever be silently
+uninitialised.
+
+**`theme::ColorOps`** trait adds `lighten`/`darken`/`is_light` for
+linear-RGB blending toward white/black. Hand-rolled in <30 lines (no
+`palette` crate dep). Today's themes don't derive — every theme
+ships a designer-chosen palette. Available for future themes,
+user-customizable themes, or per-theme tweaks where derivation is
+cleaner than a literal.
+
+**`theme::Spacing`** enum (`Xs` `Sm` `Md` `Lg` `Xl` → `1 2 3 5 8`
+cells, Fibonacci-ish jump set) with `From<Spacing> for Constraint`.
+Five sites migrated as proof-of-use: outer status bar (`mod.rs`),
+editor footer (`editor.rs`), search modal query/footer
+(`search_modal.rs`). Remaining ~15 sites deferred to a follow-up.
+
+### Added — new invariant tests
+
+Two new theme-invariant tests run over all 8 themes:
+
+- **`selection_bg_is_distinct_from_surfaces`** — derived selection
+  background must be at least 3 luminance units (scaled 0-100) away
+  from `surface.base` and `surface.raised`. Catches the original
+  Solarized Light bug *automatically*: even if a future contributor
+  hard-codes `selection_bg = surface.raised`, the test fires before
+  the change ships.
+- **`focus_is_visible_against_surface`** — focus ring colour must
+  meet WCAG SC 1.4.11 (3:1 vs `surface.base`) — relaxed from text
+  AA because focus is a decoration line, not text.
+
+Plus 5 ColorOps unit tests (round-trip, identity at f=0, endpoints
+at f=1, named-color passthrough, 50% midpoint) and 2 Spacing tests
+(monotonic, `Into<Constraint>` correctness).
+
+### Changed — Nord theme palette label/slot fixes
+
+The Polar Night gradient labels were swapped from canonical (carryover
+from 1.23.0): what was called "nord1" was actually canonical nord2,
+"nord3" was canonical nord1, etc. Fixed labels to match
+[Nord's official palette](https://www.nordtheme.com/docs/colors-and-palettes).
+Selection background lifted from nord2 → nord3 (the most-elevated
+Polar Night tier) to clear the new `selection_bg distinct from
+surfaces` invariant — adjacent tiers measured Δ=1.7, perceptually
+too close.
+
+### Internal — file layout
+
+`src/theme.rs` (~700 lines) split into a `src/theme/` directory:
+`mod.rs` (Palette + Theme + From<Tokens>), `tokens.rs` (token types
++ derivation invariants), `themes.rs` (per-theme constructors),
+`contrast.rs` (WCAG + ColorOps), `spacing.rs`. The split was
+optional but justified — `themes.rs` is the file a contributor
+visits when adding a new theme; it should not be buried inside the
+type-definition file.
+
+842 tests pass, clippy + fmt clean.
+
 ## [1.23.0] - 2026-04-24
 
 ### Added — theme contrast / palette-invariant audit (Ship 1)

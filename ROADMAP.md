@@ -19,59 +19,38 @@ _Nothing actively in progress._
 
 ## Next up (ordered roughly by ROI)
 
-### Design-token pass + theme contrast audit — `markdown-tui-explorer`
+### Per-call-site spacing migration — `markdown-tui-explorer`
 
-Today's `Palette` is a flat struct of named colour slots resolved
-per theme. It works, but two real defects surfaced in the
-2026-04-24 solarized_light testing session that a token system
-would prevent:
+Ship 2 (1.24.0) introduced `theme::Spacing` and migrated five
+single-row strip sites (status bar, editor footer, search modal
+query/footer). About 15 more `Constraint::Length(N)` sites
+remain across `src/ui/` — modal centering helpers, popup heights,
+config UI rows. Mechanical migration, can be one PR per file or
+one sweep. Ordering candidates from highest to lowest payoff:
 
-- **No invariants across themes.** `solarized_light` ships
-  `selection_bg == code_bg` (`Rgb(238, 232, 213)`) — cursor
-  highlight is literally invisible inside code blocks. Each
-  theme is hand-tuned with no compile-time guard.
-- **Borderline contrast.** `code_fg` on `code_bg` measures
-  ~3.5:1 in solarized_light — fails WCAG AA for normal text and
-  makes thin `─` strokes hard to see (the symptom that triggered
-  this whole conversation).
-- **Magic spacing.** `Layout::Length(3)` / `Constraint::Length(1)`
-  values are scattered throughout `src/ui/`. A theme couldn't
-  change padding density even if it wanted to.
+- `centered_rect`-style helpers in `help.rs`, `tab_picker.rs`,
+  `link_picker.rs`, `config_popup.rs`, `copy_menu.rs`,
+  `mermaid_modal.rs`, `table_modal.rs` — 7 files, same shape.
+  Could fold into a shared `theme::layout::centered_rect`
+  helper. Some `Length(N)` values here are content-policy
+  (popup widths) rather than spacing — leave those alone.
+- `gutter.rs` width constants.
+- `tabs.rs` height constants.
 
-**Scope (combined audit + design-token pass):**
+### Caller migration off `Palette` to `Tokens` — `markdown-tui-explorer`
 
-1. **Audit all themes** for: contrast ratio (`code_fg` vs
-   `code_bg`, `foreground` vs `background`, etc.) using the
-   WCAG formula; "selection invisible" (selection_bg ≈ code_bg
-   or background); link visibility; etc. One unit test per
-   invariant, parameterised over all 8 themes — failures
-   block CI.
-2. **Introduce semantic tokens** alongside the existing flat
-   palette (don't break it). Examples:
-   - `surface.base`, `surface.raised` (currently `background`,
-     `code_bg`)
-   - `text.primary`, `text.muted`, `text.code` (currently
-     `foreground`, `dim`, `code_fg`)
-   - `state.selection`, `state.focus`, `state.error` (currently
-     `selection_bg`, `border_focused`, etc.)
-3. **Derive interaction colours** from base colours where
-   possible (`state.selection = surface.base.darken(10%)` for
-   light themes, `.lighten(10%)` for dark) so a theme can't
-   ship a same-as-bg selection by accident.
-4. **Add a spacing scale** (`Spacing::xs/sm/md/lg/xl` →
-   `1/2/3/5/8` cells) and replace the magic numbers in
-   `src/ui/`.
+Ship 2 kept every existing caller on `palette.<field>` for
+backward compat. Future migration can swap `palette.foreground`
+→ `tokens.text.primary` site-by-site, with `App` carrying both
+during the transition (or `Palette` becoming a thin `&Tokens`
+view). Pure rename, no behavior change. Highest-payoff first
+clusters:
 
-**Why combined:** the audit alone would land hand-fixes per
-theme that a future contributor could re-break. The token
-system without an audit would refactor working code with no
-visible win. Together: audit finds the bugs, tokens prevent
-recurrence, contrast tests catch new themes regressing.
-
-**Estimated effort:** 1 day for audit + immediate fixes; +1 day
-for token introduction + spacing scale + invariant tests.
-Two ships: contrast fixes first (visible win, no API change),
-token system second (refactor, behaviour-preserving).
+- `markdown::renderer::render_code_block` (15 field reads — one
+  function, big visibility win).
+- `ui::markdown_view::*` (search modal, mermaid draw, gutter,
+  highlight, draw — all read `palette.code_*` and
+  `palette.selection_*`).
 
 ### Pie chart slice colours
 

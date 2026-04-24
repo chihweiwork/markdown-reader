@@ -13,7 +13,7 @@ use ratatui::{
 };
 
 use crate::app::App;
-use crate::theme::Palette;
+use crate::theme::{Palette, Spacing};
 
 // ── TabEditor ────────────────────────────────────────────────────────────────
 
@@ -164,7 +164,7 @@ pub fn draw(f: &mut Frame, app: &mut App, viewer_area: Rect) {
     // Split the area into editor body + 1-line footer.
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([Constraint::Min(1), Spacing::Xs.into()])
         .split(viewer_area);
 
     let editor_area = chunks[0];

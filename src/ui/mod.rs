@@ -18,6 +18,7 @@ pub mod tabs;
 
 use crate::app::{App, Focus};
 use crate::config::TreePosition;
+use crate::theme::Spacing;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
@@ -52,7 +53,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // the main content area and the status bar.
     let outer_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([Constraint::Min(1), Spacing::Xs.into()])
         .split(area);
 
     let has_tabs = !app.tabs.is_empty();

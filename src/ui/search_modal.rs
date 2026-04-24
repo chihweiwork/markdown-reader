@@ -9,6 +9,7 @@
 
 use crate::app::App;
 use crate::config::SearchPreview;
+use crate::theme::Spacing;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Flex, Layout, Rect},
@@ -260,11 +261,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // 1 row for the footer.
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(0),
-            Constraint::Length(1),
-        ])
+        .constraints([Spacing::Xs.into(), Constraint::Min(0), Spacing::Xs.into()])
         .split(inner);
 
     let query_area = chunks[0];
