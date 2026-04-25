@@ -5,6 +5,17 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.27.4] - 2026-04-24
+
+### Changed
+
+- Bumped `mermaid-text` dependency to `0.16.8`. The Sugiyama opt-in backend
+  (`--sugiyama`) now respects per-subgraph `direction` overrides, implementing
+  the Supervisor pattern (`graph LR; subgraph X; direction TB; ...`) correctly.
+  Previously the Sugiyama backend ignored direction overrides entirely; members
+  of an override subgraph now flow along the declared axis (e.g. top-down for
+  `direction TB` inside an LR graph). The default `Native` backend is unchanged.
+
 ## [1.27.3] - 2026-04-24
 
 ### Changed

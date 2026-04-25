@@ -3,6 +3,67 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.16.8 — 2026-04-24
+
+### Added — Sugiyama backend: direction overrides on nested subgraphs (sub-phase 3)
+
+The `LayoutBackend::Sugiyama` backend now respects per-subgraph `direction`
+overrides (`subgraph X; direction TB; ... end` inside `graph LR`), producing
+visually correct layouts for the Supervisor pattern and similar constructs.
+
+**How it works — two-step approach:**
+
+1. **Pre-pass (edge hiding):** Before handing the graph to ascii-dag, all
+   edges whose *both* endpoints are direct members of the same
+   orthogonal-override subgraph are hidden from ascii-dag's layer assignment.
+   This forces ascii-dag to place those members in one parent layer (no
+   intra-group ordering signal → all members land as layer-siblings).
+   The edges remain in `graph.edges` unchanged — the A\* router in `lib.rs`
+   re-routes them from the final node positions automatically without any
+   side-table mechanism.
+
+2. **Post-pass (axis transpose):** After position computation (steps 4–4.6),
+   the override subgraphs are walked DFS post-order (inner-first so nested
+   overrides compose correctly). For each orthogonal-override subgraph, its
+   direct members are topologically sorted using only intra-subgraph edges,
+   then re-assigned positions in that order along the override-direction axis,
+   anchored at the subgraph's current top-left. RL/BT overrides are mirrored
+   within the subgraph extent.
+
+**Recursive nesting:** iteration is DFS post-order. Each subgraph is evaluated
+against its *immediate* parent's effective direction, not the root. This makes
+alternating-direction nesting (e.g. LR → TB → LR) compose correctly at every
+depth level.
+
+**Parallel-edge widening interaction (v1 tradeoff):** `apply_parallel_edge_widening`
+(step 4.6) runs *before* the direction-override transpose (step 4.7). For
+parallel-edge groups where both endpoints are direct members of an
+orthogonal-override subgraph, widening is applied along the parent axis (the
+within-layer axis after the override transpose, not the override flow axis).
+In practice these groups get less breathing room than optimal. The correct fix
+— running widening after transposes with per-node effective-direction tracking
+— is deferred to sub-phase 6. Pure-override-subgraph parallel groups are rare,
+so this is an accepted v1 limitation.
+
+**What did NOT change:**
+- The **default backend remains `LayoutBackend::Native`** — all existing
+  snapshots and behavior are byte-identical.
+- `layered.rs` is untouched. The logic was ported independently.
+
+**Tests added (in `layout/sugiyama.rs`):**
+- `subgraph_direction_override_lr_in_tb` — outer TB, inner LR; asserts col
+  increases A→B→C and all share the same row.
+- `subgraph_direction_override_tb_in_lr_supervisor_pattern` — outer LR, inner
+  TB; asserts row increases A→B→C and all share the same column.
+- `subgraph_direction_override_same_axis_is_noop` — outer LR, inner RL (same
+  axis); no transpose applied, A stays left of B.
+- `subgraph_direction_override_nested_recursive` — outer LR, mid TB, inner LR;
+  asserts inner-LR positions are correct relative to mid-TB effective parent.
+- `perpendicular_subgraph_direction_sugiyama` — snapshot of the classic
+  `X→Y→Z` TD-in-LR case; side-by-side with the Native baseline.
+- `supervisor_bidirectional_in_subgraph_sugiyama` — snapshot of the full
+  Supervisor pattern; asserts label-border-overwrite regression guard holds.
+
 ## 0.16.7 — 2026-04-24
 
 ### Added — Sugiyama backend: parallel-edge widening passthrough (sub-phase 2)

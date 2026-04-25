@@ -34,19 +34,303 @@
 //!   Phase 2). Mirrors `layered::label_gap`'s `parallel_extra`
 //!   term so both backends produce equivalent spacing.
 //!
+//! - **Direction overrides on nested subgraphs** — `subgraph X; direction TB`
+//!   inside `graph LR` (the Supervisor pattern). Sub-phase 3 of Sugiyama
+//!   Phase 2. Two-step approach:
+//!   1. **Pre-pass**: intra-orthogonal-set edges are hidden from ascii-dag
+//!      so it collapses the override-subgraph members into one parent layer.
+//!   2. **Post-pass**: walk override subgraphs DFS post-order, reassigning
+//!      member positions in topological order along the override axis.
+//!
 //! ## Gaps to fill in follow-ups
 //!
 //! - Edge styles (dashed/thick/etc.) — render-side concern, but
 //!   we should keep `edge_index` consistent for downstream lookup.
-//! - Direction overrides on nested subgraphs.
+//! - Parallel-edge widening for groups whose both endpoints are inside an
+//!   orthogonal-override subgraph applies along the parent axis (wrong for
+//!   the override). Accepted v1 limitation; see `apply_direction_overrides`
+//!   doc for the tradeoff note.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use ascii_dag::{Graph as AGraph, LayoutConfig as ALayoutConfig};
 use unicode_width::UnicodeWidthStr;
 
 use crate::layout::layered::{LayoutConfig, LayoutResult, node_box_height, node_box_width};
-use crate::types::{Direction, Graph};
+use crate::types::{Direction, Graph, Subgraph};
+
+// ---------------------------------------------------------------------------
+// Direction-override helpers (sub-phase 3)
+// ---------------------------------------------------------------------------
+
+/// Collect the set of node-ID pairs that are both members of the same
+/// orthogonal-override subgraph and connected by an intra-subgraph edge.
+///
+/// We drop these edges before handing to ascii-dag so it places all members
+/// of the override subgraph in a single parent layer — no intra-group ordering
+/// signal means ascii-dag treats them as siblings in the same level band.
+/// The edges themselves live in `graph.edges` and are never removed; the A*
+/// router in `lib.rs` re-routes them from the final node positions automatically.
+///
+/// Pairs are stored as `(min_id, max_id)` (canonical form) so a single
+/// `HashSet` lookup handles both edge directions.
+fn intra_orthogonal_edges(graph: &Graph) -> HashSet<(String, String)> {
+    let mut result = HashSet::new();
+    for sg in &graph.subgraphs {
+        collect_intra_edges(sg, graph, graph.direction, &mut result);
+    }
+    result
+}
+
+/// Recursive helper for [`intra_orthogonal_edges`]: walk `sg` and its
+/// descendants, collecting edge pairs for any subgraph whose direction is
+/// orthogonal to `parent_dir` (the effective direction of the enclosing context).
+fn collect_intra_edges(
+    sg: &Subgraph,
+    graph: &Graph,
+    parent_dir: Direction,
+    out: &mut HashSet<(String, String)>,
+) {
+    let effective_child_dir = sg.direction.unwrap_or(parent_dir);
+    // Recurse children with sg's effective direction as their parent context.
+    for child_id in &sg.subgraph_ids {
+        if let Some(child) = graph.find_subgraph(child_id) {
+            collect_intra_edges(child, graph, effective_child_dir, out);
+        }
+    }
+    let Some(sg_dir) = sg.direction else { return };
+    if sg_dir.is_horizontal() == parent_dir.is_horizontal() {
+        return; // same axis as effective parent — not orthogonal, no collapse needed
+    }
+
+    // All edges where both endpoints are direct node_ids of this subgraph.
+    let member_set: HashSet<&str> = sg.node_ids.iter().map(String::as_str).collect();
+    for edge in &graph.edges {
+        if member_set.contains(edge.from.as_str()) && member_set.contains(edge.to.as_str()) {
+            let (a, b) = if edge.from <= edge.to {
+                (edge.from.clone(), edge.to.clone())
+            } else {
+                (edge.to.clone(), edge.from.clone())
+            };
+            out.insert((a, b));
+        }
+    }
+}
+
+/// Re-assign positions for members of each direction-override subgraph in
+/// DFS post-order (inner subgraphs first, outer last), so every level of
+/// nesting receives correctly re-ordered positions before the parent
+/// consumes them.
+///
+/// **Why post-order?** An inner override transposes its members relative to
+/// the inner anchor.  If the outer override were processed first, it would
+/// anchor on stale (pre-inner-transpose) row values and produce wrong offsets.
+///
+/// **Parallel-edge widening interaction (v1 tradeoff):** `apply_parallel_edge_widening`
+/// runs before this pass (step 4.6) and operates along the parent graph's flow axis.
+/// For parallel-edge groups where *both* endpoints are direct members of an
+/// orthogonal-override subgraph, the widening shifts along the parent axis —
+/// which is the *within-layer* axis after the override transpose, not the new
+/// flow axis.  In practice this means those groups may not get full breathing
+/// room after the transpose.  The safe fix is to run widening *after* transposes
+/// (so it sees the per-subgraph effective direction), but that requires per-node
+/// effective-direction tracking which is sub-phase 6 work.  Accepted limitation
+/// for v1; pure-override-subgraph parallel groups are rare.
+fn apply_direction_overrides(
+    positions: &mut HashMap<String, (usize, usize)>,
+    graph: &Graph,
+    config: &LayoutConfig,
+) {
+    if graph.subgraphs.is_empty() {
+        return;
+    }
+    // We need a collected list for the recursive helper — borrow checker doesn't
+    // allow passing `&graph.subgraphs` alongside `&mut positions` through a
+    // shared reference, but we only need the IDs/direction fields, so clone them.
+    let sgs: Vec<Subgraph> = graph.subgraphs.clone();
+    apply_overrides_recursive(positions, graph, &sgs, graph.direction, config);
+}
+
+/// Recurse DFS post-order over `sgs`, applying transposes from inner to outer.
+///
+/// `parent_dir` is the effective flow direction of the *parent* context —
+/// initially the top-level `graph.direction`, updated to `sg_dir` as we
+/// recurse into each override subgraph.  This lets alternating-direction
+/// nesting (e.g. LR → TB → LR) compose correctly at each level: each
+/// subgraph is evaluated against its *immediate* parent, not the root.
+fn apply_overrides_recursive(
+    positions: &mut HashMap<String, (usize, usize)>,
+    graph: &Graph,
+    sgs: &[Subgraph],
+    parent_dir: Direction,
+    config: &LayoutConfig,
+) {
+    for sg in sgs {
+        let Some(sg_dir) = sg.direction else {
+            // No override on this subgraph; recurse with same parent_dir.
+            let children: Vec<Subgraph> = sg
+                .subgraph_ids
+                .iter()
+                .filter_map(|id| graph.find_subgraph(id).cloned())
+                .collect();
+            apply_overrides_recursive(positions, graph, &children, parent_dir, config);
+            continue;
+        };
+
+        // Children first (post-order), passing sg_dir as their parent_dir so
+        // nested overrides are evaluated relative to this subgraph's direction.
+        let children: Vec<Subgraph> = sg
+            .subgraph_ids
+            .iter()
+            .filter_map(|id| graph.find_subgraph(id).cloned())
+            .collect();
+        apply_overrides_recursive(positions, graph, &children, sg_dir, config);
+
+        if sg_dir.is_horizontal() == parent_dir.is_horizontal() {
+            continue; // same axis as effective parent — no transpose needed
+        }
+        transpose_subgraph_positions(positions, graph, sg, sg_dir, config);
+    }
+}
+
+/// Transpose the positions of `sg`'s direct members so they flow along
+/// `sg_dir` rather than the parent graph's direction.
+///
+/// **Mechanism:** after ascii-dag layout (+ global transpose for LR/RL),
+/// all direct members of an orthogonal-override subgraph share the same
+/// flow-axis coordinate (they were placed in one layer because we dropped
+/// their intra edges).  We recompute their positions as a mini-layout along
+/// the *override* axis, anchored at the subgraph's current top-left:
+///
+/// - Topological-sort the members using only intra-subgraph edges.
+/// - Assign positions in topo order: step along the override flow axis by
+///   `node_box_{width,height} + config.node_gap`, keeping the perpendicular
+///   axis at the anchor.
+/// - Mirror if `sg_dir` is RL or BT.
+fn transpose_subgraph_positions(
+    positions: &mut HashMap<String, (usize, usize)>,
+    graph: &Graph,
+    sg: &Subgraph,
+    sg_dir: Direction,
+    config: &LayoutConfig,
+) {
+    let members: Vec<&str> = sg
+        .node_ids
+        .iter()
+        .filter(|id| positions.contains_key(*id))
+        .map(String::as_str)
+        .collect();
+    if members.is_empty() {
+        return;
+    }
+
+    // Anchor = top-left of current bounding box.
+    let anchor_col = members.iter().map(|id| positions[*id].0).min().unwrap();
+    let anchor_row = members.iter().map(|id| positions[*id].1).min().unwrap();
+
+    // Topological sort of subgraph members via Kahn's algorithm.
+    let topo = topo_sort_members(&members, graph);
+
+    // Re-assign positions in topo order along the override-direction axis.
+    // `sg_dir` is the override: TB/BT → col stays at anchor, row increases;
+    //                            LR/RL → row stays at anchor, col increases.
+    let override_is_horizontal = sg_dir.is_horizontal();
+    let mut flow_offset = 0usize;
+    let mut new_positions: HashMap<String, (usize, usize)> = HashMap::with_capacity(topo.len());
+    for id in &topo {
+        let (col, row) = if override_is_horizontal {
+            // Override is LR/RL: advance along the col axis.
+            (anchor_col + flow_offset, anchor_row)
+        } else {
+            // Override is TB/BT: advance along the row axis.
+            (anchor_col, anchor_row + flow_offset)
+        };
+        new_positions.insert((*id).to_owned(), (col, row));
+        // Step = node size along the override flow axis + gap.
+        let step = if override_is_horizontal {
+            node_box_width(graph, id) + config.node_gap
+        } else {
+            node_box_height(graph, id) + config.node_gap
+        };
+        flow_offset += step;
+    }
+
+    // Mirror for RL or BT within the subgraph's new extent.
+    if override_is_horizontal {
+        let max_col = new_positions
+            .values()
+            .map(|(c, _)| *c)
+            .max()
+            .unwrap_or(anchor_col);
+        if matches!(sg_dir, Direction::RightToLeft) {
+            for (col, _) in new_positions.values_mut() {
+                *col = anchor_col + (max_col - *col);
+            }
+        }
+    } else {
+        let max_row = new_positions
+            .values()
+            .map(|(_, r)| *r)
+            .max()
+            .unwrap_or(anchor_row);
+        if matches!(sg_dir, Direction::BottomToTop) {
+            for (_, row) in new_positions.values_mut() {
+                *row = anchor_row + (max_row - *row);
+            }
+        }
+    }
+
+    // Write back.
+    for (id, pos) in new_positions {
+        positions.insert(id, pos);
+    }
+}
+
+/// Topological sort (Kahn's) of `members` using only intra-subgraph edges
+/// from `graph`. Returns all members in topological order; if a cycle is
+/// detected (shouldn't happen in valid Mermaid flowcharts), returns members
+/// in declaration order as a fallback.
+fn topo_sort_members(members: &[&str], graph: &Graph) -> Vec<String> {
+    let member_set: HashSet<&str> = members.iter().copied().collect();
+    let mut succ: HashMap<&str, Vec<&str>> = members.iter().map(|&m| (m, Vec::new())).collect();
+    let mut in_degree: HashMap<&str, usize> = members.iter().map(|&m| (m, 0usize)).collect();
+
+    for edge in &graph.edges {
+        let (f, t) = (edge.from.as_str(), edge.to.as_str());
+        if member_set.contains(f) && member_set.contains(t) && f != t {
+            succ.entry(f).or_default().push(t);
+            *in_degree.entry(t).or_default() += 1;
+        }
+    }
+
+    let mut queue: std::collections::VecDeque<&str> = members
+        .iter()
+        .filter(|&&m| in_degree.get(m).copied().unwrap_or(0) == 0)
+        .copied()
+        .collect();
+    let mut order: Vec<String> = Vec::with_capacity(members.len());
+    while let Some(node) = queue.pop_front() {
+        order.push(node.to_owned());
+        let succs: Vec<&str> = succ.get(node).cloned().unwrap_or_default();
+        for s in succs {
+            let d = in_degree.entry(s).or_default();
+            *d = d.saturating_sub(1);
+            if *d == 0 {
+                queue.push_back(s);
+            }
+        }
+    }
+    // Cycle fallback: return declaration order for any node not in the topo result.
+    if order.len() < members.len() {
+        let in_order: HashSet<String> = order.iter().cloned().collect();
+        for &m in members {
+            if !in_order.contains(m) {
+                order.push(m.to_owned());
+            }
+        }
+    }
+    order
+}
 
 /// Register every mermaid subgraph with `adag` using its native cluster API.
 ///
@@ -249,9 +533,11 @@ fn apply_parallel_edge_widening(
 ///   1. Building an `ascii_dag::Graph` with our shape-aware
 ///      `node_box_width` / `node_box_height` per node.
 ///   2. Calling `compute_layout()` to get the IR.
-///   3. For LR/RL, transposing each node's `(x, y)` to `(y, x)`
-///      and the same for edge waypoints.
-///   4. For RL/BT, mirroring the transposed axis.
+///   3. For LR/RL, transposing each node's `(x, y)` to `(y, x)`.
+///   4. Applying per-layer gap expansion (`layer_gap − 3` extra cells per
+///      level) and parallel-edge widening.
+///   5. Applying per-subgraph direction overrides (DFS post-order).
+///   6. For RL/BT, mirroring the transposed axis.
 ///
 /// The `LayoutConfig`'s `node_gap` / `layer_gap` are passed
 /// through ascii-dag's spacing controls so behaviour matches
@@ -302,7 +588,26 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
     // its own border rectangles from node positions via compute_subgraph_bounds,
     // which guarantees border drawing is identical regardless of backend.)
 
+    // Pre-pass: collect intra-orthogonal-set edge pairs so we can hide them
+    // from ascii-dag. Hiding them forces ascii-dag to place all members of
+    // an override subgraph into one parent layer (no ordering signal →
+    // all members end up as layer-siblings). The edges are NOT removed from
+    // `graph.edges` — the A* router in lib.rs re-routes them from the final
+    // node positions automatically.
+    let skip_edges = intra_orthogonal_edges(graph);
+
     for edge in &graph.edges {
+        // Skip intra-orthogonal edges — they would give ascii-dag a false
+        // ordering constraint that spreads override-subgraph members across
+        // multiple layers, preventing the post-pass transpose from working.
+        let canonical = if edge.from <= edge.to {
+            (edge.from.clone(), edge.to.clone())
+        } else {
+            (edge.to.clone(), edge.from.clone())
+        };
+        if skip_edges.contains(&canonical) {
+            continue;
+        }
         let (Some(&from), Some(&to)) = (id_to_usize.get(&edge.from), id_to_usize.get(&edge.to))
         else {
             continue;
@@ -386,9 +691,23 @@ pub fn sugiyama_layout(graph: &Graph, _config: &LayoutConfig) -> LayoutResult {
     //      produce equivalent spacing for semantically identical inputs.
     //      The pass is a no-op when no parallel groups exist (early return
     //      inside the helper).
+    //
+    //      NOTE: widening runs BEFORE direction-override transposes (step 4.7).
+    //      Parallel groups where both endpoints are inside an orthogonal-override
+    //      subgraph will be widened along the parent axis — which is the
+    //      within-layer axis after the override transpose, not the new flow
+    //      axis.  This is acceptable v1 behaviour; see module doc for rationale.
     apply_parallel_edge_widening(&mut positions, &id_to_level, graph);
-    // Recompute max_x / max_y after widening so step 5's mirror arithmetic
-    // uses the updated extents.
+
+    // 4.7. Apply per-subgraph direction overrides.  For each subgraph whose
+    //      `direction` is orthogonal to the parent's flow axis (e.g. `direction TB`
+    //      inside `graph LR`), re-assign its direct members' positions so they
+    //      flow along the override axis.  Inner subgraphs are processed before
+    //      outer ones (DFS post-order) so nested overrides compose correctly.
+    apply_direction_overrides(&mut positions, graph, _config);
+
+    // Recompute max_x / max_y after widening and overrides so step 5's
+    // mirror arithmetic uses the updated extents.
     for (col, row) in positions.values() {
         max_x = max_x.max(*col);
         max_y = max_y.max(*row);
@@ -866,5 +1185,242 @@ mod tests {
             g.parallel_edge_groups().is_empty(),
             "graph with no parallel edges should have empty groups"
         );
+    }
+
+    // ---- direction-override tests (sub-phase 3) ------------------------------
+
+    /// Outer TB, inner LR: subgraph members must be arranged left-to-right
+    /// (increasing col) while the parent flow stays top-down (rows increase).
+    #[test]
+    fn subgraph_direction_override_lr_in_tb() {
+        use crate::types::Subgraph;
+
+        // graph TD
+        //   subgraph SG
+        //     direction LR
+        //     A --> B --> C
+        //   end
+        let mut g = Graph::new(Direction::TopToBottom);
+        for id in ["A", "B", "C"] {
+            g.nodes.push(rect(id));
+        }
+        g.edges.push(Edge::new("A", "B", None));
+        g.edges.push(Edge::new("B", "C", None));
+
+        let mut sg = Subgraph::new("SG", "SG");
+        sg.direction = Some(Direction::LeftToRight);
+        sg.node_ids = vec!["A".into(), "B".into(), "C".into()];
+        g.subgraphs.push(sg);
+
+        let out = sugiyama_layout(&g, &LayoutConfig::default());
+
+        for id in ["A", "B", "C"] {
+            assert!(out.positions.contains_key(id), "{id} missing");
+        }
+        // LR override: col must increase A → B → C.
+        assert!(
+            out.positions["A"].0 < out.positions["B"].0,
+            "A must be left of B (LR override): {:?} {:?}",
+            out.positions["A"],
+            out.positions["B"]
+        );
+        assert!(
+            out.positions["B"].0 < out.positions["C"].0,
+            "B must be left of C (LR override): {:?} {:?}",
+            out.positions["B"],
+            out.positions["C"]
+        );
+        // All in the same row (no vertical spread within the override subgraph).
+        assert_eq!(
+            out.positions["A"].1, out.positions["B"].1,
+            "A and B should share the same row in LR override"
+        );
+    }
+
+    /// Supervisor reproducer: outer LR, inner TB.
+    /// A → B → C inside the subgraph must flow top-down (row increases).
+    #[test]
+    fn subgraph_direction_override_tb_in_lr_supervisor_pattern() {
+        let src =
+            "graph LR\n    subgraph X\n        direction TB\n        A-->B\n        B-->C\n    end";
+        let g = crate::parser::flowchart::parse(src).unwrap();
+        let out = sugiyama_layout(&g, &LayoutConfig::default());
+
+        for id in ["A", "B", "C"] {
+            assert!(out.positions.contains_key(id), "{id} missing");
+        }
+        // TB override: row must increase A → B → C.
+        assert!(
+            out.positions["A"].1 < out.positions["B"].1,
+            "A must be above B (TB override in LR): {:?} {:?}",
+            out.positions["A"],
+            out.positions["B"]
+        );
+        assert!(
+            out.positions["B"].1 < out.positions["C"].1,
+            "B must be above C (TB override in LR): {:?} {:?}",
+            out.positions["B"],
+            out.positions["C"]
+        );
+        // All in the same column band (shared col, flowing TB).
+        assert_eq!(
+            out.positions["A"].0, out.positions["B"].0,
+            "A and B should share the same column in TB-in-LR override"
+        );
+    }
+
+    /// Same-axis is a no-op: outer LR with `direction RL` subgraph.
+    /// Both are horizontal — no axis swap, positions should be determined
+    /// by ascii-dag's layer ordering (not transposed).
+    #[test]
+    fn subgraph_direction_override_same_axis_is_noop() {
+        use crate::types::Subgraph;
+
+        // graph LR
+        //   subgraph SG
+        //     direction RL   ← same axis as parent (both horizontal)
+        //     A --> B
+        //   end
+        let mut g = Graph::new(Direction::LeftToRight);
+        for id in ["A", "B"] {
+            g.nodes.push(rect(id));
+        }
+        g.edges.push(Edge::new("A", "B", None));
+
+        let mut sg = Subgraph::new("SG", "SG");
+        sg.direction = Some(Direction::RightToLeft);
+        sg.node_ids = vec!["A".into(), "B".into()];
+        g.subgraphs.push(sg);
+
+        let out = sugiyama_layout(&g, &LayoutConfig::default());
+
+        // Both nodes must be present.
+        assert!(out.positions.contains_key("A"), "A missing");
+        assert!(out.positions.contains_key("B"), "B missing");
+
+        // The same-axis override should NOT transpose: A→B in LR graph must
+        // keep A to the left of B (no axis flip applied).
+        assert!(
+            out.positions["A"].0 < out.positions["B"].0,
+            "same-axis RL override must not transpose: A should still be left of B"
+        );
+    }
+
+    /// Three-level nesting: outer LR → mid TB (orthogonal) → inner LR (orthogonal to mid).
+    ///
+    /// Each override level is evaluated relative to its immediate parent's
+    /// effective direction (not the root), so alternating directions compose
+    /// correctly at every depth.
+    #[test]
+    fn subgraph_direction_override_nested_recursive() {
+        use crate::types::Subgraph;
+
+        // graph LR
+        //   subgraph Mid [direction TB]
+        //     subgraph Inner [direction LR]
+        //       A --> B
+        //     end
+        //     C
+        //   end
+        //
+        // Expected:
+        //   - Inner (LR inside Mid's TB context): A left of B (col increases)
+        //   - Mid (TB inside root LR): C above Inner cluster (row increases)
+        let mut g = Graph::new(Direction::LeftToRight);
+        for id in ["A", "B", "C"] {
+            g.nodes.push(rect(id));
+        }
+        g.edges.push(Edge::new("A", "B", None));
+        g.edges.push(Edge::new("C", "A", None)); // C feeds into Inner
+
+        let mut inner = Subgraph::new("Inner", "Inner");
+        inner.direction = Some(Direction::LeftToRight);
+        inner.node_ids = vec!["A".into(), "B".into()];
+
+        let mut mid = Subgraph::new("Mid", "Mid");
+        mid.direction = Some(Direction::TopToBottom);
+        mid.node_ids = vec!["C".into()];
+        mid.subgraph_ids = vec!["Inner".into()];
+
+        g.subgraphs.push(mid);
+        g.subgraphs.push(inner);
+
+        let out = sugiyama_layout(&g, &LayoutConfig::default());
+
+        for id in ["A", "B", "C"] {
+            assert!(out.positions.contains_key(id), "{id} missing");
+        }
+        // Inner is LR inside Mid's TB: A must be left of B.
+        assert!(
+            out.positions["A"].0 < out.positions["B"].0,
+            "A must be left of B in LR-inside-TB override: {:?} {:?}",
+            out.positions["A"],
+            out.positions["B"]
+        );
+        // A and B share a row within the inner LR subgraph.
+        assert_eq!(
+            out.positions["A"].1, out.positions["B"].1,
+            "A and B must share a row within the inner LR subgraph"
+        );
+    }
+
+    /// Snapshot: `perpendicular_subgraph_direction` under Sugiyama backend.
+    ///
+    /// Side-by-side with the Native baseline in
+    /// `snapshots__perpendicular_subgraph_direction.snap` to let reviewers
+    /// verify that the TB-in-LR direction override works under Sugiyama.
+    #[test]
+    fn perpendicular_subgraph_direction_sugiyama() {
+        let src = r#"graph LR
+        subgraph Sub
+            direction TD
+            X-->Y-->Z
+        end
+        A-->Sub"#;
+        let out = crate::render_with_options(
+            src,
+            &crate::RenderOptions {
+                backend: crate::layout::LayoutBackend::Sugiyama,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for node in ["X", "Y", "Z"] {
+            assert!(out.contains(node), "node {node} missing:\n{out}");
+        }
+        insta::assert_snapshot!("perpendicular_subgraph_direction_sugiyama", out);
+    }
+
+    /// Snapshot: `supervisor_bidirectional_in_subgraph` under Sugiyama backend.
+    ///
+    /// The Supervisor pattern: outer LR, inner TB. Factory and Worker must
+    /// flow top-to-bottom within their cluster; labels must not overwrite
+    /// node border rows.
+    #[test]
+    fn supervisor_bidirectional_in_subgraph_sugiyama() {
+        let src = "graph LR
+    subgraph Supervisor
+        direction TB
+        F[Factory] -->|creates| W[Worker]
+        W -->|panics| F
+    end
+    W -->|beat| HB[Heartbeat]
+    HB --> WD[Watchdog]";
+        let out = crate::render_with_options(
+            src,
+            &crate::RenderOptions {
+                backend: crate::layout::LayoutBackend::Sugiyama,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for node in ["Factory", "Worker", "Heartbeat", "Watchdog"] {
+            assert!(out.contains(node), "node {node} missing:\n{out}");
+        }
+        assert!(
+            !out.contains("└───panics┘") && !out.contains("└─────creates─────┘"),
+            "labels overwrote node border rows under Sugiyama:\n{out}"
+        );
+        insta::assert_snapshot!("supervisor_bidirectional_in_subgraph_sugiyama", out);
     }
 }
