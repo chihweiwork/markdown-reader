@@ -370,12 +370,10 @@ graph LR
     Worker --> DB
 ```
 
-The default backend's longest-path layering collapses `Worker` into
-the same layer as `Cache`/`RabbitMQ`. Pass `--sugiyama` (or set
-`RenderOptions::backend = LayoutBackend::Sugiyama`) to opt into the
-[`ascii-dag`]-backed layout — proper crossing minimisation and
-long-edge dummy nodes give a cleaner four-layer result on this kind
-of dependency graph:
+Since 0.17.0, [`ascii-dag`]-backed Sugiyama layout is the default.
+It produces the correct four-layer result on this dependency graph —
+proper crossing minimisation and long-edge dummy nodes instead of
+the collapsed three-layer layout that the old backend produced:
 
 ```
             ╭───────╮
@@ -390,6 +388,9 @@ of dependency graph:
 └─────┘────▸│ RabbitMQ │────┘              ▸╰────────────╯
             ╰──────────╯
 ```
+
+To revert to the pre-0.17.0 in-house layered layout, set
+`backend: LayoutBackend::Native` in `RenderOptions`.
 
 [`ascii-dag`]: https://crates.io/crates/ascii-dag
 

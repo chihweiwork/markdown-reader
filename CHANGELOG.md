@@ -5,6 +5,20 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.28.0] - 2026-04-24
+
+### Changed
+
+- Bumped `mermaid-text` dependency to `0.17.0`. **The default layout backend
+  is now Sugiyama** — all flowchart, state diagram, and subgraph rendering uses
+  ascii-dag's crossing-minimisation and Brandes-Köpf coordinate assignment
+  automatically. The `--sugiyama` flag and
+  `RenderOptions { backend: LayoutBackend::Sugiyama, .. }` are now no-ops
+  (the default already selects Sugiyama). To revert to the pre-0.17.0 layered
+  layout, set `backend: LayoutBackend::Native` in library code.
+  See `crates/mermaid-text/CHANGELOG.md` for the full sub-phase 5 triage report
+  and migration guide.
+
 ## [1.27.4] - 2026-04-24
 
 ### Changed

@@ -301,18 +301,37 @@ with the long App→DB edge routed through dummy nodes — exactly
 what the diagnosis above prescribed. CLI: `--sugiyama`. Embedded:
 `RenderOptions { backend: Sugiyama, ..Default::default() }`.
 
-**Phase 2 (deferred):** flip the default once the wrapper grows:
-- Subgraph cluster support (so opt-in isn't required for diagrams
-  with `subgraph ... end` blocks).
-- Parallel-edge group passthrough (so #2/#4 work survives the
-  switch — today the wrapper would lose Phase 2a's widening).
-- Direction overrides on nested clusters (TB-inside-LR etc.).
-- Tunable spacing (ascii-dag uses hardcoded 3-cell separation
-  regardless of our `node_gap`/`layer_gap`; would inflate or
-  shrink ~all snapshots when flipped).
-- Snapshot triage of the 26 cases that change when sugiyama is
-  used unconditionally for non-subgraph graphs (most are likely
-  improvements; a few simple cases regress on spacing).
+**Phase 2 — sub-phases 1–5 SHIPPED in 0.14.0–0.17.0:**
+
+- **Sub-phase 1 (0.16.6):** Subgraph cluster support via ascii-dag's native
+  `add_subgraph` / `put_nodes` / `put_subgraphs` API.
+- **Sub-phase 2 (0.16.7):** Parallel-edge widening passthrough — mirrors the
+  `parallel_extra` term from the Native backend.
+- **Sub-phase 3 (0.16.8):** Direction overrides on nested subgraphs (TB-inside-LR
+  Supervisor pattern) via pre-pass edge-hiding + DFS post-order axis transpose.
+- **Sub-phase 4a (deferred — non-blocking):** Upstream ascii-dag 0.9.1 does not
+  honour `level_spacing` / `node_spacing` config fields (hardcoded +3). We apply
+  an `extra_per_layer` post-pass as a workaround. Will be revisited when ascii-dag
+  ships config support. ascii-dag stays at 0.9.1.
+- **Sub-phase 5 (0.17.0):** **Default flip** — `LayoutBackend::Sugiyama` is now
+  the default. 49 snapshots updated (44 Bucket A/B improvements or neutral
+  spacing changes, 1 known regression for long wrapped labels inside tight
+  subgraphs — tracked for sub-phase 6). `LayoutBackend::LayeredLegacy` added as
+  a `#[deprecated(since = "0.17.0")]` transition alias for `Native`; removed in
+  0.18.0.
+
+**Remaining Phase 2 work:**
+
+- **Sub-phase 4b:** When upstream ascii-dag adds proper `level_spacing` /
+  `node_spacing` support, remove our `extra_per_layer` post-pass and let
+  ascii-dag control spacing directly. No user-visible API change expected.
+- **Sub-phase 6:** Per-edge effective-direction tracking for parallel-edge
+  widening inside orthogonal-override subgraphs; also fixes long edge-label
+  placement when A→B runs through a tight subgraph (the `wrapped_edge_label`
+  regression from sub-phase 5). Requires per-node effective-direction tracking
+  that is non-trivial to thread through the current pipeline.
+  Also: drop `LayoutBackend::LayeredLegacy` (deprecated in 0.17.0, remove in
+  0.18.0).
 
 [`ascii-dag`]: https://crates.io/crates/ascii-dag
 

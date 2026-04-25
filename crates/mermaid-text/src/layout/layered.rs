@@ -77,34 +77,56 @@ impl Default for LayoutConfig {
 
 /// Selects which layered-layout backend computes node positions.
 ///
-/// - [`Native`](LayoutBackend::Native) — the in-house Sugiyama-inspired
-///   layered layout. Stable defaults; respects every feature we ship
-///   (subgraphs, parallel-edge widening, direction overrides, edge
-///   styles). The current default — every existing snapshot tracks
-///   this output.
+/// **Default since 0.17.0: [`Sugiyama`](LayoutBackend::Sugiyama).**
 ///
-/// - [`Sugiyama`](LayoutBackend::Sugiyama) — opt-in adapter around the
-///   `ascii-dag` crate. Produces noticeably better layouts for
-///   acyclic flowcharts with long-spanning edges (e.g. App→DB
-///   skipping the `Cache`/`Worker` layers in the README architecture
-///   example #4 — clean 4-level layout with dummy nodes routing the
-///   long edge instead of zig-zags). Coverage gaps today: subgraphs,
-///   parallel-edge groups, direction overrides on nested clusters,
-///   tunable spacing (ascii-dag uses hardcoded 3-cell separation).
-///   Use it for flat dependency graphs; stay on `Native` for
-///   subgraph-heavy diagrams.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// - [`Sugiyama`](LayoutBackend::Sugiyama) — `ascii-dag`-backed layout with
+///   proper crossing minimisation, long-edge dummy node insertion, and
+///   Brandes-Köpf coordinate assignment. Produces cleaner results on
+///   acyclic flowcharts, dependency graphs, and state diagrams. Supports
+///   subgraphs, parallel-edge widening, and per-subgraph `direction`
+///   overrides. This is the default as of 0.17.0.
+///
+/// - [`Native`](LayoutBackend::Native) — the in-house layered layout.
+///   Stable, fast, and respects every feature we ship. Available as an
+///   explicit opt-out if you need the legacy spacing contract.
+///
+/// - [`LayeredLegacy`](LayoutBackend::LayeredLegacy) — deprecated alias for
+///   [`Native`](LayoutBackend::Native). Provided as a discoverable escape
+///   hatch for callers who relied on the old default behaviour. Will be
+///   removed in **0.18.0**.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutBackend {
-    /// Native layered layout (default).
-    #[default]
-    Native,
-    /// `ascii-dag`-backed Sugiyama layout (opt-in).
+    /// `ascii-dag`-backed Sugiyama layout — proper crossing minimisation,
+    /// dummy node insertion, and Brandes-Köpf coordinate assignment.
+    /// **This is the default since 0.17.0.**
     Sugiyama,
+    /// Native in-house layered layout.
+    Native,
+    /// Deprecated alias for [`Native`]. Will be removed in 0.18.0.
+    ///
+    /// If you depended on the pre-0.17.0 default (the in-house layered
+    /// layout), replace this with [`LayoutBackend::Native`]. If you are
+    /// simply omitting `backend` from your `RenderOptions`, the new
+    /// default (`Sugiyama`) will be used automatically.
+    #[deprecated(
+        since = "0.17.0",
+        note = "LayeredLegacy is an alias for Native and will be removed in 0.18.0. \
+                Use LayoutBackend::Native to keep the old layered layout, or remove \
+                the explicit `backend` field to get the new Sugiyama default."
+    )]
+    LayeredLegacy,
+}
+
+impl Default for LayoutBackend {
+    /// Returns [`LayoutBackend::Sugiyama`] — the new default since 0.17.0.
+    fn default() -> Self {
+        Self::Sugiyama
+    }
 }
 
 impl LayoutConfig {
     /// Build a [`LayoutConfig`] with explicit `layer_gap`/`node_gap` and
-    /// the default backend ([`LayoutBackend::Native`]).
+    /// the default backend ([`LayoutBackend::Sugiyama`] since 0.17.0).
     ///
     /// Convenience for callers that just want to tune spacing:
     /// `LayoutConfig::with_gaps(4, 2)` is shorter than the struct
@@ -113,7 +135,10 @@ impl LayoutConfig {
         Self {
             layer_gap,
             node_gap,
-            backend: LayoutBackend::Native,
+            // NOTE: `Default::default()` is not usable in `const fn`, so we
+            // name the variant explicitly. Keep in sync with
+            // `LayoutBackend::default()` above.
+            backend: LayoutBackend::Sugiyama,
         }
     }
 }

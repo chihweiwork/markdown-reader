@@ -5,6 +5,10 @@
 //! pass `--ascii` to emit plain ASCII characters instead (useful on legacy
 //! terminals or in CI logs that strip non-ASCII bytes).
 //!
+//! The default layout backend is Sugiyama (`ascii-dag`-backed crossing
+//! minimisation) since 0.17.0. Pass `--native` to use the previous in-house
+//! layered layout. `--sugiyama` is retained as a no-op for backward compat.
+//!
 //! # Usage
 //!
 //! ```text
@@ -24,6 +28,9 @@
 //! # ANSI 24-bit color (honours `style` / `linkStyle` directives):
 //! mermaid-text --color diagram.mmd
 //! mermaid-text --color --ascii diagram.mmd      # composes with --ascii
+//!
+//! # Use the legacy in-house layered layout:
+//! mermaid-text --native diagram.mmd
 //! ```
 
 use std::io::Read;
@@ -35,7 +42,9 @@ fn main() {
     let mut max_width: Option<usize> = None;
     let mut ascii_mode = false;
     let mut color_mode = false;
-    let mut backend_mode = mermaid_text::layout::LayoutBackend::Native;
+    // Default is Sugiyama since 0.17.0. `--native` reverts to the in-house
+    // layered pipeline; `--sugiyama` is a no-op kept for backward compat.
+    let mut backend_mode = mermaid_text::layout::LayoutBackend::default();
     let mut path: Option<String> = None;
 
     while let Some(arg) = args.next() {
@@ -56,11 +65,15 @@ fn main() {
             "--color" | "-c" => {
                 color_mode = true;
             }
-            "--sugiyama" => {
-                backend_mode = mermaid_text::layout::LayoutBackend::Sugiyama;
+            // `--sugiyama` is a no-op since Sugiyama is the default. Kept for
+            // backward compat so existing scripts don't break.
+            "--sugiyama" => {}
+            // `--native` reverts to the pre-0.17.0 in-house layered layout.
+            "--native" => {
+                backend_mode = mermaid_text::layout::LayoutBackend::Native;
             }
             "--help" | "-h" => {
-                println!("Usage: mermaid-text [--width N] [--ascii] [--color] [--sugiyama] [FILE]");
+                println!("Usage: mermaid-text [--width N] [--ascii] [--color] [--native] [FILE]");
                 println!();
                 println!("Render a Mermaid graph/flowchart diagram as text.");
                 println!();
@@ -77,9 +90,8 @@ fn main() {
                 println!("  --color, -c Emit ANSI 24-bit color SGR sequences using the");
                 println!("              `style` / `linkStyle` directives in the source.");
                 println!("              Off by default; composes with --ascii.");
-                println!("  --sugiyama  Use the ascii-dag-backed Sugiyama layout. Better");
-                println!("              crossing minimisation on flat dependency graphs;");
-                println!("              gaps in subgraph and parallel-edge support today.");
+                println!("  --native    Use the pre-0.17.0 in-house layered layout instead of");
+                println!("              the default Sugiyama (ascii-dag) backend.");
                 println!("  --help      Print this help message");
                 process::exit(0);
             }

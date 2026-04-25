@@ -389,13 +389,16 @@ pub struct RenderOptions {
     /// `linkStyle` directives. Off by default so existing callers see no
     /// behaviour change.
     pub color: bool,
-    /// Choose the layered-layout backend. Defaults to
-    /// [`LayoutBackend::Native`] (the in-house layered layout that
-    /// supports every feature we ship). Set to
-    /// [`LayoutBackend::Sugiyama`] to opt into the `ascii-dag`-backed
-    /// Sugiyama layout for cleaner crossing-minimised output on
-    /// flat dependency graphs (see [`LayoutBackend`] docs for the
-    /// trade-offs and current coverage gaps).
+    /// Choose the layered-layout backend.
+    ///
+    /// Defaults to [`LayoutBackend::Sugiyama`] since 0.17.0 — the
+    /// `ascii-dag`-backed layout with proper crossing minimisation,
+    /// long-edge dummy nodes, and Brandes-Köpf coordinate assignment.
+    ///
+    /// Set to [`LayoutBackend::Native`] to use the in-house layered
+    /// layout explicitly (e.g. to keep byte-identical output with
+    /// pre-0.17.0 renders, or for edge-style features not yet fully
+    /// covered by the Sugiyama wrapper).
     pub backend: LayoutBackend,
     /// Optional explicit `(layer_gap, node_gap)` override for flowchart
     /// and state diagrams. When set, bypasses the
@@ -651,9 +654,16 @@ fn render_with_config_color(
     config: &LayoutConfig,
     with_color: bool,
 ) -> String {
+    #[allow(deprecated)] // LayeredLegacy is handled explicitly as an alias for Native.
     let layout::layered::LayoutResult { mut positions, .. } = match config.backend {
-        LayoutBackend::Native => layout::layered::layout(graph, config),
         LayoutBackend::Sugiyama => layout::sugiyama::sugiyama_layout(graph, config),
+        // Native and LayeredLegacy both route to the in-house layered pipeline.
+        // LayeredLegacy is a deprecated alias (removed in 0.18.0); matching it
+        // here ensures callers who still pass it get the expected behaviour
+        // rather than a compile error.
+        LayoutBackend::Native | LayoutBackend::LayeredLegacy => {
+            layout::layered::layout(graph, config)
+        }
     };
 
     if !graph.subgraphs.is_empty() {

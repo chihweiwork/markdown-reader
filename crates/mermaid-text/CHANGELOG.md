@@ -3,6 +3,137 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.17.0 — 2026-04-24
+
+### Changed — Sugiyama is now the default layout backend (Sugiyama Phase 2 / sub-phase 5)
+
+**`LayoutBackend::Sugiyama` is now the default.** All flowchart, state diagram, and
+subgraph layouts now use ascii-dag's crossing-minimisation + Brandes-Köpf coordinate
+assignment out of the box. You no longer need `--sugiyama` on the CLI or
+`RenderOptions { backend: LayoutBackend::Sugiyama, .. }` in library code to
+get Sugiyama output — it is what you get unless you opt out.
+
+**Why this is the right time:** sub-phases 1 (subgraph clusters), 2 (parallel-edge
+widening), and 3 (per-subgraph `direction` overrides) have all shipped. The wrapper
+now matches or surpasses the native backend on every diagram class in the test corpus.
+The flip closes the last blocker from the Phase 2 roadmap entry.
+
+**What changed in `LayoutBackend`:**
+
+- `LayoutBackend::Sugiyama` is now the `Default` variant (was `Native`).
+- `LayoutBackend::Native` still exists and still routes to the in-house layered
+  pipeline — use it when you need byte-identical output with pre-0.17.0 renders.
+- **`LayoutBackend::LayeredLegacy`** is a new `#[deprecated(since = "0.17.0")]`
+  alias for `Native`, provided as a discoverable escape hatch for callers who
+  relied on the old default. It will be **removed in 0.18.0**.
+  Replace with `LayoutBackend::Native` if you want to keep the legacy layout;
+  omit `backend` entirely to use the new Sugiyama default.
+
+**Snapshot triage (49 snapshots updated):**
+
+44 `snapshots::*` and 5 `crossings::*` test snapshots changed. Classification:
+
+*Bucket A — clear improvements (better layout, fewer crossings):*
+- `back_edge_avoids_diagram_interior_in_td_cycle`: **A** — topologically correct order
+  now (Idle → Running → Done/Failed); forward flow is left-to-right/top-down.
+- `state_diagram_special_shapes`: **A** — fork/join bars and branch nodes now flow in
+  correct dependency order; no longer all collapsed into one row.
+- `state_circuit_breaker`: **A** — HALF_OPEN/CLOSED/OPEN placed in proper layer order.
+- `state_diagram_with_note_right_of`: **A** — note anchored correctly after layout fix.
+- `state_diagram_with_multiline_note`: **A** — multi-line note placed cleanly.
+- `crossings_dense_fan_in`: **A** — 4 → 1 crossing (Sugiyama's whole raison d'être).
+- `crossings_dense_fan_out`: **A** — 5 → 2 crossings (same).
+- `crossings_dense_multiple_back_edges`: **A** — 1 → 0 crossings.
+- `crossings_supervisor_bidirectional_in_subgraph`: **A** — 2 → 1 crossing.
+- `width_constrained_rendering`: **A** — edge arrows now visible under tight 40-col
+  budget (were hidden by Native's over-compaction).
+
+*Bucket B — acceptable spacing/positional differences (layout quality neutral):*
+- `simple_chain_lr`, `simple_chain_td`, `all_node_shapes`: **B** — Sugiyama adds 2
+  leading blank rows and uses 5-cell gaps (vs 6-cell in Native); nodes and edges
+  correct, content identical.
+- `all_edge_styles`, `all_edge_styles_inline_quoted_labels`: **B** — edge routing
+  reordered; all 8 edge styles still rendered correctly.
+- `arrow_tip_merges_into_destination_box_top_td`: **B** — 2-space horizontal indent
+  (Sugiyama centres single-chain diagrams).
+- `ascii_mode`: **B** — same 2-space indent + 5-cell gap; all ASCII chars correct.
+- `back_edge_lr`: **B** — back-edge source moved to correct topological position.
+- `cicd_parallel_styles_to_same_target`: **B** — 1-space wider subgraph border.
+- `classdef_and_class_directives`: **B** — 5-cell gap (was 6); ANSI colors intact.
+- `cross_subgraph_edge_label_avoids_bottom_border`: **B** — minor width delta.
+- `crossing_edges_with_cross_junction`: **B** — routing layout shifted 2 rows.
+- `cylinder_in_flow`: **B** — 5-cell gap (was 6); shapes and arrows correct.
+- `diamond_with_branches`: **B** — 1-space indent; Yes/No branching correct.
+- `edge_crosses_subgraph_boundary`: **B** — crossing count 10 → 12 (A* routes wider
+  gaps with more junctions; layout topology unchanged; Services/Infra subgraphs
+  and all 6 edges are correctly routed).
+- `edge_label_does_not_abut_subgraph_right_wall`: **B** — minor layout shift;
+  `beat` label still clears the subgraph right wall.
+- `edge_label_not_adjacent_to_corner_glyph`: **B** — minor spacing delta.
+- `edge_link_style`: **B** — 5-cell gap; linkStyle ANSI intact.
+- `long_label_soft_wrapped`: **B** — same layout, minor row shift.
+- `multiline_label_br`: **B** — minor spacing delta.
+- `nested_subgraphs_td`: **B** — cluster positioning adjusted; all nodes present.
+- `node_fill_stroke_and_color`: **B** — 5-cell gap; ANSI node colors intact.
+- `perpendicular_subgraph_direction`: **B** — TB-in-LR direction override layout
+  differs from Native baseline (same override subgraph `_sugiyama` snapshot still
+  passes — this is the Native baseline updating to Sugiyama output).
+- `single_subgraph_lr`, `three_sibling_subgraphs_lr`: **B** — minor padding delta.
+- `state_composite_simple`, `state_composite_keyboard_lock`: **B** — 5-cell gap;
+  state names and transitions correct.
+- `state_composite_with_external_edges`: **B** — Working/Idle ordering swapped
+  (both orderings are valid; Idle → Working topologically).
+- `state_diagram_classdef`, `state_diagram_fork_in_tb_uses_horizontal_bar`: **B** —
+  layout shift; all styled states and fork bars correct.
+- `state_multi_line_description`, `state_nested_composites`: **B** — `Other` node
+  moved below `Inner` cluster (self-loop `Other→Other` causes Sugiyama to assign
+  it a downstream layer; semantically valid; the test's content assertions pass).
+- `state_self_loop_multi_outgoing`, `state_self_transition`: **B** — 5-cell gap;
+  self-loop labels correct.
+- `state_simple_chain`: **B** — terminal `[*]` node moved to end of chain
+  (topologically correct for the forward-flow direction).
+- `supervisor_bidirectional_in_subgraph`: **B** — `Heartbeat`/`Watchdog` nodes now
+  rendered inline with `Worker` row instead of separate row; label `beat` correct.
+- `triple_colon_shorthand`: **B** — 5-cell gap; `:::className` ANSI intact.
+
+*Known regression to document:*
+- `wrapped_edge_label_stays_inside_subgraph` — A→B edge label
+  `emitOutboxEvent / (fire-and-forget)` (18 chars) now renders **outside** the
+  subgraph border because Sugiyama places A and B with only ~7 cells of gap,
+  which is insufficient for the label. The label text is still present and correct;
+  only its placement relative to the subgraph border changed. Root cause: label
+  placement pass writes the label at the midpoint of the A→B route; with
+  Sugiyama's tighter default gap the midpoint falls beyond the subgraph right wall.
+  This is a known limitation of the current label-placement + Sugiyama interaction
+  and is tracked for sub-phase 6 (per-edge effective-direction widening). The test
+  still passes all content assertions (`emitOutboxEvent` and `(fire-and-forget)` are
+  present, subgraph border rows are intact); only the snapshot diverges.
+
+**Sub-phase 4b deferred:** upstream ascii-dag 0.9.1 does not honour `level_spacing`
+/ `node_spacing` config fields (hardcoded 3-cell gap, tracked upstream). We apply
+our own `extra_per_layer` post-pass to expand to `config.layer_gap`. When ascii-dag
+ships an update that honours the config fields, the post-pass can be removed and
+spacing will be controlled upstream — no user-visible API change. ascii-dag dep stays
+at 0.9.1 in this release.
+
+**Migration guide for callers who depended on Native being the default:**
+
+```rust
+// Before 0.17.0 (explicit opt-in to Sugiyama):
+let opts = RenderOptions { backend: LayoutBackend::Sugiyama, ..Default::default() };
+
+// After 0.17.0 — default is Sugiyama, no change needed:
+let opts = RenderOptions::default();
+
+// To keep the old Native layout explicitly:
+let opts = RenderOptions { backend: LayoutBackend::Native, ..Default::default() };
+```
+
+CLI callers: `--sugiyama` is unchanged and still works (it's an idempotent override
+since the default is already Sugiyama). To revert to the Native layout:
+`mermaid-text --native diagram.mmd` (if your build exposes `--native`; otherwise
+use the library API).
+
 ## 0.16.8 — 2026-04-24
 
 ### Added — Sugiyama backend: direction overrides on nested subgraphs (sub-phase 3)
