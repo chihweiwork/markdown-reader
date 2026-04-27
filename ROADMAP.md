@@ -11,9 +11,9 @@ the CHANGELOG be the historical record).
 
 ---
 
-## In progress
+## Shipped
 
-### Hybrid live-preview editing — `markdown-tui-explorer`
+### Hybrid live-preview editing — `markdown-tui-explorer` (shipped 1.33.0)
 
 Obsidian Live Preview / iA Writer-style hybrid editing. Cursor lives
 in source-byte coordinates; the block containing the cursor renders
@@ -43,10 +43,7 @@ Design choices (locked in 2026-04-27):
 | 7 | Active tables | shipped 1.32.1 | 0.5-1d |
 | 8 | Active mermaid (deferred re-render on leave) | shipped 1.32.2 | 0.5-1d |
 | 8b | Mermaid byte-range covers full fenced region (bug fix flagged in 8) | shipped 1.32.3 | 0.5d |
-| 9 | `i`/`I` swap (hybrid becomes default) | not started | 0.5d |
-
-Sub-phases must ship sequentially (each builds on previous data
-model). Each sub-phase is one agent dispatch + own release.
+| 9 | `i`/`I` swap (hybrid becomes default) | shipped 1.33.0 | 0.5d |
 
 Out of scope, deliberately deferred to follow-up tickets:
 - Continuous inline syntax styling (live `**bold**`); incoherent

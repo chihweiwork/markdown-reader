@@ -146,12 +146,14 @@ drawn on the left of the viewer content when enabled.
   changed subtrees are easy to spot at a glance.
 - **Configurable tree position** — place the file tree on the left
   (default) or right side of the viewer via the settings modal.
-- **Visible cursor and vim-style edit mode** — a highlighted cursor row
-  tracks your position in the viewer (move with `j`/`k`/`d`/`u`/`gg`/`G`
-  and friends). Press `i` to drop into a vim-style modal editor
-  ([edtui](https://crates.io/crates/edtui)) at the exact source line you
-  were reading. `:w` saves atomically, `:q` returns to the rendered view,
-  `:wq` does both. `:q!` force-discards unsaved changes.
+- **Hybrid live-preview editing** — press `i` to enter hybrid mode: all
+  blocks stay fully rendered, but the block under the cursor reveals its
+  raw markdown source for editing (powered by
+  [edtui](https://crates.io/crates/edtui)). Leaving a block re-renders it
+  instantly. Tables open a dedicated table editor; mermaid blocks re-render
+  the diagram on cursor-leave. `:w` saves atomically, `:q` returns to the
+  rendered view, `:wq` does both, `:q!` force-discards unsaved changes.
+  Press `I` to open the legacy fullscreen editor instead.
 - **Rendered markdown preview** — headings, lists, code blocks, tables,
   links, blockquotes, task lists, and more, styled from the active theme.
 - **Live file watching** — the tree and open tabs reload when files change
@@ -279,7 +281,8 @@ reopening the same directory resumes where you left off.
 | `PageDown` / `PageUp` | Full-page cursor down / up |
 | `gg` | Jump to top |
 | `G` | Jump to bottom |
-| `i` | Enter edit mode |
+| `i` | Enter hybrid live-preview mode |
+| `I` | Enter legacy fullscreen edit mode |
 | `V` | Enter visual-line selection mode |
 | `yy` | Copy current line to clipboard |
 | `y` (visual) | Copy selected range to clipboard and exit visual mode |

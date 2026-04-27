@@ -389,6 +389,11 @@ pub struct App {
     pub mermaid_mode: MermaidMode,
     /// User-configured maximum height for mermaid diagram blocks (in display lines).
     pub mermaid_max_height: u32,
+    /// Mirror of [`Config::use_hybrid_by_default`].
+    ///
+    /// When `true`, `i` opens hybrid mode and `I` opens the legacy fullscreen
+    /// edtui.  When `false`, the bindings are reversed (pre-1.33.0 behaviour).
+    pub use_hybrid_by_default: bool,
     /// Copy-path popup state; `None` when the popup is closed.
     pub copy_menu: Option<CopyMenuState>,
     /// Persisted sessions (loaded once on startup, written on file open and quit).
@@ -505,6 +510,7 @@ impl App {
             search_preview: config.search_preview,
             mermaid_mode: config.mermaid_mode,
             mermaid_max_height: config.mermaid_max_height,
+            use_hybrid_by_default: config.use_hybrid_by_default,
             copy_menu: None,
             app_state,
             action_tx: None,
@@ -683,6 +689,7 @@ impl App {
             search_preview: self.search_preview,
             mermaid_mode: self.mermaid_mode,
             mermaid_max_height: self.mermaid_max_height,
+            use_hybrid_by_default: self.use_hybrid_by_default,
         };
         tokio::task::spawn_blocking(move || config.save());
     }

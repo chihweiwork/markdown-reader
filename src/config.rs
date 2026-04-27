@@ -16,6 +16,16 @@ fn default_mermaid_max_height() -> u32 {
     30
 }
 
+/// Default value for [`Config::use_hybrid_by_default`].
+///
+/// Returns `true` so that lowercase `i` opens hybrid live-preview mode for
+/// new installs.  Users who prefer the old fullscreen edtui behaviour can set
+/// `use_hybrid_by_default = false` in `config.toml` to restore the pre-1.33.0
+/// mapping while regressions are still being filed.
+fn default_use_hybrid_by_default() -> bool {
+    true
+}
+
 /// Which side of the viewer the file-tree panel is rendered on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -89,6 +99,12 @@ pub struct Config {
     /// There is no UI widget for this field — edit `config.toml` directly.
     #[serde(default = "default_mermaid_max_height")]
     pub mermaid_max_height: u32,
+    /// When `true` (the default), `i` opens hybrid live-preview mode and `I`
+    /// opens the legacy fullscreen edtui.  Set to `false` to restore the
+    /// pre-1.33.0 behaviour (`i` → fullscreen, `I` → hybrid) as an opt-out
+    /// while regressions are being filed.
+    #[serde(default = "default_use_hybrid_by_default")]
+    pub use_hybrid_by_default: bool,
 }
 
 impl Default for Config {
@@ -100,6 +116,7 @@ impl Default for Config {
             search_preview: SearchPreview::default(),
             mermaid_mode: MermaidMode::default(),
             mermaid_max_height: default_mermaid_max_height(),
+            use_hybrid_by_default: default_use_hybrid_by_default(),
         }
     }
 }
@@ -208,5 +225,25 @@ mod tests {
         let toml_str = r#"theme = "default""#;
         let config: Config = toml::from_str(toml_str).expect("deserialization failed");
         assert_eq!(config.mermaid_mode, MermaidMode::Text);
+    }
+
+    /// `use_hybrid_by_default` must survive a TOML round-trip with the value `false`.
+    #[test]
+    fn use_hybrid_by_default_roundtrip_false() {
+        let config = Config {
+            use_hybrid_by_default: false,
+            ..Config::default()
+        };
+        let serialized = toml::to_string_pretty(&config).expect("serialization failed");
+        let deserialized: Config = toml::from_str(&serialized).expect("deserialization failed");
+        assert!(!deserialized.use_hybrid_by_default);
+    }
+
+    /// A TOML file without `use_hybrid_by_default` must default to `true`.
+    #[test]
+    fn use_hybrid_by_default_missing_field_defaults_to_true() {
+        let toml_str = r#"theme = "default""#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization failed");
+        assert!(config.use_hybrid_by_default);
     }
 }

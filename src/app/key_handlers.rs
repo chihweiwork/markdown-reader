@@ -253,19 +253,25 @@ impl App {
                     ds.match_lines.clear();
                 }
             }
-            // `i` enters vim-style edit mode for the active tab's source file
-            // (fullscreen edtui; unchanged until sub-phase 9 swaps the bindings).
+            // `i` opens hybrid live-preview mode by default (since 1.33.0).
+            // Users who set `use_hybrid_by_default = false` in config.toml get
+            // the pre-1.33.0 behaviour: `i` → fullscreen edtui.
             KeyCode::Char('i') => {
-                self.enter_edit_mode();
+                if self.use_hybrid_by_default {
+                    self.enter_hybrid_mode();
+                } else {
+                    self.enter_edit_mode();
+                }
             }
-            // `I` enters hybrid live-preview editing mode (sub-phase 4).
-            // The viewer keeps drawing all blocks formatted; a real terminal
-            // cursor appears at the source-byte-offset position.  No edits work
-            // yet — arrow keys and character input are no-ops.  Only `:q` exits.
-            // Sub-phase 5 adds cursor movement; sub-phase 6 adds editing;
-            // sub-phase 9 swaps `i` and `I`.
+            // `I` is the escape hatch to the legacy fullscreen edtui by default.
+            // With `use_hybrid_by_default = false` it becomes the hybrid entry
+            // point instead, preserving the pre-1.33.0 mapping.
             KeyCode::Char('I') => {
-                self.enter_hybrid_mode();
+                if self.use_hybrid_by_default {
+                    self.enter_edit_mode();
+                } else {
+                    self.enter_hybrid_mode();
+                }
             }
             KeyCode::Char('q') => self.running = false,
             KeyCode::Char('j') | KeyCode::Down => {

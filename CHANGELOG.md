@@ -5,7 +5,50 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 1.32.3
+## [Unreleased] — 1.33.0
+
+### Added — Hybrid live-preview editing sub-phase 9 (i becomes hybrid by default — project complete)
+
+**This release concludes the 9-sub-phase Hybrid Live-Preview Markdown Editing project.**
+
+#### Binding swap
+
+`i` now opens hybrid live-preview mode (`Focus::HybridEditor`); `I` is now the
+escape hatch to the legacy fullscreen edtui (`Focus::Editor`).  Previously the
+bindings were reversed.
+
+#### Config opt-out
+
+Users who want the pre-1.33.0 behaviour while filing regressions can add one
+line to `config.toml`:
+
+```toml
+use_hybrid_by_default = false
+```
+
+With this flag set, `i` reverts to fullscreen edtui and `I` enters hybrid mode.
+The flag is expected to be removed in a future release once hybrid mode proves
+stable across all workflows.
+
+#### What is hybrid mode?
+
+The viewer keeps drawing all blocks fully formatted.  The block the cursor
+lives in renders as raw markdown source (the "active block reveal").  Editing
+in text blocks is fully functional including undo/redo.  Tables open in a
+dedicated table editor.  Mermaid blocks show as raw source while the cursor is
+inside them and re-render the diagram on cursor leave.  Save/quit use the same
+`:w` / `:wq` / `:q` / `:q!` commands as the fullscreen editor.
+
+#### Tests
+
+3 new tests (total was 952, now 957 including the 2 new config tests):
+- `i_keybinding_enters_hybrid_mode_by_default`
+- `capital_i_keybinding_enters_fullscreen_edit_by_default`
+- `keybindings_revert_when_use_hybrid_by_default_is_false`
+- `use_hybrid_by_default_roundtrip_false`
+- `use_hybrid_by_default_missing_field_defaults_to_true`
+
+## [1.32.3] — 2026-04-24
 
 ### Fixed — Mermaid byte-range covers full fenced region (hybrid-mode prerequisite)
 

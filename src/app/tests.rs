@@ -2057,50 +2057,95 @@ fn exit_hybrid_mode_restores_viewer_focus() {
     );
 }
 
-/// Test 4 — pressing lowercase `i` still enters `Focus::Editor` (regression
-/// guard for the unchanged fullscreen edtui path).
+/// Test 4 — pressing lowercase `i` now enters `Focus::HybridEditor` by default
+/// (since 1.33.0, `use_hybrid_by_default = true`).
 #[test]
-fn i_keybinding_enters_old_edit_mode_unchanged() {
-    let (mut app, _path) = make_app_with_rendered_tab("# Regression guard\n");
-    // Simulate the viewer's `i` key handler directly.
+fn i_keybinding_enters_hybrid_mode_by_default() {
+    let (mut app, _path) = make_app_with_rendered_tab("# Hybrid default\n");
+    // `use_hybrid_by_default` is `true` in the default Config, so `i` → hybrid.
+    assert!(app.use_hybrid_by_default, "default must be use_hybrid_by_default = true");
     app.handle_viewer_key(KeyCode::Char('i'), KeyModifiers::empty());
     assert_eq!(
         app.focus,
-        Focus::Editor,
-        "lowercase `i` must still enter Focus::Editor (fullscreen edtui)"
-    );
-    let tab = app.tabs.active_tab().expect("tab must exist");
-    assert!(
-        tab.editor.is_some(),
-        "tab.editor must be Some after `i` in viewer"
-    );
-    // Hybrid state must NOT have been touched.
-    assert!(
-        tab.hybrid.is_none(),
-        "tab.hybrid must remain None after lowercase `i`"
-    );
-}
-
-/// Test 5 — pressing uppercase `I` calls `enter_hybrid_mode`, entering
-/// `Focus::HybridEditor`.
-#[test]
-fn capital_i_keybinding_enters_hybrid_mode() {
-    let (mut app, _path) = make_app_with_rendered_tab("# Hybrid entry\n\nSome text.\n");
-    app.handle_viewer_key(KeyCode::Char('I'), KeyModifiers::empty());
-    assert_eq!(
-        app.focus,
         Focus::HybridEditor,
-        "`I` must enter Focus::HybridEditor"
+        "lowercase `i` must enter Focus::HybridEditor when use_hybrid_by_default is true"
     );
     let tab = app.tabs.active_tab().expect("tab must exist");
     assert!(
         tab.hybrid.is_some(),
-        "tab.hybrid must be Some after pressing `I`"
+        "tab.hybrid must be Some after `i` with use_hybrid_by_default = true"
     );
     // The fullscreen editor must NOT have been activated.
     assert!(
         tab.editor.is_none(),
-        "tab.editor must remain None after `I`"
+        "tab.editor must remain None after `i` with use_hybrid_by_default = true"
+    );
+}
+
+/// Test 5 — pressing uppercase `I` now calls `enter_edit_mode` (legacy fullscreen
+/// edtui escape hatch) when `use_hybrid_by_default = true` (default since 1.33.0).
+#[test]
+fn capital_i_keybinding_enters_fullscreen_edit_by_default() {
+    let (mut app, _path) = make_app_with_rendered_tab("# Escape hatch\n\nSome text.\n");
+    assert!(app.use_hybrid_by_default, "default must be use_hybrid_by_default = true");
+    app.handle_viewer_key(KeyCode::Char('I'), KeyModifiers::empty());
+    assert_eq!(
+        app.focus,
+        Focus::Editor,
+        "`I` must enter Focus::Editor (fullscreen edtui) when use_hybrid_by_default is true"
+    );
+    let tab = app.tabs.active_tab().expect("tab must exist");
+    assert!(
+        tab.editor.is_some(),
+        "tab.editor must be Some after pressing `I` with use_hybrid_by_default = true"
+    );
+    // Hybrid state must NOT have been touched.
+    assert!(
+        tab.hybrid.is_none(),
+        "tab.hybrid must remain None after `I` with use_hybrid_by_default = true"
+    );
+}
+
+/// Test 5b — with `use_hybrid_by_default = false`, the bindings revert to the
+/// pre-1.33.0 behaviour: `i` → fullscreen edtui, `I` → hybrid.
+#[test]
+fn keybindings_revert_when_use_hybrid_by_default_is_false() {
+    // `i` → fullscreen edtui
+    let (mut app_i, _path) = make_app_with_rendered_tab("# Opt-out i\n");
+    app_i.use_hybrid_by_default = false;
+    app_i.handle_viewer_key(KeyCode::Char('i'), KeyModifiers::empty());
+    assert_eq!(
+        app_i.focus,
+        Focus::Editor,
+        "`i` must enter Focus::Editor when use_hybrid_by_default = false"
+    );
+    let tab_i = app_i.tabs.active_tab().expect("tab must exist");
+    assert!(
+        tab_i.editor.is_some(),
+        "tab.editor must be Some after `i` with use_hybrid_by_default = false"
+    );
+    assert!(
+        tab_i.hybrid.is_none(),
+        "tab.hybrid must remain None after `i` with use_hybrid_by_default = false"
+    );
+
+    // `I` → hybrid
+    let (mut app_shift_i, _path2) = make_app_with_rendered_tab("# Opt-out I\n\nText.\n");
+    app_shift_i.use_hybrid_by_default = false;
+    app_shift_i.handle_viewer_key(KeyCode::Char('I'), KeyModifiers::empty());
+    assert_eq!(
+        app_shift_i.focus,
+        Focus::HybridEditor,
+        "`I` must enter Focus::HybridEditor when use_hybrid_by_default = false"
+    );
+    let tab_shift_i = app_shift_i.tabs.active_tab().expect("tab must exist");
+    assert!(
+        tab_shift_i.hybrid.is_some(),
+        "tab.hybrid must be Some after `I` with use_hybrid_by_default = false"
+    );
+    assert!(
+        tab_shift_i.editor.is_none(),
+        "tab.editor must remain None after `I` with use_hybrid_by_default = false"
     );
 }
 
