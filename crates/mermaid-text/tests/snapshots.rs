@@ -69,6 +69,33 @@ fn all_node_shapes() {
 }
 
 // ---------------------------------------------------------------------------
+// 4b. All node shapes — phase 2: full audit diagram (0.25.0)
+//
+// Covers shapes added/fixed in 0.25.0: ParallelogramBackslash,
+// TrapezoidInverted, plus the visually fixed Stadium, Cylinder, Hexagon,
+// Parallelogram and Trapezoid.
+// ---------------------------------------------------------------------------
+#[test]
+fn flowchart_all_node_shapes_phase_2() {
+    let src = r#"graph LR
+        A[Square]
+        B(Round)
+        C((Circle))
+        D{Rhombus}
+        E[[Subroutine]]
+        F[(Database)]
+        G{{Hexagon}}
+        H[/Parallelogram/]
+        I[\BackSlash\]
+        J[/Trapezoid\]
+        K[\InvTrapezoid/]
+        L([Stadium])
+        M>Asymmetric]"#;
+    let out = mermaid_text::render(src).unwrap();
+    assert_snapshot!("flowchart_all_node_shapes_phase_2", out);
+}
+
+// ---------------------------------------------------------------------------
 // 5. All supported edge styles — pipe-label form (regression baseline)
 // ---------------------------------------------------------------------------
 #[test]

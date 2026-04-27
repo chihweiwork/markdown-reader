@@ -139,7 +139,9 @@ fn node_draw_width(graph: &Graph, id: &str) -> usize {
             | crate::types::NodeShape::Asymmetric
             | crate::types::NodeShape::Subroutine
             | crate::types::NodeShape::Parallelogram
-            | crate::types::NodeShape::Trapezoid => inner + 2,
+            | crate::types::NodeShape::ParallelogramBackslash
+            | crate::types::NodeShape::Trapezoid
+            | crate::types::NodeShape::TrapezoidInverted => inner + 2,
             crate::types::NodeShape::DoubleCircle => inner + 4,
             _ => inner,
         }

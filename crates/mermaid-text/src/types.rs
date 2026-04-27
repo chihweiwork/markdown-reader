@@ -105,6 +105,16 @@ pub enum NodeShape {
     ///
     /// Mermaid syntax: `[/label\]`
     Trapezoid,
+    /// Parallelogram leaning left (backslash variant): rectangle with `\` markers at
+    /// top-left and bottom-right corners.
+    ///
+    /// Mermaid syntax: `[\label\]`
+    ParallelogramBackslash,
+    /// Inverted trapezoid (wider bottom): rectangle with `\` at top-left and `/` at
+    /// top-right corners, indicating a narrower top.
+    ///
+    /// Mermaid syntax: `[\label/]`
+    TrapezoidInverted,
     /// Double circle: two concentric rounded boxes, one cell inside the other.
     ///
     /// Mermaid syntax: `(((label)))`

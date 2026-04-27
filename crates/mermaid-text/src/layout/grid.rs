@@ -858,7 +858,19 @@ impl Grid {
     }
 
     /// Draw a stadium (capsule/pill) node: rounded box with `(` / `)` markers
-    /// on the vertical midpoint of the left and right edges.
+    /// replacing the border cells at the vertical midpoint of the left and
+    /// right edges.
+    ///
+    /// The markers overwrite the border characters directly (same pattern as
+    /// `NodeShape::Circle`) so the interior label region stays clean and no
+    /// literal parens appear inside the text.
+    ///
+    /// Rendered appearance (3-row example):
+    /// ```text
+    ///  ╭─────────╮
+    /// (  Stadium  )
+    ///  ╰─────────╯
+    /// ```
     ///
     /// Mermaid syntax: `([label])`
     pub fn draw_stadium(&mut self, col: usize, row: usize, w: usize, h: usize) {
@@ -866,13 +878,14 @@ impl Grid {
             return;
         }
         self.draw_rounded_box(col, row, w, h);
-        // Place `(` and `)` markers one cell inside each rounded side at the
-        // vertical midpoint. This distinguishes stadium from plain rounded.
+        // Overwrite the left and right border cells at the vertical midpoint
+        // with `(` / `)`. Placing them ON the border (not one cell inside)
+        // keeps the interior label region clear — identical to the Circle fix.
         let mid_row = row + h / 2;
-        self.set(col + 1, mid_row, '(');
-        self.set(col + w - 2, mid_row, ')');
-        self.protect(col + 1, mid_row);
-        self.protect(col + w - 2, mid_row);
+        self.set(col, mid_row, '(');
+        self.set(col + w - 1, mid_row, ')');
+        self.protect(col, mid_row);
+        self.protect(col + w - 1, mid_row);
     }
 
     /// Draw a subroutine node: rectangle with an extra inner vertical bar (`│`)
@@ -891,73 +904,68 @@ impl Grid {
         }
     }
 
-    /// Draw a cylinder (database) node: a box where the top edge shows a
-    /// top-arc row (`╭─╮` style) plus a second interior arc row (`╰─╯`) to
-    /// suggest depth, and the bottom edge mirrors this.
+    /// Draw a cylinder (database) node: a rounded rectangle with an interior
+    /// "lip" line one row below the top border to suggest a barrel/cylinder cap.
     ///
-    /// Layout (5 rows):
+    /// The lip is drawn with `─` characters only (no `├`/`┤` T-junctions) so
+    /// it reads as a decorative depth cue rather than a dividing partition.
+    ///
+    /// Rendered appearance (4-row example):
     /// ```text
-    /// ╭────╮   ← top arc
-    /// ╰────╯   ← inner arc (depth indicator)
-    ///  text
-    /// ╭────╮   ← inner arc at bottom
-    /// ╰────╯   ← bottom arc
+    ///  ╭──────────╮
+    /// │ ──────── │
+    /// │ Database │
+    ///  ╰──────────╯
     /// ```
     ///
-    /// Mermaid syntax: `[(label)]`
-    /// Draw a cylinder (database) node.
-    ///
-    /// Mermaid syntax: `[(label)]`. Rendered as a rounded rectangle with a
-    /// horizontal "lid line" one row below the top border, distinguishing it
-    /// from a plain rounded rectangle while keeping the silhouette
-    /// continuous (unlike a double-arc design which visually disconnects in
-    /// monospace fonts).
-    ///
-    /// Minimum height is 4 rows: top border + lid + text + bottom border.
+    /// Minimum height is 4 rows: top border + lip row + text row + bottom border.
     /// For multi-line labels, `h` grows by the number of extra label lines.
+    ///
+    /// Mermaid syntax: `[(label)]`
     pub fn draw_cylinder(&mut self, col: usize, row: usize, w: usize, h: usize) {
-        if w < 2 || h < 4 {
+        if w < 4 || h < 4 {
             return;
         }
-        // Top rounded border.
-        self.set(col, row, rounded::TL);
-        self.set(col + w - 1, row, rounded::TR);
-        for x in (col + 1)..(col + w - 1) {
-            self.set(x, row, rect::H);
-        }
-        // Lid indicator: T-junctions into the side walls with a horizontal
-        // line across. Visually signals "there's a cap on top", and the
-        // `├`/`┤` characters keep the side walls continuous with what sits
-        // above and below them.
-        self.set(col, row + 1, '├');
-        self.set(col + w - 1, row + 1, '┤');
-        for x in (col + 1)..(col + w - 1) {
+        // Draw the full rounded outline first.
+        self.draw_rounded_box(col, row, w, h);
+        // Interior lip: `─` characters at row+1, inset by 2 cells on each side
+        // so they sit visually "inside" the border without touching the walls.
+        // This avoids the misleading `├`/`┤` T-junction glyphs that made the
+        // previous rendering look like a split-panel divider.
+        for x in (col + 2)..(col + w - 2) {
             self.set(x, row + 1, rect::H);
-        }
-        // Straight side walls through every interior row up to the bottom border.
-        for y in (row + 2)..(row + h - 1) {
-            self.set(col, y, rect::V);
-            self.set(col + w - 1, y, rect::V);
-        }
-        // Bottom rounded border.
-        self.set(col, row + h - 1, rounded::BL);
-        self.set(col + w - 1, row + h - 1, rounded::BR);
-        for x in (col + 1)..(col + w - 1) {
-            self.set(x, row + h - 1, rect::H);
         }
     }
 
-    /// Draw a hexagon node: rectangle with `<` / `>` markers at the vertical
-    /// midpoint of the left and right edges (similar to diamond's `◇` markers
-    /// but on the sides rather than top/bottom).
+    /// Draw a hexagon node: rectangle with slanted `╱`/`╲` corner glyphs at all
+    /// four corners plus `<` / `>` markers at the vertical midpoint of the left
+    /// and right edges.
+    ///
+    /// This gives 6 visual edges: two horizontal (top/bottom between the slanted
+    /// corners), two slanted diagonals (the four corners), and two side points
+    /// (`<`/`>`), approximating a true hexagon in monospace.
+    ///
+    /// Rendered appearance (3-row example):
+    /// ```text
+    ///  ╱─────────╲
+    /// <  Hexagon  >
+    ///  ╲─────────╱
+    /// ```
     ///
     /// Mermaid syntax: `{{label}}`
     pub fn draw_hexagon(&mut self, col: usize, row: usize, w: usize, h: usize) {
         if w < 4 || h < 2 {
             return;
         }
+        // Start with the standard rectangle skeleton (horizontal/vertical edges).
         self.draw_box(col, row, w, h);
-        // Overwrite left/right midpoints with `<` / `>` markers.
+        // Overwrite the four corners with diagonal glyphs (same as `draw_diamond`).
+        self.set(col, row, '╱');
+        self.set(col + w - 1, row, '╲');
+        self.set(col, row + h - 1, '╲');
+        self.set(col + w - 1, row + h - 1, '╱');
+        // Overwrite left/right border cells at the vertical midpoint with
+        // `<` / `>` to suggest the protruding hex side-points.
         let mid_row = row + h / 2;
         self.set(col, mid_row, '<');
         self.set(col + w - 1, mid_row, '>');
@@ -980,8 +988,16 @@ impl Grid {
         self.protect(col + w - 1, mid_row);
     }
 
-    /// Draw a parallelogram node: rectangle with `/` markers overwriting the
-    /// top-left and bottom-right corners (lean-right style).
+    /// Draw a parallelogram (lean-right) node: rectangle with `╱` at all four
+    /// corners. Both the top and bottom horizontal edges terminate with the same
+    /// slant direction, giving the parallelogram silhouette.
+    ///
+    /// Rendered appearance (3-row example):
+    /// ```text
+    ///  ╱─────────────────╱
+    /// │  Parallelogram  │
+    ///  ╱─────────────────╱
+    /// ```
     ///
     /// Mermaid syntax: `[/label/]`
     pub fn draw_parallelogram(&mut self, col: usize, row: usize, w: usize, h: usize) {
@@ -989,15 +1005,24 @@ impl Grid {
             return;
         }
         self.draw_box(col, row, w, h);
-        // Slant markers at the corners.
-        self.set(col, row, '/');
-        self.set(col + w - 1, row + h - 1, '/');
-        self.protect(col, row);
-        self.protect(col + w - 1, row + h - 1);
+        // Overwrite all four corners with `╱` so both horizontal edges lean
+        // consistently rightward — the defining trait of a lean-right parallelogram.
+        self.set(col, row, '╱');
+        self.set(col + w - 1, row, '╱');
+        self.set(col, row + h - 1, '╱');
+        self.set(col + w - 1, row + h - 1, '╱');
     }
 
-    /// Draw a trapezoid node: rectangle with `/` at top-left and `\` at
-    /// top-right, indicating a wider top, narrower bottom.
+    /// Draw a trapezoid (wider top) node: rectangle with `╱` at top-left and
+    /// `╲` at top-right. The bottom corners remain square, giving the trapezoid
+    /// its characteristic "hat" silhouette.
+    ///
+    /// Rendered appearance (3-row example):
+    /// ```text
+    ///  ╱─────────────╲
+    /// │  Trapezoid    │
+    ///  └─────────────┘
+    /// ```
     ///
     /// Mermaid syntax: `[/label\]`
     pub fn draw_trapezoid(&mut self, col: usize, row: usize, w: usize, h: usize) {
@@ -1005,9 +1030,56 @@ impl Grid {
             return;
         }
         self.draw_box(col, row, w, h);
-        // Slant markers at top corners only.
-        self.set(col, row, '/');
-        self.set(col + w - 1, row, '\\');
+        // Slant markers at top corners only — `╱` left, `╲` right.
+        self.set(col, row, '╱');
+        self.set(col + w - 1, row, '╲');
+        self.protect(col, row);
+        self.protect(col + w - 1, row);
+    }
+
+    /// Draw a parallelogram-backslash (lean-left) node: rectangle with `╲` at
+    /// all four corners. Both horizontal edges lean left, the mirror image of
+    /// [`draw_parallelogram`].
+    ///
+    /// Rendered appearance (3-row example):
+    /// ```text
+    ///  ╲─────────────────╲
+    /// │  BackSlash       │
+    ///  ╲─────────────────╲
+    /// ```
+    ///
+    /// Mermaid syntax: `[\label\]`
+    pub fn draw_parallelogram_backslash(&mut self, col: usize, row: usize, w: usize, h: usize) {
+        if w < 2 || h < 2 {
+            return;
+        }
+        self.draw_box(col, row, w, h);
+        // All four corners are `╲` — consistent leftward lean.
+        self.set(col, row, '╲');
+        self.set(col + w - 1, row, '╲');
+        self.set(col, row + h - 1, '╲');
+        self.set(col + w - 1, row + h - 1, '╲');
+    }
+
+    /// Draw an inverted trapezoid (wider bottom) node: rectangle with `╲` at
+    /// top-left and `╱` at top-right. The bottom corners remain square.
+    ///
+    /// Rendered appearance (3-row example):
+    /// ```text
+    ///  ╲─────────────╱
+    /// │  InvTrap      │
+    ///  └─────────────┘
+    /// ```
+    ///
+    /// Mermaid syntax: `[\label/]`
+    pub fn draw_trapezoid_inverted(&mut self, col: usize, row: usize, w: usize, h: usize) {
+        if w < 2 || h < 2 {
+            return;
+        }
+        self.draw_box(col, row, w, h);
+        // Slant markers at top corners only — `╲` left, `╱` right (mirror of trapezoid).
+        self.set(col, row, '╲');
+        self.set(col + w - 1, row, '╱');
         self.protect(col, row);
         self.protect(col + w - 1, row);
     }

@@ -824,15 +824,25 @@ pub(crate) fn parse_node_definition(token: &str) -> Option<Node> {
             let inner = rest[2..rest.len() - 2].trim().to_string();
             (id, inner, NodeShape::Subroutine)
         }
-        // Parallelogram: A[/text/]
+        // Parallelogram (lean-right): A[/text/]
         else if rest.starts_with("[/") && rest.ends_with("/]") {
             let inner = rest[2..rest.len() - 2].trim().to_string();
             (id, inner, NodeShape::Parallelogram)
         }
-        // Trapezoid: A[/text\]
+        // Trapezoid (wider top): A[/text\]
         else if rest.starts_with("[/") && rest.ends_with("\\]") {
             let inner = rest[2..rest.len() - 2].trim().to_string();
             (id, inner, NodeShape::Trapezoid)
+        }
+        // Parallelogram (lean-left / backslash): A[\text\]
+        else if rest.starts_with("[\\") && rest.ends_with("\\]") {
+            let inner = rest[2..rest.len() - 2].trim().to_string();
+            (id, inner, NodeShape::ParallelogramBackslash)
+        }
+        // Inverted trapezoid (wider bottom): A[\text/]
+        else if rest.starts_with("[\\") && rest.ends_with("/]") {
+            let inner = rest[2..rest.len() - 2].trim().to_string();
+            (id, inner, NodeShape::TrapezoidInverted)
         }
         // Hexagon: A{{text}}
         else if rest.starts_with("{{") && rest.ends_with("}}") {
@@ -1259,6 +1269,20 @@ mod tests {
         let g = parse("graph LR\nA[/Trap\\]").unwrap();
         assert_eq!(g.node("A").unwrap().shape, NodeShape::Trapezoid);
         assert_eq!(g.node("A").unwrap().label, "Trap");
+    }
+
+    #[test]
+    fn parse_parallelogram_backslash_node() {
+        let g = parse("graph LR\nA[\\LeanLeft\\]").unwrap();
+        assert_eq!(g.node("A").unwrap().shape, NodeShape::ParallelogramBackslash);
+        assert_eq!(g.node("A").unwrap().label, "LeanLeft");
+    }
+
+    #[test]
+    fn parse_trapezoid_inverted_node() {
+        let g = parse("graph LR\nA[\\InvTrap/]").unwrap();
+        assert_eq!(g.node("A").unwrap().shape, NodeShape::TrapezoidInverted);
+        assert_eq!(g.node("A").unwrap().label, "InvTrap");
     }
 
     #[test]

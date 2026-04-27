@@ -3,6 +3,106 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.25.0 — 2026-04-27 — Shape variants polish (Phase 2)
+
+Six shape-rendering bugs fixed and two missing parser arms added, covering all
+13 Mermaid flowchart node shapes documented at
+<https://mermaid.js.org/syntax/flowchart.html#node-shapes>.
+
+### Fixed
+
+- **Bug 1 — Stadium `([text])` paren leak** (`NodeShape::Stadium`).
+  The `(` / `)` markers were placed one cell inside the border (`│( Stadium )│`),
+  making them look like literal parens in the label. They are now placed directly
+  ON the border cells at the vertical midpoint, matching the Circle fix from 0.24.0:
+  ```
+   ╭─────────╮
+  (  Stadium  )
+   ╰─────────╯
+  ```
+
+- **Bug 2 — Database / Cylinder `[(text)]` misleading horizontal divider**
+  (`NodeShape::Cylinder`). The `├──┤` T-junction row made the node look like a
+  split-panel box. Replaced with an interior lip of `─` dashes (inset by 2 cells
+  on each side) that suggests a barrel cap without the divider confusion:
+  ```
+   ╭──────────╮
+  │ ──────── │
+  │ Database │
+   ╰──────────╯
+  ```
+
+- **Bug 3 — Hexagon `{{text}}` flat top/bottom** (`NodeShape::Hexagon`).
+  The top/bottom edges were plain horizontal lines with square corners. All four
+  corners are now `╱` / `╲` diagonal glyphs, combined with the existing `<` / `>`
+  side-point markers for a true 6-edge hexagon silhouette:
+  ```
+   ╱─────────╲
+  <  Hexagon  >
+   ╲─────────╱
+  ```
+
+- **Bug 4 — Parallelogram `[/text/]` inconsistent slant** (`NodeShape::Parallelogram`).
+  Only the top-left and bottom-right corners were slanted (`/`), leaving the
+  other two as square `┐` / `└`. All four corners are now `╱`, so both horizontal
+  edges lean consistently rightward:
+  ```
+   ╱─────────────────╱
+  │  Parallelogram  │
+   ╱─────────────────╱
+  ```
+
+- **Bug 6 — Trapezoid `[/text\]` corners changed to unicode slant glyphs**
+  (`NodeShape::Trapezoid`). The slant markers were ASCII `/` and `\`; they are
+  now `╱` (U+2571) and `╲` (U+2572) for visual consistency with the Rhombus and
+  Hexagon shapes. Bottom corners remain square to distinguish trapezoid from
+  parallelogram.
+
+### Added
+
+- **Bug 5 — Backslash parallelogram `[\text\]` now parsed and rendered**
+  (`NodeShape::ParallelogramBackslash`). Previously the parser did not recognise
+  this syntax and fell through to a rectangle with the literal label `\text\`.
+  The new shape uses `╲` at all four corners (lean-left mirror of Parallelogram):
+  ```
+   ╲─────────────╲
+  │  BackSlash  │
+   ╲─────────────╲
+  ```
+
+- **Bug 7 — Inverted trapezoid `[\text/]` now parsed and rendered**
+  (`NodeShape::TrapezoidInverted`). Same as Bug 5 — the `[\` prefix was
+  unrecognised. The new shape uses `╲` at top-left and `╱` at top-right (the
+  mirror-image hat of Trapezoid):
+  ```
+   ╲────────────────╱
+  │  InvTrapezoid  │
+   └────────────────┘
+  ```
+
+### Deliberately left as-is
+
+- **Bug 8 — Asymmetric `>text]` single mid-row `⟩`**. The current rendering
+  (`│  Asymmetric  ⟩` with square corners) is intentional: the left side is flat
+  and the right side has the point-marker only on the middle row. This unambiguously
+  signals an asymmetric / "flag" shape. No change made.
+
+### Tests
+
+- Added 6 per-bug unit tests in `src/lib.rs`:
+  `stadium_label_does_not_leak_parens`, `database_has_no_horizontal_divider`,
+  `hexagon_has_slanted_corners_and_side_points`, `parallelogram_has_slanted_top_and_bottom`,
+  `backslash_parallelogram_parses_and_renders`, `inv_trapezoid_parses_and_renders`.
+- Added 2 parser unit tests in `src/parser/flowchart.rs`:
+  `parse_parallelogram_backslash_node`, `parse_trapezoid_inverted_node`.
+- Added snapshot `flowchart_all_node_shapes_phase_2` covering all 13 shapes from
+  the audit diagram.
+- Updated snapshots: `all_node_shapes`, `architecture_diagram_with_sugiyama_backend`,
+  `cylinder_in_flow`, `edge_crosses_subgraph_boundary` (4 total — all visually
+  improved vs. previous output).
+
+---
+
 ## 0.24.0 — 2026-04-27 — Shape rendering polish
 
 Motivated by feedback from the `md-tui` maintainer evaluating `mermaid-text` for

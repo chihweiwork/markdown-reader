@@ -1115,15 +1115,15 @@ mod tests {
     fn cylinder_node_renders() {
         let out = render("graph LR; A[(Database)]").unwrap();
         assert!(out.contains("Database"), "missing label:\n{out}");
-        // Cylinder uses rounded corners and a T-junction lid line that
-        // together distinguish it from a plain rounded rectangle.
+        // Cylinder uses rounded corners and an interior lip line (─ dashes)
+        // to suggest a barrel cap without a misleading T-junction divider.
         assert!(
             out.contains('╭') && out.contains('╰'),
             "missing rounded corners:\n{out}",
         );
         assert!(
-            out.contains('├') && out.contains('┤'),
-            "missing lid-line T-junctions:\n{out}",
+            out.contains('─'),
+            "missing interior lip dashes:\n{out}",
         );
     }
 
@@ -1150,16 +1150,16 @@ mod tests {
     fn parallelogram_node_renders() {
         let out = render("graph LR; A[/Parallel/]").unwrap();
         assert!(out.contains("Parallel"), "missing label:\n{out}");
-        // Parallelogram has / markers at top-left and bottom-right corners.
-        assert!(out.contains('/'), "no parallelogram slant marker:\n{out}");
+        // Parallelogram has ╱ markers at all four corners (lean-right).
+        assert!(out.contains('╱'), "no parallelogram slant marker:\n{out}");
     }
 
     #[test]
     fn trapezoid_node_renders() {
         let out = render("graph LR; A[/Trap\\]").unwrap();
         assert!(out.contains("Trap"), "missing label:\n{out}");
-        // Trapezoid has / at top-left and \ at top-right corners.
-        assert!(out.contains('/'), "no trapezoid slant marker:\n{out}");
+        // Trapezoid has ╱ at top-left and ╲ at top-right corners.
+        assert!(out.contains('╱'), "no trapezoid slant marker:\n{out}");
     }
 
     #[test]
@@ -1171,6 +1171,87 @@ mod tests {
         assert!(
             corner_count >= 2,
             "expected ≥2 rounded corners for double circle, got {corner_count}:\n{out}"
+        );
+    }
+
+    // ---- Phase 2 shape polish tests (0.25.0) --------------------------------
+
+    #[test]
+    fn stadium_label_does_not_leak_parens() {
+        let out = render("graph LR; A([Stadium])").unwrap();
+        // The `(` and `)` must appear ON the border, not inside the label
+        // region. The label row should not start with `│(` or end with `)│`.
+        // Verify the parens are present (they mark the border mid-row) but
+        // the label text itself is free of them.
+        assert!(out.contains("Stadium"), "missing label:\n{out}");
+        assert!(
+            out.contains('(') && out.contains(')'),
+            "missing stadium border parens:\n{out}"
+        );
+        // The label content must not be flanked by parens inside the border:
+        // bad form is "│( Stadium )│".
+        assert!(
+            !out.contains("│(") && !out.contains(")│"),
+            "paren inside border wall — leak detected:\n{out}"
+        );
+    }
+
+    #[test]
+    fn database_has_no_horizontal_divider() {
+        let out = render("graph LR; A[(Database)]").unwrap();
+        assert!(out.contains("Database"), "missing label:\n{out}");
+        // The old rendering used `├──┤` T-junction characters which looked
+        // like a misleading panel divider. Those must be absent.
+        assert!(
+            !out.contains('├') && !out.contains('┤'),
+            "unexpected T-junction divider in cylinder:\n{out}"
+        );
+        // Rounded corners must still be present.
+        assert!(out.contains('╭') && out.contains('╰'), "missing rounded corners:\n{out}");
+    }
+
+    #[test]
+    fn hexagon_has_slanted_corners_and_side_points() {
+        let out = render("graph LR; A{{Hexagon}}").unwrap();
+        assert!(out.contains("Hexagon"), "missing label:\n{out}");
+        // Top/bottom corners are `╱` / `╲` (slanted, like a rhombus).
+        assert!(out.contains('╱') && out.contains('╲'), "missing slanted corners:\n{out}");
+        // Left/right midpoints have `<` / `>` side-point markers.
+        assert!(out.contains('<') && out.contains('>'), "missing side-point markers:\n{out}");
+    }
+
+    #[test]
+    fn parallelogram_has_slanted_top_and_bottom() {
+        let out = render("graph LR; A[/Parallelogram/]").unwrap();
+        assert!(out.contains("Parallelogram"), "missing label:\n{out}");
+        // All four corners should be `╱` — consistent lean-right slant.
+        let slash_count = out.chars().filter(|&c| c == '╱').count();
+        assert!(
+            slash_count >= 4,
+            "expected ≥4 ╱ corners for lean-right parallelogram, got {slash_count}:\n{out}"
+        );
+    }
+
+    #[test]
+    fn backslash_parallelogram_parses_and_renders() {
+        let out = render("graph LR; A[\\BackSlash\\]").unwrap();
+        assert!(out.contains("BackSlash"), "missing label:\n{out}");
+        // All four corners should be `╲` — consistent lean-left slant.
+        let bslash_count = out.chars().filter(|&c| c == '╲').count();
+        assert!(
+            bslash_count >= 4,
+            "expected ≥4 ╲ corners for lean-left parallelogram, got {bslash_count}:\n{out}"
+        );
+    }
+
+    #[test]
+    fn inv_trapezoid_parses_and_renders() {
+        let out = render("graph LR; A[\\InvTrap/]").unwrap();
+        assert!(out.contains("InvTrap"), "missing label:\n{out}");
+        // Top corners are `╲` (left) and `╱` (right) — inverted hat shape.
+        assert!(
+            out.contains('╲') && out.contains('╱'),
+            "missing inverted trapezoid corner markers:\n{out}"
         );
     }
 

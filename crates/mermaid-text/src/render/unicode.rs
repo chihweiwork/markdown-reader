@@ -74,8 +74,11 @@ impl NodeGeom {
                 height: 3 + extra_lines,
                 text_row: 1,
             },
-            // Parallelogram / trapezoid: +2 width for slant corner markers.
-            NodeShape::Parallelogram | NodeShape::Trapezoid => NodeGeom {
+            // Parallelogram / trapezoid variants: +2 width for slant corner markers.
+            NodeShape::Parallelogram
+            | NodeShape::ParallelogramBackslash
+            | NodeShape::Trapezoid
+            | NodeShape::TrapezoidInverted => NodeGeom {
                 width: inner_w + 2,
                 height: 3 + extra_lines,
                 text_row: 1,
@@ -1275,6 +1278,12 @@ fn draw_node_box(grid: &mut Grid, node: &Node, pos: GridPos, geom: NodeGeom) {
         }
         NodeShape::Trapezoid => {
             grid.draw_trapezoid(col, row, geom.width, geom.height);
+        }
+        NodeShape::ParallelogramBackslash => {
+            grid.draw_parallelogram_backslash(col, row, geom.width, geom.height);
+        }
+        NodeShape::TrapezoidInverted => {
+            grid.draw_trapezoid_inverted(col, row, geom.width, geom.height);
         }
         NodeShape::DoubleCircle => {
             grid.draw_double_circle(col, row, geom.width, geom.height);

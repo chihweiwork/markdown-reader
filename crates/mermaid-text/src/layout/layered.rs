@@ -898,8 +898,11 @@ pub(crate) fn node_box_width(graph: &Graph, id: &str) -> usize {
             NodeShape::Subroutine => inner + 2,
             // Cylinder: standard width — arcs are drawn at top/bottom centre.
             NodeShape::Cylinder => inner,
-            // Parallelogram / Trapezoid: add 2 extra chars for slant markers.
-            NodeShape::Parallelogram | NodeShape::Trapezoid => inner + 2,
+            // Parallelogram / Trapezoid variants: add 2 extra chars for slant markers.
+            NodeShape::Parallelogram
+            | NodeShape::ParallelogramBackslash
+            | NodeShape::Trapezoid
+            | NodeShape::TrapezoidInverted => inner + 2,
             // DoubleCircle: needs 4 extra chars for the concentric inner border.
             NodeShape::DoubleCircle => inner + 4,
             // Plain shapes (and notes — same width as Rounded).
@@ -931,7 +934,9 @@ pub(crate) fn node_box_height(graph: &Graph, id: &str) -> usize {
             | NodeShape::Hexagon
             | NodeShape::Asymmetric
             | NodeShape::Parallelogram
+            | NodeShape::ParallelogramBackslash
             | NodeShape::Trapezoid
+            | NodeShape::TrapezoidInverted
             | NodeShape::Subroutine
             | NodeShape::Note => 3 + extra,
             // Cylinder needs 4 rows: top border, lid line, text, bottom border.

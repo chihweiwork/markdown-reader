@@ -5,6 +5,17 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.15] — 2026-04-27
+
+### Changed
+
+- **`mermaid-text` 0.25.0** — shape variants polish (Phase 2): stadium paren
+  leak fixed; cylinder T-junction divider replaced with an interior lip;
+  hexagon gains slanted corners; parallelogram slant is consistent on all four
+  corners; `[\text\]` (backslash parallelogram) and `[\text/]` (inverted
+  trapezoid) are now parsed and rendered. See
+  `crates/mermaid-text/CHANGELOG.md` for full details.
+
 ## [1.34.14] — 2026-04-27
 
 ### Changed
