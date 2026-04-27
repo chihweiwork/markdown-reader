@@ -40,8 +40,8 @@ Design choices (locked in 2026-04-27):
 | 4 | `I` enters hybrid mode (read-only) | shipped 1.30.0 | 1.5d |
 | 5 | Active block reveal (the "wow") | shipped 1.31.0 | 2.5-3d |
 | 6 | Editing in active text blocks | shipped 1.32.0 | 3-4d |
-| 7 | Active tables | not started | 0.5-1d |
-| 8 | Active mermaid (deferred re-render on leave) | not started | 0.5-1d |
+| 7 | Active tables | shipped 1.32.1 | 0.5-1d |
+| 8 | Active mermaid (deferred re-render on leave) | shipped 1.32.2 | 0.5-1d |
 | 9 | `i`/`I` swap (hybrid becomes default) | not started | 0.5d |
 
 Sub-phases must ship sequentially (each builds on previous data

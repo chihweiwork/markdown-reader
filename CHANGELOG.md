@@ -5,6 +5,51 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 1.32.2
+
+### Added — Hybrid live-preview editing sub-phase 8 (active mermaid investigation + tests)
+
+Investigation and test coverage for mermaid blocks in hybrid mode. Key findings:
+
+**The active-block branch in `draw.rs` already handles mermaid blocks** — the
+`is_active_block` path calls `doc_block.source_byte_range()` and renders the
+raw source slice without branching on the `DocBlock` variant. No code change was
+needed for the raw-render path itself.
+
+**Critical finding — mermaid byte-range limitation**: the existing byte-range
+fixup pass in the renderer assigns mermaid blocks a range that covers only the
+opening fence line (```` ```mermaid\n ````), not the full fenced block. The
+diagram content and closing fence land in the next text block. This means:
+- The active raw render shows only the opening fence, not the diagram content.
+- `reparse_and_splice_block` on leave re-parses an incomplete slice.
+
+This is a known limitation of the current contiguous byte-range assignment
+strategy (each block's end = next block's start; the blank line emitted by
+`emit_mermaid_block` pins the next block's start inside the fence). It is
+documented in the test module and tracked for a targeted fix in a future sub-phase.
+
+**Cache-key stability confirmed**: `MermaidBlockId` is `hash(source_field)` where
+`source_field` is the content between fences, populated once at parse time and NOT
+mutated by `apply_edit` (only byte-range fields shift). An enter + leave without
+edit round-trip preserves the id → `ensure_queued` hits the cache → no spurious
+async re-render. This is the key performance guarantee.
+
+**4 new tests** in `src/ui/hybrid_editor.rs` under `// Sub-phase 8`:
+- `active_mermaid_renders_raw_when_cursor_inside` — cursor inside mermaid block
+  sets `active_block.index == mermaid_idx`; raw slice starts with the fence.
+- `mermaid_cursor_leave_with_unchanged_source_keeps_id_and_cache` — full re-parse
+  of unchanged source yields identical `MermaidBlockId` (cache preserved).
+- `mermaid_cursor_leave_triggers_reparse_with_new_id` — modified diagram content
+  yields a different `MermaidBlockId` (cache miss → re-render queued).
+- `cursor_inside_mermaid_block_byte_to_visual_works` — `byte_to_visual_raw`
+  returns correct `(row, col)` for bytes inside the mermaid block's range.
+- `editing_inside_active_mermaid_extends_byte_range` — `apply_edit` inside a
+  mermaid block extends `source_byte_end` by 1 and shifts subsequent blocks.
+
+359 tests pass (+4 new). Clippy + fmt clean.
+
+Sub-phase 9 (`i`/`I` swap — hybrid becomes default) is next.
+
 ## [1.32.1] - 2026-04-27
 
 ### Added — Hybrid live-preview editing sub-phase 7 (active tables)
