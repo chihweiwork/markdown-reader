@@ -42,6 +42,7 @@ Design choices (locked in 2026-04-27):
 | 6 | Editing in active text blocks | shipped 1.32.0 | 3-4d |
 | 7 | Active tables | shipped 1.32.1 | 0.5-1d |
 | 8 | Active mermaid (deferred re-render on leave) | shipped 1.32.2 | 0.5-1d |
+| 8b | Mermaid byte-range covers full fenced region (bug fix flagged in 8) | shipped 1.32.3 | 0.5d |
 | 9 | `i`/`I` swap (hybrid becomes default) | not started | 0.5d |
 
 Sub-phases must ship sequentially (each builds on previous data

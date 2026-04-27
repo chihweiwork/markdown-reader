@@ -1581,13 +1581,17 @@ mod tests {
             "active_block.end_byte must equal the mermaid block's source_byte_end"
         );
 
-        // The raw source slice (only the opening fence "```mermaid\n" in the
-        // current byte-range layout) must not contain box-drawing characters
-        // — those only appear in the formatted AsciiDiagram render output.
+        // The raw source slice must span the entire fenced region: opening
+        // fence, diagram content, and closing fence. Box-drawing characters
+        // appear only in the formatted AsciiDiagram render output.
         let raw_slice = &state.source[mermaid_start..mermaid_end];
         assert!(
             raw_slice.starts_with("```mermaid"),
-            "raw source slice for a mermaid block must start with the opening fence"
+            "raw source slice for a mermaid block must start with the opening fence, got: {raw_slice:?}"
+        );
+        assert!(
+            raw_slice.trim_end().ends_with("```"),
+            "raw source slice must include the closing fence, got: {raw_slice:?}"
         );
         assert!(
             !raw_slice.contains('\u{2502}') && !raw_slice.contains('\u{250C}'),

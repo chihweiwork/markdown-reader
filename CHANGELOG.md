@@ -5,7 +5,40 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 1.32.2
+## [Unreleased] — 1.32.3
+
+### Fixed — Mermaid byte-range covers full fenced region (hybrid-mode prerequisite)
+
+The byte-range fixup pass in `MdRenderer` was assigning mermaid blocks a range
+that covered only the opening fence line (```` ```mermaid\n ````); the diagram
+content and closing fence ended up attributed to the next text block. In
+hybrid editing mode this caused the active mermaid raw view to show only the
+opening fence — confusing for users about to land on `i`/`I` becoming the
+default in sub-phase 9.
+
+Root cause: `current_source_line` was not advanced past the closing fence
+before the trailing `push_blank_line()` in `emit_mermaid_block`, so the next
+text block's `source_lines[0]` pinned its `source_byte_start` *inside* the
+fence. The contiguity-fixup pass then trimmed mermaid's `source_byte_end`
+back to that wrong position.
+
+Fix: in `TagEnd::CodeBlock`, advance `current_source_line` to the line *after*
+the closing fence (using the End event's `span.end`). Also harden the
+fixup-pass fallback so a `source_lines` index past the boundaries table
+resolves to `content.len()` (handles mermaid-as-last-block + EOF cases)
+rather than collapsing to 0.
+
+2 new regression tests in `markdown::renderer::tests`:
+- `mermaid_byte_range_covers_full_fence_with_trailing_paragraph`
+- `mermaid_byte_range_covers_full_fence_when_last_block`
+
+The existing `active_mermaid_renders_raw_when_cursor_inside` assertion is
+upgraded to require the closing fence in the raw slice (was previously
+lenient about it given the known limitation).
+
+361 unit tests (was 359) + 450 integration tests pass. Clippy clean.
+
+## [1.32.2] — 2026-04-24
 
 ### Added — Hybrid live-preview editing sub-phase 8 (active mermaid investigation + tests)
 

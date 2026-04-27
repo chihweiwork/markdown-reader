@@ -384,7 +384,7 @@ impl MdRenderer {
 
             match event {
                 Event::Start(tag) => self.start_tag(tag, &span),
-                Event::End(tag) => self.end_tag(tag),
+                Event::End(tag) => self.end_tag(tag, &span),
                 Event::Text(text) => self.handle_text(&text),
                 Event::Code(code) => {
                     let style = self
@@ -555,17 +555,26 @@ impl MdRenderer {
         let boundaries = &self.line_boundaries;
 
         // First pass: set a raw byte_start for each block from its first
-        // source line (or 0 for the first block).
+        // source line. When the recorded source_line is past the last
+        // boundary, the block represents content past EOF (e.g. a trailing
+        // blank line synthesised after a mermaid fence at end-of-file). Use
+        // `content.len()` as the fallback so the contiguity loop pins the
+        // preceding block's end to the true end-of-source rather than 0.
+        let eof_byte = content.len();
         for block in &mut self.blocks {
             let raw_start = match block {
                 DocBlock::Text { source_lines, .. } => source_lines
                     .first()
                     .and_then(|&l| boundaries.get(l as usize).copied())
-                    .unwrap_or(0),
-                DocBlock::Mermaid { source_line, .. } => {
-                    boundaries.get(*source_line as usize).copied().unwrap_or(0)
-                }
-                DocBlock::Table(t) => boundaries.get(t.source_line as usize).copied().unwrap_or(0),
+                    .unwrap_or(eof_byte),
+                DocBlock::Mermaid { source_line, .. } => boundaries
+                    .get(*source_line as usize)
+                    .copied()
+                    .unwrap_or(eof_byte),
+                DocBlock::Table(t) => boundaries
+                    .get(t.source_line as usize)
+                    .copied()
+                    .unwrap_or(eof_byte),
             };
             match block {
                 DocBlock::Text {
@@ -757,7 +766,7 @@ impl MdRenderer {
         }
     }
 
-    fn end_tag(&mut self, tag: TagEnd) {
+    fn end_tag(&mut self, tag: TagEnd, span: &Range<usize>) {
         match tag {
             TagEnd::Heading(_) => {
                 self.pop_style();
@@ -787,6 +796,26 @@ impl MdRenderer {
                 let is_mermaid = lang == Some("mermaid")
                     || (lang.is_none_or(str::is_empty)
                         && looks_like_mermaid(&self.code_block_content));
+                // Advance `current_source_line` past the closing fence before
+                // emitting. Without this, the trailing `push_blank_line()` in
+                // `emit_mermaid_block` (and the subsequent text block's first
+                // `source_lines` entry) would anchor at the last diagram-content
+                // line — pinning the next block's `source_byte_start` *inside*
+                // the fence and starving the mermaid block's range of its
+                // content + closing fence. `span.end` is the byte offset right
+                // after the closing fence's newline.
+                // pulldown-cmark's End(CodeBlock) span ends at the byte just
+                // past the closing fence's last `` ` `` (excluding the trailing
+                // newline). `span.end - 1` is therefore the last byte of the
+                // closing fence; its line is the closing-fence line. The line
+                // *after* the closing fence is the right anchor for the
+                // trailing `push_blank_line()` so the next text block's
+                // `source_byte_start` lands past the fence (instead of pinning
+                // it inside, which would starve the mermaid block of its own
+                // content + closing fence in the contiguity-fixup pass).
+                let closing_fence_line =
+                    byte_offset_to_line(span.end.saturating_sub(1), &self.line_boundaries);
+                self.current_source_line = closing_fence_line.saturating_add(1);
                 if is_mermaid {
                     self.emit_mermaid_block();
                 } else {
@@ -2007,5 +2036,78 @@ mod tests {
                 "mermaid source should contain 'graph LR', got: {source:?}"
             );
         }
+    }
+
+    /// Regression: the mermaid block's `source_byte_start..source_byte_end` must
+    /// span the *entire* fenced region — opening fence, content, AND closing
+    /// fence. Previously the byte-range fixup pinned the next block's start
+    /// inside the fence (because `current_source_line` lagged on the last
+    /// diagram-content line), so the mermaid byte range covered only the
+    /// opening fence line. Hybrid mode then showed an incomplete raw view.
+    #[test]
+    fn mermaid_byte_range_covers_full_fence_with_trailing_paragraph() {
+        let source = "intro paragraph\n\n```mermaid\ngraph LR\nA-->B\n```\n\ntrailing paragraph\n";
+        let blocks = render_block_from_slice(source, 0, &default_palette(), Theme::Default);
+        let mermaid = blocks
+            .iter()
+            .find(|b| matches!(b, DocBlock::Mermaid { .. }))
+            .expect("expected a Mermaid block");
+        let DocBlock::Mermaid {
+            source_byte_start,
+            source_byte_end,
+            ..
+        } = mermaid
+        else {
+            unreachable!()
+        };
+        let start = *source_byte_start as usize;
+        let end = *source_byte_end as usize;
+        let slice = &source[start..end];
+        assert!(
+            slice.starts_with("```mermaid"),
+            "mermaid byte range must start at the opening fence, got: {slice:?}"
+        );
+        assert!(
+            slice.contains("graph LR") && slice.contains("A-->B"),
+            "mermaid byte range must include diagram content, got: {slice:?}"
+        );
+        assert!(
+            slice.trim_end().ends_with("```"),
+            "mermaid byte range must include the closing fence, got: {slice:?}"
+        );
+    }
+
+    /// Same regression but when the mermaid block is the *last* block in the
+    /// document (no trailing paragraph to pin its end). The contiguity
+    /// invariant guarantees the last block's end == source.len(), but earlier
+    /// the trailing `push_blank_line()` would still emit a stray empty Text
+    /// block whose start landed inside the fence.
+    #[test]
+    fn mermaid_byte_range_covers_full_fence_when_last_block() {
+        let source = "intro\n\n```mermaid\ngraph LR\nA-->B\n```\n";
+        let blocks = render_block_from_slice(source, 0, &default_palette(), Theme::Default);
+        let mermaid = blocks
+            .iter()
+            .find(|b| matches!(b, DocBlock::Mermaid { .. }))
+            .expect("expected a Mermaid block");
+        let DocBlock::Mermaid {
+            source_byte_start,
+            source_byte_end,
+            ..
+        } = mermaid
+        else {
+            unreachable!()
+        };
+        let start = *source_byte_start as usize;
+        let end = *source_byte_end as usize;
+        let slice = &source[start..end];
+        assert!(
+            slice.starts_with("```mermaid"),
+            "mermaid byte range must start at the opening fence, got: {slice:?}"
+        );
+        assert!(
+            slice.trim_end().ends_with("```"),
+            "mermaid byte range must include the closing fence, got: {slice:?}"
+        );
     }
 }
