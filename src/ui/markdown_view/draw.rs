@@ -13,7 +13,7 @@ use ratatui::{
     Frame,
     layout::{Position, Rect},
     style::{Color, Style},
-    text::Text,
+    text::{Span, Text},
     widgets::{Block, Borders, Paragraph},
 };
 use std::borrow::Cow;
@@ -282,6 +282,32 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
     let lookahead_start = scroll_offset.saturating_sub(LAZY_RENDER_LOOKAHEAD);
     let lookahead_end = viewport_end + LAZY_RENDER_LOOKAHEAD;
 
+    // ── Hybrid active-block index ─────────────────────────────────────────────
+    //
+    // When in hybrid mode, one block renders as raw markdown source while all
+    // others render formatted as usual.  Extract the index once before the
+    // block loop so each iteration can check "is this the active block?" in O(1).
+    // We also capture the hybrid source string for the raw-rendering path.
+    let active_block_index: Option<usize> = if app.focus == Focus::HybridEditor {
+        app.tabs
+            .active_tab()
+            .and_then(|t| t.hybrid.as_ref())
+            .and_then(|h| h.active_block.as_ref().map(|ab| ab.index))
+    } else {
+        None
+    };
+    // Clone the source string while we have a shared borrow; the draw loop
+    // later needs `&mut App` for mermaid queuing, so we can't hold a borrow
+    // into `app.tabs` across that call.
+    let hybrid_source: Option<String> = if active_block_index.is_some() {
+        app.tabs
+            .active_tab()
+            .and_then(|t| t.hybrid.as_ref())
+            .map(|h| h.source.clone())
+    } else {
+        None
+    };
+
     // We can't hold a borrow into `app.tabs` while also accessing
     // `app.mermaid_cache`, so we collect rendering instructions first.
     let mut text_draws: Vec<TextDraw> = Vec::new();
@@ -300,9 +326,56 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
         // Mermaid/Table it equals their visual height (no wrapping happens
         // inside those, so logical and visual coincide).
         let mut block_start_logical = 0u32;
+        for (block_index, doc_block) in tab.view.rendered.iter().enumerate() {
+            // ── Active-block raw rendering (hybrid mode) ──────────────────────
+            //
+            // When this block is the hybrid cursor's active block, we render it
+            // as plain unwrapped source text instead of the formatted version.
+            // The formatted cache in `text_layouts` is NOT used for this block;
+            // only the source slice matters.  All other blocks (block_index !=
+            // active_block_index) render formatted as normal — zero behaviour change.
+            //
+            // Height accounting: the raw block may occupy a different number of
+            // visual rows than the formatted block.  We compute the raw height
+            // from wrap_spans and use it for this block's `block_height` so the
+            // Y positions of all subsequent blocks in this frame are correct.
+            // `view.total_lines` (used for scroll clamping) is NOT updated here
+            // — that would require a mutable borrow and produce per-frame flicker.
+            // The height mismatch is acceptable in sub-phase 5; sub-phase 6 will
+            // keep total_lines consistent by updating it on cursor movement.
+            let is_active_block = active_block_index == Some(block_index);
 
-        for doc_block in &tab.view.rendered {
-            let block_height: u32 = DocBlock::height(doc_block);
+            // Compute raw height if this is the active block and we have the source.
+            let raw_height_opt: Option<u32> = if is_active_block {
+                hybrid_source.as_deref().map(|src| {
+                    let b_start = match doc_block {
+                        DocBlock::Text {
+                            source_byte_start, ..
+                        } => *source_byte_start as usize,
+                        DocBlock::Mermaid {
+                            source_byte_start, ..
+                        } => *source_byte_start as usize,
+                        DocBlock::Table(t) => t.source_byte_start as usize,
+                    };
+                    let b_end = match doc_block {
+                        DocBlock::Text {
+                            source_byte_end, ..
+                        } => *source_byte_end as usize,
+                        DocBlock::Mermaid {
+                            source_byte_end, ..
+                        } => *source_byte_end as usize,
+                        DocBlock::Table(t) => t.source_byte_end as usize,
+                    };
+                    let slice = &src[b_start.min(src.len())..b_end.min(src.len())];
+                    let raw_span = Span::raw(slice);
+                    let wrapped = crate::text_layout::wrap_spans(&[raw_span], effective_width);
+                    crate::cast::u32_sat(wrapped.len()).max(1)
+                })
+            } else {
+                None
+            };
+
+            let block_height: u32 = raw_height_opt.unwrap_or_else(|| DocBlock::height(doc_block));
             let block_end = block_start + block_height;
             let block_logical_height: u32 = match doc_block {
                 DocBlock::Text { text, .. } => crate::cast::u32_sat(text.lines.len()),
@@ -334,178 +407,235 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                         visible_lines.min(u32::from(inner.y + inner.height - rect_y)),
                     );
 
-                    match doc_block {
-                        DocBlock::Text { id, text, .. } => {
-                            // Look up the pre-wrapped layout for this block. On the
-                            // very first draw the cache may not be populated yet
-                            // (race between width-change path and first paint); call
-                            // update_text_layouts immediately so we always have data.
-                            //
-                            // SAFETY: active tab is guaranteed by `has_content`.
-                            let layout_opt = tab.view.text_layouts.get(id).map(|l| {
-                                // Clone the physical_to_logical mapping for the gutter;
-                                // the wrapped lines are converted to ratatui Lines below.
-                                l.physical_to_logical.clone()
-                            });
-                            let physical_to_logical = layout_opt;
-
-                            // Build ratatui Lines from the pre-wrapped output.
-                            // Single-source conversion via `WrappedLine::to_ratatui_line`.
-                            let wrapped_lines: Vec<ratatui::text::Line<'static>> = tab
-                                .view
-                                .text_layouts
-                                .get(id)
-                                .map(|layout| {
-                                    layout
-                                        .wrapped
-                                        .iter()
-                                        .map(|wl| wl.to_ratatui_line())
-                                        .collect()
-                                })
-                                .unwrap_or_else(|| {
-                                    // Cache absent — fall back to logical lines (no wrap).
-                                    text.lines.clone()
-                                });
-
-                            // Apply search match highlights on the wrapped lines.
-                            // `highlight_matches` operates on logical lines from the
-                            // original `text`, keyed by block_start (visual row).
-                            // Since wrapped_lines now IS the visual-row space, we
-                            // pass it directly as both the data and index base.
-                            let mut full_text =
-                                if let Some((query, current_line)) = &doc_search_query {
-                                    // Build a temporary Text from wrapped lines and highlight.
-                                    let tmp = Text::from(wrapped_lines.clone());
-                                    highlight_matches(
-                                        &tmp,
-                                        query,
-                                        *current_line,
-                                        block_start,
-                                        &app.tokens,
-                                    )
-                                } else {
-                                    Text::from(wrapped_lines)
-                                };
-
-                            let block_end_visual = block_start + block_height;
-                            if focused {
-                                // In Phase 3 the wrapped lines ARE the visual rows —
-                                // cursor_line and block_start are in the same coordinate
-                                // space as the indices into full_text.lines. No conversion
-                                // needed; the mapping is identity.
-                                apply_visual_or_cursor_highlight(
-                                    &mut full_text.lines,
-                                    visual_mode,
-                                    cursor_line,
-                                    block_start,
-                                    block_end_visual,
-                                    app.tokens.state.selection_bg,
-                                );
-
-                                // Single-cell cursor highlight at the cursor's physical
-                                // wrapped row. `cursor_visual_in_block` IS the index into
-                                // full_text.lines — no logical→visual conversion needed.
-                                if cursor_line >= block_start && cursor_line < block_end_visual {
-                                    let cursor_visual_in_block =
-                                        (cursor_line - block_start) as usize;
-                                    if let Some(line) = full_text.lines.get(cursor_visual_in_block)
-                                    {
-                                        let col =
-                                            app.tabs.active_tab().map_or(0, |t| t.view.cursor_col);
-                                        full_text.lines[cursor_visual_in_block] =
-                                            super::highlight::highlight_columns(
-                                                line,
-                                                col,
-                                                col + 1,
-                                                app.tokens.accent.primary,
-                                            );
-                                    }
-                                }
-                            }
-
+                    // ── Active block raw render (hybrid mode) ──────────────
+                    //
+                    // When `is_active_block` is true, we bypass the entire
+                    // formatted-render path for this block and instead wrap the
+                    // raw source slice.  The result looks like plain text —
+                    // no heading bars, no bullet glyphs, no syntax highlighting.
+                    // That visual jump IS the "compile" event the user perceives
+                    // when the cursor enters a block.
+                    //
+                    // For inactive blocks (is_active_block == false), all code
+                    // paths below are identical to the pre-sub-phase-5 behaviour.
+                    if is_active_block {
+                        if let Some(src) = hybrid_source.as_deref() {
+                            let b_start = match doc_block {
+                                DocBlock::Text {
+                                    source_byte_start, ..
+                                } => *source_byte_start as usize,
+                                DocBlock::Mermaid {
+                                    source_byte_start, ..
+                                } => *source_byte_start as usize,
+                                DocBlock::Table(t) => t.source_byte_start as usize,
+                            };
+                            let b_end = match doc_block {
+                                DocBlock::Text {
+                                    source_byte_end, ..
+                                } => *source_byte_end as usize,
+                                DocBlock::Mermaid {
+                                    source_byte_end, ..
+                                } => *source_byte_end as usize,
+                                DocBlock::Table(t) => t.source_byte_end as usize,
+                            };
+                            let slice = &src[b_start.min(src.len())..b_end.min(src.len())];
+                            let raw_span = Span::raw(slice);
+                            let wrapped =
+                                crate::text_layout::wrap_spans(&[raw_span], effective_width);
+                            // Convert WrappedLine to ratatui Lines (plain, no styling).
+                            let raw_lines: Vec<ratatui::text::Line<'static>> =
+                                wrapped.iter().map(|wl| wl.to_ratatui_line()).collect();
+                            let raw_text = Text::from(raw_lines);
                             text_draws.push(TextDraw {
                                 y: rect_y,
                                 height: draw_height,
-                                text: full_text,
-                                // Logical block start + 1 so the gutter
-                                // numbers each source line once; wrap
-                                // continuation rows get a blank gutter entry
-                                // (controlled by physical_to_logical in the
-                                // gutter renderer).
+                                text: raw_text,
                                 first_line_number: block_start_logical + 1,
                                 scroll_skip: crate::cast::u16_from_u32(clip_start),
-                                physical_to_logical,
+                                // No physical_to_logical for raw blocks — each wrapped row
+                                // IS a source line in the raw view; the gutter will use
+                                // first_line_number + sequential offsets, which is fine.
+                                physical_to_logical: None,
                             });
                         }
-                        DocBlock::Mermaid { id, source, .. } => {
-                            // Render the image when the block is as visible as
-                            // it can get: fully visible for small blocks, or
-                            // filling the viewport for blocks taller than the
-                            // viewport. Show a placeholder only while the block
-                            // is entering/exiting the viewport edges.
-                            let max_renderable = block_height.min(u32::from(inner.height));
-                            let fully_visible = visible_lines >= max_renderable
-                                && u32::from(draw_height) >= max_renderable;
-                            mermaid_draws.push(MermaidDraw {
-                                y: rect_y,
-                                height: draw_height,
-                                fully_visible,
-                                id: MermaidBlockId(id.0),
-                                source: source.clone(),
-                                block_start,
-                                block_height,
-                                clip_start,
-                                visual_mode,
-                            });
-                        }
-                        DocBlock::Table(table) => {
-                            // Slice visible lines from the cached rendered text.
-                            if let Some(cached) = tab.view.table_layouts.get(&table.id) {
-                                let start = clip_start as usize;
-                                let end = (clip_start + visible_lines)
-                                    .min(crate::cast::u32_sat(cached.text.lines.len()))
-                                    as usize;
-                                let mut visible_text =
+                    } else {
+                        match doc_block {
+                            DocBlock::Text { id, text, .. } => {
+                                // Look up the pre-wrapped layout for this block. On the
+                                // very first draw the cache may not be populated yet
+                                // (race between width-change path and first paint); call
+                                // update_text_layouts immediately so we always have data.
+                                //
+                                // SAFETY: active tab is guaranteed by `has_content`.
+                                let layout_opt = tab.view.text_layouts.get(id).map(|l| {
+                                    // Clone the physical_to_logical mapping for the gutter;
+                                    // the wrapped lines are converted to ratatui Lines below.
+                                    l.physical_to_logical.clone()
+                                });
+                                let physical_to_logical = layout_opt;
+
+                                // Build ratatui Lines from the pre-wrapped output.
+                                // Single-source conversion via `WrappedLine::to_ratatui_line`.
+                                let wrapped_lines: Vec<ratatui::text::Line<'static>> = tab
+                                    .view
+                                    .text_layouts
+                                    .get(id)
+                                    .map(|layout| {
+                                        layout
+                                            .wrapped
+                                            .iter()
+                                            .map(|wl| wl.to_ratatui_line())
+                                            .collect()
+                                    })
+                                    .unwrap_or_else(|| {
+                                        // Cache absent — fall back to logical lines (no wrap).
+                                        text.lines.clone()
+                                    });
+
+                                // Apply search match highlights on the wrapped lines.
+                                // `highlight_matches` operates on logical lines from the
+                                // original `text`, keyed by block_start (visual row).
+                                // Since wrapped_lines now IS the visual-row space, we
+                                // pass it directly as both the data and index base.
+                                let mut full_text =
                                     if let Some((query, current_line)) = &doc_search_query {
-                                        let full = highlight_matches(
-                                            &cached.text,
+                                        // Build a temporary Text from wrapped lines and highlight.
+                                        let tmp = Text::from(wrapped_lines.clone());
+                                        highlight_matches(
+                                            &tmp,
                                             query,
                                             *current_line,
                                             block_start,
                                             &app.tokens,
-                                        );
-                                        Text::from(full.lines[start..end].to_vec())
+                                        )
                                     } else {
-                                        Text::from(cached.text.lines[start..end].to_vec())
+                                        Text::from(wrapped_lines)
                                     };
-                                // Apply highlight(s) when the viewer has focus.
-                                // In visual mode every line in the selection range is
-                                // highlighted; in normal mode only the cursor row.
-                                let block_end = block_start + block_height;
+
+                                let block_end_visual = block_start + block_height;
                                 if focused {
-                                    apply_block_highlight(
-                                        &mut visible_text.lines,
+                                    // In Phase 3 the wrapped lines ARE the visual rows —
+                                    // cursor_line and block_start are in the same coordinate
+                                    // space as the indices into full_text.lines. No conversion
+                                    // needed; the mapping is identity.
+                                    apply_visual_or_cursor_highlight(
+                                        &mut full_text.lines,
                                         visual_mode,
                                         cursor_line,
                                         block_start,
-                                        block_end,
-                                        start,
+                                        block_end_visual,
                                         app.tokens.state.selection_bg,
                                     );
+
+                                    // Single-cell cursor highlight at the cursor's physical
+                                    // wrapped row. `cursor_visual_in_block` IS the index into
+                                    // full_text.lines — no logical→visual conversion needed.
+                                    if cursor_line >= block_start && cursor_line < block_end_visual
+                                    {
+                                        let cursor_visual_in_block =
+                                            (cursor_line - block_start) as usize;
+                                        if let Some(line) =
+                                            full_text.lines.get(cursor_visual_in_block)
+                                        {
+                                            let col = app
+                                                .tabs
+                                                .active_tab()
+                                                .map_or(0, |t| t.view.cursor_col);
+                                            full_text.lines[cursor_visual_in_block] =
+                                                super::highlight::highlight_columns(
+                                                    line,
+                                                    col,
+                                                    col + 1,
+                                                    app.tokens.accent.primary,
+                                                );
+                                        }
+                                    }
                                 }
+
                                 text_draws.push(TextDraw {
                                     y: rect_y,
                                     height: draw_height,
-                                    text: visible_text,
-                                    first_line_number: block_start + clip_start + 1,
-                                    scroll_skip: 0,
-                                    // Tables are already pre-sliced to the visible
-                                    // rows; no wrap continuation rows exist.
-                                    physical_to_logical: None,
+                                    text: full_text,
+                                    // Logical block start + 1 so the gutter
+                                    // numbers each source line once; wrap
+                                    // continuation rows get a blank gutter entry
+                                    // (controlled by physical_to_logical in the
+                                    // gutter renderer).
+                                    first_line_number: block_start_logical + 1,
+                                    scroll_skip: crate::cast::u16_from_u32(clip_start),
+                                    physical_to_logical,
                                 });
                             }
+                            DocBlock::Mermaid { id, source, .. } => {
+                                // Render the image when the block is as visible as
+                                // it can get: fully visible for small blocks, or
+                                // filling the viewport for blocks taller than the
+                                // viewport. Show a placeholder only while the block
+                                // is entering/exiting the viewport edges.
+                                let max_renderable = block_height.min(u32::from(inner.height));
+                                let fully_visible = visible_lines >= max_renderable
+                                    && u32::from(draw_height) >= max_renderable;
+                                mermaid_draws.push(MermaidDraw {
+                                    y: rect_y,
+                                    height: draw_height,
+                                    fully_visible,
+                                    id: MermaidBlockId(id.0),
+                                    source: source.clone(),
+                                    block_start,
+                                    block_height,
+                                    clip_start,
+                                    visual_mode,
+                                });
+                            }
+                            DocBlock::Table(table) => {
+                                // Slice visible lines from the cached rendered text.
+                                if let Some(cached) = tab.view.table_layouts.get(&table.id) {
+                                    let start = clip_start as usize;
+                                    let end = (clip_start + visible_lines)
+                                        .min(crate::cast::u32_sat(cached.text.lines.len()))
+                                        as usize;
+                                    let mut visible_text =
+                                        if let Some((query, current_line)) = &doc_search_query {
+                                            let full = highlight_matches(
+                                                &cached.text,
+                                                query,
+                                                *current_line,
+                                                block_start,
+                                                &app.tokens,
+                                            );
+                                            Text::from(full.lines[start..end].to_vec())
+                                        } else {
+                                            Text::from(cached.text.lines[start..end].to_vec())
+                                        };
+                                    // Apply highlight(s) when the viewer has focus.
+                                    // In visual mode every line in the selection range is
+                                    // highlighted; in normal mode only the cursor row.
+                                    let block_end = block_start + block_height;
+                                    if focused {
+                                        apply_block_highlight(
+                                            &mut visible_text.lines,
+                                            visual_mode,
+                                            cursor_line,
+                                            block_start,
+                                            block_end,
+                                            start,
+                                            app.tokens.state.selection_bg,
+                                        );
+                                    }
+                                    text_draws.push(TextDraw {
+                                        y: rect_y,
+                                        height: draw_height,
+                                        text: visible_text,
+                                        first_line_number: block_start + clip_start + 1,
+                                        scroll_skip: 0,
+                                        // Tables are already pre-sliced to the visible
+                                        // rows; no wrap continuation rows exist.
+                                        physical_to_logical: None,
+                                    });
+                                }
+                            }
                         }
-                    }
+                    } // closes `else` of `if is_active_block`
                 }
             }
 
@@ -603,33 +733,89 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
     //
     // When the active tab is in hybrid mode (`tab.hybrid` is `Some`), place the
     // real terminal cursor at the visual position that corresponds to the hybrid
-    // editor's current source byte offset.  The viewer renders unchanged — the
-    // only visible difference is the blinking cursor.
+    // editor's current source byte offset.
     //
-    // Sub-phase 4 only handles Text blocks (byte_to_visual returns None for
-    // Mermaid / Table blocks).  Sub-phases 5/8 will refine those cases.
+    // Sub-phase 5 adds the critical branch: when the cursor is inside the active
+    // block (which renders as raw source), the `text_layouts` cache holds the
+    // *formatted* layout for that block — not the raw layout.  Using the cached
+    // layout would produce a wrong column.  We therefore branch:
+    //
+    //   • Cursor in the active block → use `byte_to_visual_raw`, which wraps the
+    //     raw source slice directly and locates the byte within the wrapped rows.
+    //   • Cursor in any other (inactive) block → use the existing `byte_to_visual`
+    //     path, which consults the `text_layouts` cache as before (those blocks are
+    //     rendered formatted, so the cache is the correct source of truth).
+    //
+    // This is the only branch in the cursor-placement code; all other code paths
+    // (scroll offset subtraction, terminal coordinate clamping) are shared.
     if app.focus == Focus::HybridEditor
         && let Some(tab) = app.tabs.active_tab()
         && let Some(hybrid) = tab.hybrid.as_ref()
     {
         // Translate edtui cursor position (row, col) → source byte offset.
-        let cursor_byte = {
-            let row = hybrid.editor_state.cursor.row;
-            let col = hybrid.editor_state.cursor.col;
-            let line_start = hybrid
-                .line_boundaries
-                .get(row)
-                .copied()
-                .unwrap_or_else(|| hybrid.line_boundaries.last().copied().unwrap_or(0));
-            line_start + col
+        let cursor_byte = crate::ui::hybrid_editor::byte_offset_from_editor_state(
+            &hybrid.editor_state,
+            &hybrid.line_boundaries,
+        );
+
+        // Determine which block the cursor is in.
+        let cursor_block_idx = if tab.view.rendered.is_empty() {
+            None
+        } else {
+            Some(crate::markdown::cursor_bridge::byte_offset_to_block(
+                &tab.view.rendered,
+                cursor_byte,
+            ))
         };
 
-        // Translate byte → visual (visual_row, visual_col).
-        if let Some((visual_row, visual_col)) = crate::markdown::cursor_bridge::byte_to_visual(
-            &tab.view.rendered,
-            &tab.view.text_layouts,
-            cursor_byte,
-        ) {
+        // Branch: active block (raw layout) vs inactive block (formatted layout).
+        let visual_pos: Option<(u32, u16)> = if cursor_block_idx == active_block_index
+            && let Some(idx) = cursor_block_idx
+            && let Some(block) = tab.view.rendered.get(idx)
+            && let Some(src) = hybrid_source.as_deref()
+        {
+            // Compute the visual start row for this block (sum of heights of
+            // all preceding blocks).  Note: for the active block we use the
+            // *raw* height (already in `block_height` from the draw loop), but
+            // here we only need block_start for the cursor row, not block_height.
+            // Re-compute block_visual_start by summing preceding blocks' heights.
+            // We use the formatted heights for inactive blocks and the raw height
+            // for the active block — consistent with the draw loop above.
+            let block_visual_start: u32 = {
+                let mut acc = 0u32;
+                for (i, b) in tab.view.rendered.iter().enumerate() {
+                    if i == idx {
+                        break;
+                    }
+                    // For inactive blocks use the formatted height.
+                    // The active block itself is not summed (we stop before idx).
+                    acc += if Some(i) == active_block_index {
+                        // Another active block? Shouldn't happen (only one active),
+                        // but be safe.
+                        b.height()
+                    } else {
+                        b.height()
+                    };
+                }
+                acc
+            };
+            Some(crate::markdown::cursor_bridge::byte_to_visual_raw(
+                block,
+                src,
+                block_visual_start,
+                effective_width,
+                cursor_byte,
+            ))
+        } else {
+            // Cursor is in an inactive block — use the formatted layout cache.
+            crate::markdown::cursor_bridge::byte_to_visual(
+                &tab.view.rendered,
+                &tab.view.text_layouts,
+                cursor_byte,
+            )
+        };
+
+        if let Some((visual_row, visual_col)) = visual_pos {
             // Translate from document-absolute visual row to viewport-relative
             // row by subtracting the current scroll offset, then add the
             // inner rect's y offset to get an absolute terminal row.
@@ -644,8 +830,8 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
                 f.set_cursor_position(Position::new(abs_x, abs_y));
             }
         }
-        // When byte_to_visual returns None (cursor in a Mermaid or Table
-        // block), we simply don't show the cursor.  Sub-phases 5 / 8 will
-        // handle those block types.
+        // When neither path returns Some (cursor in Mermaid/Table block for
+        // inactive path, or source unavailable), we simply don't show the cursor.
+        // Sub-phase 8 will handle active mermaid blocks.
     }
 }

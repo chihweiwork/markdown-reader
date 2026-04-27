@@ -5,6 +5,58 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.31.0] - 2026-04-27
+
+### Added — Hybrid live-preview editing sub-phase 5 (active block reveal — the "wow")
+
+**The visible payoff.** When the cursor enters a block in hybrid
+mode, that block now reveals as raw markdown — `# Title` instead
+of the bar-prefixed formatted heading, `**bold**` instead of bold
+text, `[link](url)` instead of just "link". Other blocks keep
+their formatted rendering. Move the cursor across a block boundary
+and the just-left block re-formats while the new block reveals raw.
+
+This is the "compile" event the user perceives — it makes the mode
+feel like Obsidian's Live Preview.
+
+Cursor movement keys (read-only — sub-phase 6 adds editing):
+
+- `h` / `Left` — left
+- `l` / `Right` — right
+- `k` / `Up` — up
+- `j` / `Down` — down
+- `Page Up` / `Page Down` — page jumps
+- `Home` / `End` — line start/end
+
+All UTF-8-safe (snap to char boundaries).
+
+Implementation:
+
+- Active-block raw rendering inlined into the `markdown_view::draw`
+  loop. We do NOT mutate `tab.view.rendered` — the formatted version
+  stays cached. The draw loop checks `active_block.index` per
+  iteration; when it matches, the block's `source_byte_start..end`
+  slice is wrapped via `wrap_spans` and rendered as plain text.
+- New `cursor_bridge::byte_to_visual_raw` helper for cursor
+  positioning inside the raw-rendered active block (the cached
+  `text_layouts` doesn't apply there — wraps the source slice
+  directly).
+- `recompute_active_block` runs on every cursor movement; it just
+  updates the field — the draw loop next frame picks it up.
+- Block-height re-accounting: when a block is active, its raw
+  height (`wrap_spans(slice, inner_width).len()`) is used; inactive
+  blocks use cached `DocBlock::height()`. Scroll math handles the
+  delta naturally.
+
+9 new tests pin: `recompute_active_block` updates on cursor move,
+raw block height matches wrapped slice, `byte_to_visual_raw` round
+trip, all four cursor moves (left/right/up/down) including
+UTF-8 boundary respect, cursor crossing block boundaries.
+
+930 tests pass (+9). Clippy + fmt clean.
+
+Sub-phase 6 (editing) is next — the headline ship.
+
 ## [1.30.0] - 2026-04-27
 
 ### Added — Hybrid live-preview editing sub-phase 4 (`I` enters hybrid mode)

@@ -892,6 +892,9 @@ impl App {
     ///   chars ourselves to build an ex command (`:q`).
     /// - **Normal mode**: `:` opens the command line; everything else is a no-op.
     pub(super) fn handle_hybrid_key(&mut self, key: crossterm::event::KeyEvent) {
+        // Read view_height before any mutable borrows of self.tabs.
+        let view_height = self.tabs.view_height as usize;
+
         let Some(tab) = self.tabs.active_tab_mut() else {
             return;
         };
@@ -938,20 +941,44 @@ impl App {
                 _ => {}
             }
         } else {
-            // Normal mode — `:` opens the command line; everything else is a
-            // no-op in sub-phase 4.
+            // Normal mode — cursor movement keys (sub-phase 5) + `:` command line.
+            // Text-input keys remain no-ops; sub-phase 6 adds editing.
+            //
+            // Each movement helper needs `&mut HybridState` and `&MarkdownViewState`.
+            // `Tab` stores these as disjoint fields (`hybrid: Option<HybridState>`
+            // and `view: MarkdownViewState`).  Rust's NLL (non-lexical lifetimes)
+            // lets us split-borrow them from a single `&mut Tab`: we hold
+            // `hybrid: &mut HybridState` (from the outer `tab.hybrid.as_mut()`
+            // guard) and simultaneously take `view: &MarkdownViewState` (a shared
+            // borrow of the other field).  The compiler accepts this because the
+            // two borrows cover disjoint paths through the struct.
+            //
+            // The `:` and `Esc` arms use only `hybrid` (no split needed).
+            // All movement arms use both `hybrid` (already bound above) and
+            // `&tab.view` (taken in-arm; Rust's NLL sees no conflict).
+            // Re-obtain tab so we can reference both fields cleanly.
+            // (The outer `hybrid` borrow ended its useful lifetime at the
+            // `} else {` point; dropping it here lets us borrow `tab` again.)
             match key.code {
                 KeyCode::Char(':') => {
                     hybrid.command_line = Some(String::new());
                 }
                 KeyCode::Esc => {
-                    // Already in read-only normal mode.  No-op for sub-phase 4.
-                    // Sub-phase 5 will use Esc to abort cursor movement.
+                    // Already in normal (read-only) mode — no-op.
                 }
-                // Sub-phase 5 will add arrow keys / hjkl.
-                // Sub-phase 6 will add editing keys.
-                // For sub-phase 4, all other keys are no-ops.
-                _ => {}
+                _ => {
+                    // All movement keys drop into this arm and re-acquire a
+                    // fresh `&mut tab` so we can split the borrow cleanly.
+                    let _ = hybrid; // end the mutable borrow of `tab.hybrid`
+                    if let Some(tab2) = self.tabs.active_tab_mut()
+                        && let Some(h) = tab2.hybrid.as_mut()
+                    {
+                        // Split-borrow: `h` mutably borrows `tab2.hybrid` while
+                        // `view` shares `tab2.view`.  Disjoint fields — safe.
+                        let view = &tab2.view;
+                        dispatch_hybrid_movement(h, view, key.code, view_height);
+                    }
+                }
             }
         }
     }
@@ -1031,5 +1058,58 @@ impl App {
             }
             _ => {}
         }
+    }
+}
+
+// ── Free functions ────────────────────────────────────────────────────────────
+
+/// Dispatch a cursor-movement key in hybrid normal mode.
+///
+/// Called from `handle_hybrid_key` after splitting the `Tab` into a mutable
+/// `HybridState` borrow and a shared `MarkdownViewState` borrow.  Routing the
+/// dispatch through a free function keeps the per-arm logic out of the key
+/// handler and avoids repeating the `if let Some(tab) … if let Some(h) …`
+/// boilerplate for every movement key.
+///
+/// # Arguments
+///
+/// * `hybrid`      – mutable hybrid state (cursor position, active_block).
+/// * `view`        – markdown view state (block list for recompute_active_block).
+/// * `code`        – the key code that triggered this movement.
+/// * `view_height` – viewport height in lines (used for Page Up/Down).
+fn dispatch_hybrid_movement(
+    hybrid: &mut crate::ui::hybrid_editor::HybridState,
+    view: &crate::ui::markdown_view::MarkdownViewState,
+    code: KeyCode,
+    view_height: usize,
+) {
+    match code {
+        KeyCode::Char('h') | KeyCode::Left => {
+            crate::ui::hybrid_editor::move_cursor_left(hybrid, view);
+        }
+        KeyCode::Char('l') | KeyCode::Right => {
+            crate::ui::hybrid_editor::move_cursor_right(hybrid, view);
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            crate::ui::hybrid_editor::move_cursor_down(hybrid, view);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            crate::ui::hybrid_editor::move_cursor_up(hybrid, view);
+        }
+        KeyCode::PageDown => {
+            crate::ui::hybrid_editor::move_cursor_page_down(hybrid, view, view_height);
+        }
+        KeyCode::PageUp => {
+            crate::ui::hybrid_editor::move_cursor_page_up(hybrid, view, view_height);
+        }
+        KeyCode::Home => {
+            crate::ui::hybrid_editor::move_cursor_line_start(hybrid, view);
+        }
+        KeyCode::End => {
+            crate::ui::hybrid_editor::move_cursor_line_end(hybrid, view);
+        }
+        // Unknown key codes reach this arm when the outer `_ =>` catches
+        // keys that are neither `:` nor `Esc`. No-op for sub-phase 5.
+        _ => {}
     }
 }

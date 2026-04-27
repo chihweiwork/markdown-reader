@@ -184,6 +184,271 @@ pub fn visual_to_byte(
     None
 }
 
+/// Compute the visual `(row, col)` position for a byte offset inside the
+/// **active (raw-rendered) block**, where the normal `text_layouts` cache does
+/// not apply.
+///
+/// The active block renders as plain unwrapped source text using `wrap_spans`.
+/// Its `text_layouts` entry holds the **formatted** (processed) layout, which
+/// is irrelevant here — the block is drawn from the raw source slice instead.
+/// We therefore wrap the raw source slice ourselves and locate the byte within
+/// the resulting wrapped rows.
+///
+/// `block_visual_start` is the visual row at which this block begins in the
+/// document (sum of `height()` of all preceding blocks).  We add it to the
+/// local row computed from the wrap output to get an absolute visual row.
+///
+/// # Returns
+///
+/// `(absolute_visual_row, display_col)` where both are in the same coordinate
+/// space as [`byte_to_visual`].
+///
+/// # Arguments
+///
+/// * `block`             – the active `DocBlock` (used for its byte range).
+/// * `source`            – the full document source string.
+/// * `block_visual_start`– absolute visual row at which this block begins.
+/// * `inner_width`       – content width in terminal columns (for wrap).
+/// * `byte`              – the source byte offset to locate (document-absolute).
+pub fn byte_to_visual_raw(
+    block: &DocBlock,
+    source: &str,
+    block_visual_start: u32,
+    inner_width: u16,
+    byte: usize,
+) -> (u32, u16) {
+    let block_start = block_byte_start(block) as usize;
+    // byte_within_block: offset of `byte` relative to the start of this block's
+    // source slice.
+    let byte_within_block = byte.saturating_sub(block_start);
+
+    // Slice the raw source for just this block.
+    let block_end = match block {
+        DocBlock::Text {
+            source_byte_end, ..
+        } => *source_byte_end as usize,
+        DocBlock::Mermaid {
+            source_byte_end, ..
+        } => *source_byte_end as usize,
+        DocBlock::Table(t) => t.source_byte_end as usize,
+    };
+    let slice = &source[block_start.min(source.len())..block_end.min(source.len())];
+
+    // Locate the byte within the raw slice by directly replicating wrap_spans'
+    // layout algorithm.  We do a character walk, tracking the current visual
+    // row, the byte offset of the current row's start (`row_byte_start`), and
+    // the accumulated display width of the current row.
+    //
+    // The algorithm mirrors wrap_spans / emit_wrapped_hard_line:
+    //   1. Hard-split on '\n' — '\n' is consumed and a new row begins.
+    //   2. Within a hard line, collect whitespace-separated words.
+    //   3. Emit words greedily; flush current row when the next word doesn't fit.
+    //   4. Words wider than inner_width are hard-split at character boundaries.
+    //
+    // Because we operate directly on the source bytes we get exact byte-to-row
+    // mapping without needing to reconstruct byte positions from wrapped output.
+    raw_byte_to_visual(slice, byte_within_block, inner_width, block_visual_start)
+}
+
+/// Walk `slice` character-by-character, replicating `wrap_spans`'s layout
+/// rules, and return the `(absolute_row, display_col)` for the character that
+/// starts at `target_byte` within `slice`.
+///
+/// `row_base` is added to the local row index to produce an absolute visual row.
+fn raw_byte_to_visual(
+    slice: &str,
+    target_byte: usize,
+    inner_width: u16,
+    row_base: u32,
+) -> (u32, u16) {
+    let max_w = inner_width as usize;
+    // Each element: (byte_start_of_row, display_col_of_row_start=0).
+    // We track row boundaries as (byte_start_in_slice).
+    // We accumulate: current row index, byte of row start, display width used.
+    let mut row: u32 = 0;
+    let mut row_byte_start: usize = 0; // byte in `slice` where current row began
+    let mut row_w: usize = 0; // display columns used in current row
+
+    // Helper: given that the cursor is at `target_byte`, return its position
+    // relative to the current row start and compute the display column.
+    let col_in_current_row = |row_byte_start: usize| -> u16 {
+        let byte_in_row = target_byte.saturating_sub(row_byte_start);
+        let mut col: u16 = 0;
+        let mut seen = 0usize;
+        for ch in slice[row_byte_start..].chars() {
+            if seen >= byte_in_row {
+                break;
+            }
+            col = col.saturating_add(UnicodeWidthChar::width(ch).unwrap_or(0) as u16);
+            seen += ch.len_utf8();
+        }
+        col
+    };
+
+    // We process the slice as a series of hard lines delimited by '\n'.
+    // Within each hard line, we replicate the greedy word-packing + hard-split
+    // logic.  To locate words without allocating, we use a two-pointer approach.
+    let mut hard_line_start = 0usize; // byte offset of current hard line within slice
+
+    loop {
+        // Find the end of the current hard line (position of '\n' or end of slice).
+        let hard_line_end = slice[hard_line_start..]
+            .char_indices()
+            .find(|(_, ch)| *ch == '\n')
+            .map(|(i, _)| hard_line_start + i)
+            .unwrap_or(slice.len());
+
+        let hard_line = &slice[hard_line_start..hard_line_end];
+
+        // Check if target_byte falls within this hard line (or its trailing '\n').
+        // We process the hard line's words/chars.  If target_byte is within
+        // [hard_line_start, hard_line_end], we find the row/col here.
+        // If target_byte == hard_line_end, it's at the '\n' character, which
+        // sits at the start of a new visual row.
+
+        // --- Replicate wrap_spans' greedy word packing ---
+        // Collect char-level info for the hard line: (byte_in_slice, char, display_w).
+        let mut words: Vec<(usize, usize)> = Vec::new(); // (word_start_byte, word_end_byte) in slice
+        let mut in_word = false;
+        let mut word_start = hard_line_start;
+        let mut pos = hard_line_start;
+        for ch in hard_line.chars() {
+            let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if ch.is_whitespace() {
+                if in_word {
+                    words.push((word_start, pos));
+                    in_word = false;
+                }
+            } else if !in_word {
+                in_word = true;
+                word_start = pos;
+            }
+            let _ = cw;
+            pos += ch.len_utf8();
+        }
+        if in_word {
+            words.push((word_start, pos));
+        }
+
+        if words.is_empty() {
+            // Empty hard line (or all-whitespace): check if target is here.
+            if target_byte >= hard_line_start && target_byte <= hard_line_end {
+                let col = col_in_current_row(row_byte_start);
+                return (row_base + row, col);
+            }
+        } else {
+            // Compute display width of each word.
+            let word_widths: Vec<usize> = words
+                .iter()
+                .map(|(ws, we)| unicode_width::UnicodeWidthStr::width(&slice[*ws..*we]))
+                .collect();
+
+            // total width of hard line: check short-circuit (whole line fits).
+            let total_w: usize = word_widths.iter().sum::<usize>()
+                + if words.len() > 1 { words.len() - 1 } else { 0 };
+
+            if total_w <= max_w {
+                // Whole hard line is one row: target_byte must be in it.
+                if target_byte <= hard_line_end {
+                    let col = col_in_current_row(row_byte_start);
+                    return (row_base + row, col);
+                }
+                // target_byte is beyond this hard line; advance to the next '\n'.
+            } else {
+                // Multi-row packing: iterate words, flushing rows as needed.
+                let mut first_word_on_row = true;
+                for (widx, &(ws, we)) in words.iter().enumerate() {
+                    let word_w = word_widths[widx];
+                    if word_w <= max_w {
+                        // Word fits on one row.
+                        let need = if first_word_on_row {
+                            word_w
+                        } else {
+                            1 + word_w
+                        };
+                        if !first_word_on_row && row_w + need > max_w {
+                            // Flush current row; does the target sit in it?
+                            // The whitespace before this word is consumed here
+                            // (byte between previous word end and ws).
+                            // Check: was target in the just-flushed row?
+                            if target_byte < ws {
+                                let col = col_in_current_row(row_byte_start);
+                                return (row_base + row, col);
+                            }
+                            // Start next row at ws.
+                            row += 1;
+                            row_byte_start = ws;
+                            row_w = 0;
+                            first_word_on_row = true;
+                        }
+                        row_w += if first_word_on_row {
+                            word_w
+                        } else {
+                            1 + word_w
+                        };
+                        first_word_on_row = false;
+                    } else {
+                        // Word wider than max_w: hard-split.
+                        if !first_word_on_row {
+                            // Flush current row.
+                            if target_byte < ws {
+                                let col = col_in_current_row(row_byte_start);
+                                return (row_base + row, col);
+                            }
+                            row += 1;
+                            row_byte_start = ws;
+                            // row_w will be set to chunk_w after the hard-split loop.
+                        }
+                        // Hard-split the word char by char.
+                        let mut char_pos = ws;
+                        let mut chunk_w = 0usize;
+                        for ch in slice[ws..we].chars() {
+                            let cw = UnicodeWidthChar::width(ch).unwrap_or(0);
+                            if chunk_w + cw > max_w && chunk_w > 0 {
+                                // Flush this chunk.
+                                if target_byte < char_pos {
+                                    let col = col_in_current_row(row_byte_start);
+                                    return (row_base + row, col);
+                                }
+                                row += 1;
+                                row_byte_start = char_pos;
+                                chunk_w = 0;
+                            }
+                            chunk_w += cw;
+                            char_pos += ch.len_utf8();
+                        }
+                        row_w = chunk_w;
+                        first_word_on_row = false;
+                    }
+                }
+                // After processing all words, check if target is in the current
+                // (last) partial row of this hard line.
+                if target_byte <= hard_line_end {
+                    let col = col_in_current_row(row_byte_start);
+                    return (row_base + row, col);
+                }
+            }
+        }
+
+        // Advance past the '\n'.
+        if hard_line_end >= slice.len() {
+            break;
+        }
+
+        // '\n' at hard_line_end: start a new visual row for the next hard line.
+        // The '\n' itself is at hard_line_end; if target_byte == hard_line_end
+        // we already returned above.
+        row += 1;
+        row_byte_start = hard_line_end + 1; // byte after '\n'
+        row_w = 0;
+        hard_line_start = hard_line_end + 1;
+    }
+
+    // Fallback: target is at or beyond end of slice — return end of last row.
+    let col = col_in_current_row(row_byte_start);
+    (row_base + row, col)
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
 
 /// Extract `source_byte_start` from any `DocBlock` variant.
@@ -615,5 +880,51 @@ mod tests {
                 "byte {byte} must resolve to block 0 in a single-block document"
             );
         }
+    }
+
+    /// `byte_to_visual_raw` must return row 0, col 0 for a cursor at the very
+    /// start of a single-paragraph block.
+    #[test]
+    fn byte_to_visual_raw_start_of_block() {
+        let md = "Hello world.\n";
+        let p = palette();
+        let blocks = crate::markdown::renderer::render_markdown(md, &p, theme());
+        assert!(!blocks.is_empty());
+        let (row, col) = byte_to_visual_raw(&blocks[0], md, 0, 80, 0);
+        assert_eq!(row, 0, "cursor at byte 0 must be on visual row 0");
+        assert_eq!(col, 0, "cursor at byte 0 must be at col 0");
+    }
+
+    /// `byte_to_visual_raw` mid-word: cursor after "Hello " (6 bytes) must be
+    /// at col 6 on row 0.
+    #[test]
+    fn byte_to_visual_raw_mid_line_position() {
+        let md = "Hello world.\n";
+        let p = palette();
+        let blocks = crate::markdown::renderer::render_markdown(md, &p, theme());
+        assert!(!blocks.is_empty());
+        // "Hello " is 6 bytes; cursor at byte 6 should be at col 6, row 0.
+        let (row, col) = byte_to_visual_raw(&blocks[0], md, 0, 80, 6);
+        assert_eq!(row, 0, "cursor after 'Hello ' must be on row 0");
+        assert_eq!(col, 6, "cursor after 'Hello ' must be at col 6");
+    }
+
+    /// `byte_to_visual_raw` on a long paragraph that wraps: cursor at the start
+    /// of the second wrapped row must return row > 0.
+    #[test]
+    fn byte_to_visual_raw_wrapped_line_lands_on_correct_row() {
+        // 60 'a' chars: at width 20, this wraps to 3 rows of 20 each.
+        let word: String = "a".repeat(60);
+        let md = format!("{word}\n");
+        let p = palette();
+        let blocks = crate::markdown::renderer::render_markdown(&md, &p, theme());
+        assert!(!blocks.is_empty());
+        // Byte 20 is on the second wrapped row at width 20.
+        // The wrap algorithm packs 20-char words, so the 21st char starts row 1.
+        let (row, _col) = byte_to_visual_raw(&blocks[0], &md, 0, 20, 20);
+        assert!(
+            row >= 1,
+            "byte 20 must be on row >= 1 when width is 20 (first wrap happens at char 20)"
+        );
     }
 }

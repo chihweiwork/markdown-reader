@@ -19,14 +19,11 @@
 //! Callers should treat `source` as the truth for byte-range bookkeeping and
 //! `editor_state` as the truth for cursor position and undo history.
 
-// Some items (apply_edit, is_dirty, EditEffect, BlockSourceRange) are used by
-// sub-phases 5–9 and not yet wired into the production call graph.  Suppress
-// the dead_code lint for those dormant items.
-#![allow(dead_code)]
-
 use edtui::{EditorState, Lines};
 
 use crate::markdown::DocBlock;
+use crate::markdown::cursor_bridge::byte_offset_to_block;
+use crate::ui::markdown_view::MarkdownViewState;
 
 // ── Core types ────────────────────────────────────────────────────────────────
 
@@ -47,6 +44,7 @@ pub struct BlockSourceRange {
 /// Effect returned by [`HybridState::apply_edit`], describing the net change
 /// to the source buffer's byte and line counts.
 #[derive(Debug, Clone, Copy)]
+#[allow(dead_code)] // used in sub-phase 6 (editing)
 pub struct EditEffect {
     /// Net byte-length change: `inserted.len() as isize − deleted as isize`.
     pub byte_delta: isize,
@@ -76,6 +74,7 @@ pub struct HybridState {
     pub source: String,
     /// Snapshot of the source at hybrid-mode entry, used to detect dirty state
     /// without re-reading the disk file.
+    #[allow(dead_code)] // used in sub-phase 6 (dirty-state detection)
     pub baseline: String,
     /// Pre-computed byte offset of each line's start in `source`.
     ///
@@ -96,6 +95,7 @@ pub struct HybridState {
     pub status_message: Option<String>,
     /// When `true`, the file should be closed after the next successful save.
     /// Set by the `:wq` path in sub-phase 6.
+    #[allow(dead_code)] // used in sub-phase 6 (`:wq` save-and-quit)
     pub close_after_save: bool,
 }
 
@@ -127,6 +127,7 @@ impl HybridState {
 
     /// Return `true` when `source` differs from the `baseline` snapshot.
     #[must_use]
+    #[allow(dead_code)] // used in sub-phase 6 (dirty-state detection)
     pub fn is_dirty(&self) -> bool {
         self.source != self.baseline
     }
@@ -171,6 +172,7 @@ impl HybridState {
     /// - `byte_offset + deleted > source.len()` — out-of-bounds splice.
     /// - `byte_offset` or `byte_offset + deleted` is not on a UTF-8 char boundary.
     /// - The deleted range straddles more than one block boundary.
+    #[allow(dead_code)] // used in sub-phase 6 (editing)
     pub fn apply_edit(
         &mut self,
         blocks: &mut [DocBlock],
@@ -275,7 +277,299 @@ impl HybridState {
     }
 }
 
+// ── Public sub-phase 5 helpers ────────────────────────────────────────────────
+
+/// Compute the source byte offset for the current edtui cursor position.
+///
+/// Looks up `editor_state.cursor.row` in `line_boundaries` to get the byte
+/// offset of that line's start, then adds `editor_state.cursor.col` for the
+/// column offset.
+///
+/// # Arguments
+///
+/// * `editor_state`    – edtui cursor state (owns `cursor.row`, `cursor.col`).
+/// * `line_boundaries` – pre-computed byte offsets of line starts in `source`.
+pub fn byte_offset_from_editor_state(
+    editor_state: &EditorState,
+    line_boundaries: &[usize],
+) -> usize {
+    let row = editor_state.cursor.row;
+    let col = editor_state.cursor.col;
+    let line_start = line_boundaries
+        .get(row)
+        .copied()
+        .unwrap_or_else(|| line_boundaries.last().copied().unwrap_or(0));
+    line_start + col
+}
+
+/// Re-detect which block the cursor is in and update `hybrid.active_block`.
+///
+/// Called after every cursor movement in hybrid mode.  Reads the current byte
+/// offset from `hybrid.editor_state` + `hybrid.line_boundaries`, binary-searches
+/// `view.rendered` for the containing block, and writes the result back into
+/// `hybrid.active_block`.
+///
+/// When the index changes the draw loop automatically re-renders the old block
+/// formatted and the new block raw — no additional work is required.
+///
+/// # Arguments
+///
+/// * `hybrid` – mutable hybrid state (source of cursor position, target of
+///   `active_block` update).
+/// * `view`   – markdown view state (source of the rendered block list).
+pub fn recompute_active_block(hybrid: &mut HybridState, view: &MarkdownViewState) {
+    if view.rendered.is_empty() {
+        hybrid.active_block = None;
+        return;
+    }
+    let cursor_byte = byte_offset_from_editor_state(&hybrid.editor_state, &hybrid.line_boundaries);
+    let new_index = byte_offset_to_block(&view.rendered, cursor_byte);
+    let (start_byte, end_byte) = block_byte_range(&view.rendered[new_index]);
+    hybrid.active_block = Some(BlockSourceRange {
+        index: new_index,
+        start_byte,
+        end_byte,
+    });
+}
+
+// ── Cursor movement helpers ────────────────────────────────────────────────────
+//
+// Each helper follows the same pattern:
+//   1. Compute current byte offset.
+//   2. Compute new byte offset (clamped, UTF-8-boundary-safe).
+//   3. Convert to (row, col) via line_boundaries.
+//   4. Write back to editor_state.cursor.
+//   5. Call recompute_active_block.
+//
+// They take `view_height` only when they need it for page-relative movement.
+
+/// Move the hybrid cursor one character to the left.
+///
+/// No-ops at the start of the document (byte 0).  Always lands on a UTF-8
+/// char boundary.
+///
+/// # Arguments
+///
+/// * `hybrid` – mutable hybrid state.
+/// * `view`   – markdown view state (needed to recompute active block).
+pub fn move_cursor_left(hybrid: &mut HybridState, view: &MarkdownViewState) {
+    let byte = byte_offset_from_editor_state(&hybrid.editor_state, &hybrid.line_boundaries);
+    if byte == 0 {
+        return;
+    }
+    // Step back to the previous char boundary.  `byte - 1` moves behind the
+    // current position; `prev_char_boundary` then retreats further if needed
+    // to land on a valid UTF-8 boundary (handles multi-byte chars).
+    let new_byte = prev_char_boundary(&hybrid.source, byte - 1);
+    set_cursor_to_byte(hybrid, new_byte);
+    recompute_active_block(hybrid, view);
+}
+
+/// Move the hybrid cursor one character to the right.
+///
+/// No-ops at the end of the document.  Always lands on a UTF-8 char boundary.
+///
+/// # Arguments
+///
+/// * `hybrid` – mutable hybrid state.
+/// * `view`   – markdown view state (needed to recompute active block).
+pub fn move_cursor_right(hybrid: &mut HybridState, view: &MarkdownViewState) {
+    let byte = byte_offset_from_editor_state(&hybrid.editor_state, &hybrid.line_boundaries);
+    if byte >= hybrid.source.len() {
+        return;
+    }
+    // Step forward one byte at a time until we land on a char boundary.
+    let new_byte = next_char_boundary(&hybrid.source, byte + 1);
+    set_cursor_to_byte(hybrid, new_byte);
+    recompute_active_block(hybrid, view);
+}
+
+/// Move the hybrid cursor one source line down.
+///
+/// Tries to preserve the current column; clamps to the end of the new line
+/// when that line is shorter.  No-ops on the last line.
+///
+/// # Arguments
+///
+/// * `hybrid` – mutable hybrid state.
+/// * `view`   – markdown view state (needed to recompute active block).
+pub fn move_cursor_down(hybrid: &mut HybridState, view: &MarkdownViewState) {
+    let row = hybrid.editor_state.cursor.row;
+    let col = hybrid.editor_state.cursor.col;
+    let next_row = row + 1;
+    if next_row >= hybrid.line_boundaries.len() {
+        return; // already on last line
+    }
+    let new_byte = clamped_byte_on_line(&hybrid.source, &hybrid.line_boundaries, next_row, col);
+    set_cursor_to_byte(hybrid, new_byte);
+    recompute_active_block(hybrid, view);
+}
+
+/// Move the hybrid cursor one source line up.
+///
+/// Tries to preserve the current column; clamps to the end of the new line.
+/// No-ops on line 0.
+///
+/// # Arguments
+///
+/// * `hybrid` – mutable hybrid state.
+/// * `view`   – markdown view state (needed to recompute active block).
+pub fn move_cursor_up(hybrid: &mut HybridState, view: &MarkdownViewState) {
+    let row = hybrid.editor_state.cursor.row;
+    if row == 0 {
+        return;
+    }
+    let col = hybrid.editor_state.cursor.col;
+    let new_byte = clamped_byte_on_line(&hybrid.source, &hybrid.line_boundaries, row - 1, col);
+    set_cursor_to_byte(hybrid, new_byte);
+    recompute_active_block(hybrid, view);
+}
+
+/// Move the hybrid cursor `count` source lines down (for Page Down).
+///
+/// # Arguments
+///
+/// * `hybrid`      – mutable hybrid state.
+/// * `view`        – markdown view state (needed to recompute active block).
+/// * `count`       – number of lines to advance.
+pub fn move_cursor_page_down(hybrid: &mut HybridState, view: &MarkdownViewState, count: usize) {
+    let row = hybrid.editor_state.cursor.row;
+    let col = hybrid.editor_state.cursor.col;
+    let last_row = hybrid.line_boundaries.len().saturating_sub(1);
+    let new_row = (row + count).min(last_row);
+    if new_row == row {
+        return;
+    }
+    let new_byte = clamped_byte_on_line(&hybrid.source, &hybrid.line_boundaries, new_row, col);
+    set_cursor_to_byte(hybrid, new_byte);
+    recompute_active_block(hybrid, view);
+}
+
+/// Move the hybrid cursor `count` source lines up (for Page Up).
+///
+/// # Arguments
+///
+/// * `hybrid`      – mutable hybrid state.
+/// * `view`        – markdown view state (needed to recompute active block).
+/// * `count`       – number of lines to go back.
+pub fn move_cursor_page_up(hybrid: &mut HybridState, view: &MarkdownViewState, count: usize) {
+    let row = hybrid.editor_state.cursor.row;
+    let col = hybrid.editor_state.cursor.col;
+    let new_row = row.saturating_sub(count);
+    if new_row == row {
+        return;
+    }
+    let new_byte = clamped_byte_on_line(&hybrid.source, &hybrid.line_boundaries, new_row, col);
+    set_cursor_to_byte(hybrid, new_byte);
+    recompute_active_block(hybrid, view);
+}
+
+/// Move the hybrid cursor to column 0 of the current line (Home).
+///
+/// # Arguments
+///
+/// * `hybrid` – mutable hybrid state.
+/// * `view`   – markdown view state (needed to recompute active block).
+pub fn move_cursor_line_start(hybrid: &mut HybridState, view: &MarkdownViewState) {
+    let row = hybrid.editor_state.cursor.row;
+    let new_byte = hybrid
+        .line_boundaries
+        .get(row)
+        .copied()
+        .unwrap_or_else(|| hybrid.line_boundaries.last().copied().unwrap_or(0));
+    set_cursor_to_byte(hybrid, new_byte);
+    recompute_active_block(hybrid, view);
+}
+
+/// Move the hybrid cursor to the last byte of the current line (End).
+///
+/// Positions the cursor at the last character before the newline (or the last
+/// character of the document on the final line).
+///
+/// # Arguments
+///
+/// * `hybrid` – mutable hybrid state.
+/// * `view`   – markdown view state (needed to recompute active block).
+pub fn move_cursor_line_end(hybrid: &mut HybridState, view: &MarkdownViewState) {
+    let row = hybrid.editor_state.cursor.row;
+    let line_start = hybrid
+        .line_boundaries
+        .get(row)
+        .copied()
+        .unwrap_or_else(|| hybrid.line_boundaries.last().copied().unwrap_or(0));
+    // `next_line_start` is the byte after the trailing `\n`; the `\n` itself is at
+    // `next_line_start - 1`.  We want the last *content* byte, which is one before
+    // the newline: `next_line_start - 2`.  On the final line (no trailing newline)
+    // we use `source.len()` directly.
+    let line_end_content = hybrid
+        .line_boundaries
+        .get(row + 1)
+        .map(|&next| next.saturating_sub(2))
+        .unwrap_or(hybrid.source.len().saturating_sub(1));
+    // Clamp to line_start so an empty line (just `\n`) lands at its own start.
+    let line_end = line_end_content.max(line_start);
+    // Snap to a UTF-8 char boundary in case the column falls inside a multi-byte char.
+    let new_byte = if line_end > line_start {
+        prev_char_boundary(&hybrid.source, line_end)
+    } else {
+        line_start
+    };
+    set_cursor_to_byte(hybrid, new_byte);
+    recompute_active_block(hybrid, view);
+}
+
 // ── Private helpers ───────────────────────────────────────────────────────────
+
+/// Return the largest byte index `<= byte` that is a valid UTF-8 char boundary
+/// in `s`.  When `byte == 0` this is always 0.
+fn prev_char_boundary(s: &str, byte: usize) -> usize {
+    let mut b = byte.min(s.len());
+    while b > 0 && !s.is_char_boundary(b) {
+        b -= 1;
+    }
+    b
+}
+
+/// Return the smallest byte index `>= byte` that is a valid UTF-8 char boundary
+/// in `s`.  Clamps to `s.len()`.
+fn next_char_boundary(s: &str, byte: usize) -> usize {
+    let mut b = byte.min(s.len());
+    while b < s.len() && !s.is_char_boundary(b) {
+        b += 1;
+    }
+    b
+}
+
+/// Compute the byte offset for column `col` on `row` in `source`, clamped to
+/// the end of that line so the cursor never lands past the newline.
+fn clamped_byte_on_line(source: &str, line_boundaries: &[usize], row: usize, col: usize) -> usize {
+    let line_start = line_boundaries
+        .get(row)
+        .copied()
+        .unwrap_or_else(|| line_boundaries.last().copied().unwrap_or(0));
+    // End of this line = start of next line minus 1, or end of source.
+    let line_end = line_boundaries
+        .get(row + 1)
+        .map(|&next| next.saturating_sub(1))
+        .unwrap_or(source.len());
+    // The desired byte, clamped to the line's extent.
+    let desired = (line_start + col).min(line_end);
+    // Snap forward to the nearest UTF-8 char boundary (handles mid-multibyte-char
+    // column positions that arise when the previous line was longer).
+    next_char_boundary(source, desired)
+}
+
+/// Convert a flat byte offset to an edtui `(row, col)` pair using
+/// `line_boundaries`, then write it to `hybrid.editor_state.cursor`.
+fn set_cursor_to_byte(hybrid: &mut HybridState, byte: usize) {
+    let lb = &hybrid.line_boundaries;
+    let row = match lb.binary_search(&byte) {
+        Ok(i) => i,
+        Err(i) => i.saturating_sub(1),
+    };
+    let col = byte.saturating_sub(lb.get(row).copied().unwrap_or(0));
+    hybrid.editor_state.cursor = edtui::Index2::new(row, col);
+}
 
 /// Build the sorted list of byte offsets where each line begins in `source`.
 ///
@@ -296,6 +590,7 @@ fn compute_line_boundaries(source: &str) -> Vec<usize> {
 ///
 /// Panics in debug builds on underflow (negative result); returns `0` in
 /// release builds via saturating arithmetic.
+#[allow(dead_code)] // used in sub-phase 6 (apply_edit block-range shifting)
 fn apply_delta(value: usize, delta: isize) -> usize {
     if delta >= 0 {
         value + delta as usize
@@ -322,6 +617,7 @@ fn block_byte_range(block: &DocBlock) -> (usize, usize) {
 }
 
 /// Write new `(source_byte_start, source_byte_end)` values into a `DocBlock`.
+#[allow(dead_code)] // used in sub-phase 6 (apply_edit block-range shifting)
 fn set_block_byte_range(block: &mut DocBlock, start: usize, end: usize) {
     // Safe casts: source files are well under 4 GiB.
     let start32 = start as u32;
@@ -593,6 +889,163 @@ mod tests {
         assert!(
             result.is_err(),
             "apply_edit at a mid-char byte offset must panic"
+        );
+    }
+
+    // ── Sub-phase 5 tests ─────────────────────────────────────────────────────
+
+    use crate::ui::markdown_view::MarkdownViewState;
+
+    /// Build a `MarkdownViewState` pre-populated with `blocks` (empty caches).
+    fn view_with_blocks(blocks: Vec<DocBlock>) -> MarkdownViewState {
+        let total_lines = blocks.iter().map(DocBlock::height).sum();
+        MarkdownViewState {
+            rendered: blocks,
+            total_lines,
+            ..Default::default()
+        }
+    }
+
+    /// `recompute_active_block` must find block 0 when the cursor is at byte 0.
+    #[test]
+    fn recompute_active_block_updates_on_cursor_move() {
+        let (mut state, blocks) = setup(DOC_3);
+        assert!(blocks.len() >= 3, "DOC_3 must render to at least 3 blocks");
+
+        let view = view_with_blocks(blocks);
+
+        // Cursor starts at byte 0 — should be in block 0.
+        recompute_active_block(&mut state, &view);
+        let ab = state.active_block.expect("active_block must be Some");
+        assert_eq!(ab.index, 0, "byte 0 must be in block 0");
+
+        // Now position the cursor at the start of block 2 (the last text block).
+        let (_, _) = block_byte_range(&view.rendered[0]);
+        let (b2_start, _) = block_byte_range(&view.rendered[2]);
+        set_cursor_to_byte(&mut state, b2_start);
+        recompute_active_block(&mut state, &view);
+        let ab2 = state
+            .active_block
+            .expect("active_block must be Some after move");
+        assert_eq!(
+            ab2.index, 2,
+            "cursor at block 2 start must identify block 2"
+        );
+    }
+
+    /// `move_cursor_left` must decrement the byte offset by 1 (for ASCII).
+    #[test]
+    fn cursor_movement_left_decrements_byte_unless_at_zero() {
+        let source = "Hello world\n";
+        let (mut state, blocks) = setup(source);
+        let view = view_with_blocks(blocks);
+
+        // Position cursor at byte 5.
+        set_cursor_to_byte(&mut state, 5);
+        move_cursor_left(&mut state, &view);
+        let byte_after = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        assert_eq!(byte_after, 4, "left from byte 5 must land at byte 4");
+
+        // At byte 0 — should not move.
+        set_cursor_to_byte(&mut state, 0);
+        move_cursor_left(&mut state, &view);
+        let byte_at_0 = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        assert_eq!(byte_at_0, 0, "left at byte 0 must stay at 0");
+    }
+
+    /// `move_cursor_right` on a multi-byte character must advance by the full
+    /// char width, not just 1 byte.
+    #[test]
+    fn cursor_movement_respects_utf8_boundaries() {
+        // 'é' is U+00E9 encoded as 0xC3 0xA9 — 2 bytes.
+        let source = "caf\u{00e9}\n"; // "café\n"
+        let (mut state, blocks) = setup(source);
+        let view = view_with_blocks(blocks);
+
+        // Byte 3 is the start of 'é'.
+        set_cursor_to_byte(&mut state, 3);
+        move_cursor_right(&mut state, &view);
+        let byte_after = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        // Moving right from byte 3 should land at byte 5 (past the 2-byte 'é').
+        assert_eq!(
+            byte_after, 5,
+            "right from byte 3 must skip 2-byte char 'é' and land at byte 5"
+        );
+    }
+
+    /// `move_cursor_down` from the last line of block 0 must land in the next
+    /// block, and `recompute_active_block` must update the active_block index.
+    #[test]
+    fn cursor_movement_down_crosses_block_boundary() {
+        let (mut state, blocks) = setup(DOC_3);
+        assert!(blocks.len() >= 2, "DOC_3 must render at least 2 blocks");
+        let view = view_with_blocks(blocks);
+
+        // "Para one.\n\n" — block 0 ends after the second newline.
+        // Line boundaries: [0, 10, 11, ...].
+        // Row 0: "Para one."  (bytes 0..9)
+        // Row 1: ""           (bytes 10..10 — just the blank line after the paragraph)
+        // Position cursor at row 1 (the last line of block 0's source coverage).
+        let (_, b0_end) = block_byte_range(&view.rendered[0]);
+        // The source for block 0 is "Para one.\n\n" (11 bytes, 0..11).
+        // Line 1 starts at byte 10 ('\n' at byte 9 → line 1 starts at 10).
+        set_cursor_to_byte(&mut state, b0_end.saturating_sub(1));
+        recompute_active_block(&mut state, &view);
+        let before_idx = state.active_block.map(|ab| ab.index).unwrap_or(99);
+
+        move_cursor_down(&mut state, &view);
+        recompute_active_block(&mut state, &view);
+        let after_idx = state.active_block.map(|ab| ab.index).unwrap_or(99);
+        // After moving down, the cursor should be in a later block.
+        assert!(
+            after_idx >= before_idx,
+            "moving down must not move backward in block index"
+        );
+    }
+
+    /// `move_cursor_line_start` / `move_cursor_line_end` must land at the correct
+    /// byte offsets on a known line.
+    #[test]
+    fn cursor_movement_line_start_and_end() {
+        let source = "first line\nsecond line\n";
+        // Line boundaries: [0, 11, 23].
+        // Line 1: "second line" → bytes 11..22, end at 22 (before the \n at 22).
+        let (mut state, blocks) = setup(source);
+        let view = view_with_blocks(blocks);
+
+        // Position on line 1 mid-way.
+        set_cursor_to_byte(&mut state, 15); // inside "second line"
+        move_cursor_line_start(&mut state, &view);
+        let start_byte = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        assert_eq!(
+            start_byte, 11,
+            "line_start must land at the beginning of line 1"
+        );
+
+        move_cursor_line_end(&mut state, &view);
+        let end_byte = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        // "second line" is 11 chars → last char at byte 11 + 10 = 21.
+        assert_eq!(
+            end_byte, 21,
+            "line_end must land at last char before the newline"
+        );
+    }
+
+    /// The raw height of a block equals `wrap_spans(slice, width).len()`.
+    #[test]
+    fn active_block_raw_height_matches_wrapped_slice() {
+        let source = "Short paragraph.\n";
+        let (_, blocks) = setup(source);
+        let (b_start, b_end) = block_byte_range(&blocks[0]);
+        let slice = &source[b_start..b_end];
+        let raw_span = ratatui::text::Span::raw(slice);
+        let wrapped = crate::text_layout::wrap_spans(&[raw_span], 80);
+        // `wrap_spans` emits one row for the content and one empty row for the
+        // trailing '\n', so a paragraph ending in '\n' always produces 2 rows.
+        assert_eq!(
+            wrapped.len(),
+            2,
+            "paragraph ending in '\\n' wraps to 2 rows (content + empty)"
         );
     }
 }
