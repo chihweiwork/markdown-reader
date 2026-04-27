@@ -1,0 +1,19 @@
+---
+source: crates/mermaid-text/tests/snapshots.rs
+expression: out
+---
+
+
+
+
+
+
+                      ╭──────────╮
+                     ▸(  Circle  )────────┐
+                     │╰──────────╯        │
+┌─────────────┐   Link text               │╱─────────╲
+│ Square Rect │──────┘                    ▸│ Rhombus │
+└─────────────┘──────┐                    ▸╲─────────╱
+                     │╭────────────╮      │
+                     ▸│ Round Rect │──────┘
+                      ╰────────────╯

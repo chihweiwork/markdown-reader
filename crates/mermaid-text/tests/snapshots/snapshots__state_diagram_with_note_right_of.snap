@@ -1,6 +1,5 @@
 ---
 source: crates/mermaid-text/tests/snapshots.rs
-assertion_line: 698
 expression: out
 ---
 
@@ -9,7 +8,7 @@ expression: out
                           ▸│ Done │
                           │╰──────╯
 ╭─────╮     ╭────────╮    │
-│( ● )│────▸│ Active │────┘
+(  ●  )────▸│ Active │────┘
 ╰─────╯     ╰────────╯┄┄┄┄┐
                           ┆╭─────────────────────────╮
                           ─│ retries 3x with backoff │

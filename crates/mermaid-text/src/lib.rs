@@ -880,9 +880,10 @@ mod tests {
     fn render_diamond_node() {
         let out = render("graph LR; A{Decision} --> B[OK]").unwrap();
         assert!(out.contains("Decision"), "missing 'Decision' in:\n{out}");
-        // Diamond renders as a rectangle with ◇ markers at the horizontal
-        // centre of the top and bottom edges (termaid convention).
-        assert!(out.contains('◇'), "no diamond marker in:\n{out}");
+        // Diamond now renders with diagonal corner characters (╱ ╲) that
+        // clearly distinguish a rhombus from a plain rectangle.
+        assert!(out.contains('╱'), "no diagonal corner '╱' in:\n{out}");
+        assert!(out.contains('╲'), "no diagonal corner '╲' in:\n{out}");
     }
 
     #[test]

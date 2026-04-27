@@ -1,12 +1,11 @@
 ---
 source: crates/mermaid-text/tests/snapshots.rs
-assertion_line: 716
 expression: out
 ---
 
 
 ╭─────╮
-│( ● )│────────────────────────┐
+(  ●  )────────────────────────┐
 ╰─────╯                        │
                                │╭──────╮     ╭─────────╮
                                ▸│ Idle │────▸│ Working │

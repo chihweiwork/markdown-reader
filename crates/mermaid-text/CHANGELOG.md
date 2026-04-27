@@ -3,6 +3,75 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.24.0 — 2026-04-27 — Shape rendering polish
+
+Motivated by feedback from the `md-tui` maintainer evaluating `mermaid-text` for
+integration. Three shape-rendering issues were reported against the test diagram:
+
+```mermaid
+graph LR
+    A[Square Rect] -- Link text --> B((Circle))
+    A --> C(Round Rect)
+    B --> D{Rhombus}
+    C --> D
+```
+
+### Fixed
+
+- **Bug 1 — Circle label no longer leaks delimiter parens** (`NodeShape::Circle`).
+  Previously the `((` / `))` delimiters in Mermaid's circle syntax appeared inside
+  the rendered label, so `B((Circle))` displayed as `│( Circle )│`. The renderer
+  now places the `(` / `)` markers directly ON the border cells (overwriting the
+  `│` side-border at the vertical midpoint), keeping the interior label clean:
+  `(  Circle  )`. All state-diagram start states (`[*]`) use the same shape and
+  benefit from the same fix.
+
+- **Bug 2 — Rhombus now uses diagonal corner characters** (`NodeShape::Diamond`).
+  Previously `D{Rhombus}` rendered as a plain rectangle with `◇` markers stamped
+  on the horizontal centre of the top and bottom borders (`┌────◇────┐`). This was
+  visually indistinct from a rectangle and obscured arrowheads routed to the top
+  border. The new rendering replaces the four rectangular corners with `╱` (U+2571)
+  and `╲` (U+2572):
+  ```
+  ╱─────────╲
+  │ Rhombus │
+  ╲─────────╱
+  ```
+  Works at any label width (tested for short labels "Hi", medium "Rhombus", and a
+  long label "This is a long rhombus label"). State-diagram `<<choice>>` nodes use
+  the same shape and are updated accordingly.
+
+### Deferred
+
+- **Bug 3 — Edge label placement in horizontal layouts** is investigated but
+  deferred. For LR graphs the label already appears on the horizontal routing
+  segment closest to the destination node (last-segment placement strategy). In
+  indirect routes (where the path bends) the label sometimes appears on a row
+  adjacent to the destination rather than at the visual midpoint of the full edge.
+  Fixing this correctly requires finding the middle horizontal segment across the
+  full path, which would require reworking `candidate_positions`. Deferred to a
+  follow-up release.
+
+- **Other shape variants** (`[(cylinder)]`, `{{hexagon}}`, `[/parallelogram/]`,
+  `[[subroutine]]`) are NOT addressed in this release. Each has similar rendering
+  limitations but requires its own targeted fix. They are tracked for future
+  polish passes.
+
+### Tests
+
+- Added `parser::flowchart::tests::circle_syntax_does_not_leak_parens_into_label`
+  — unit test asserting the parsed label for `((Circle))` is exactly `"Circle"`.
+- Added `render::unicode::tests::rhombus_uses_diagonal_corners` — unit test
+  asserting `╱` / `╲` are present and `◇` is absent for short, medium, and long
+  rhombus labels.
+- Added snapshot test `flowchart_md_tui_test_diagram` covering the exact diagram
+  from the issue report. This becomes the visible regression baseline.
+- Updated snapshot assertions that previously checked for `◇`; they now check
+  for `╱` / `╲` instead.
+- Accepted 13 snapshot updates: `all_node_shapes`, `diamond_with_branches`,
+  `state_diagram_special_shapes`, and 10 state-diagram snapshots where the `[*]`
+  start circle improved from `│( ● )│` to `(  ●  )`.
+
 ## 0.23.0 — 2026-04-27 — erDiagram Phase 3: grid layout
 
 ### Added

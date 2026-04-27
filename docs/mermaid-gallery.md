@@ -100,6 +100,42 @@ flowchart LR
     A == "thick label" ==> G
 ```
 
+### Node shape showcase
+
+All supported node shapes in one diagram. Each shape has a distinct
+visual treatment so they can be told apart at a glance:
+
+```mermaid
+graph TD
+    R[Rectangle]
+    Ro(Rounded)
+    Di{Diamond}
+    Ci((Circle))
+    St([Stadium])
+    Su[[Subroutine]]
+    Cy[(Cylinder)]
+    Hx{{Hexagon}}
+    As>Asymmetric]
+    Pa[/Parallelogram/]
+    Tr[/Trapezoid\]
+    Dc(((DoubleCircle)))
+```
+
+Expected terminal output (0.24.0+):
+
+```
+  ┌───────────┐   ╭─────────╮   ╱─────────╲   ╭──────────╮   ╭───────────╮  ...
+  │ Rectangle │   │ Rounded │   │ Diamond │   (  Circle  )   │( Stadium )│  ...
+  └───────────┘   ╰─────────╯   ╲─────────╱   ╰──────────╯   ╰───────────╯  ...
+```
+
+Key shape distinctions (updated in 0.24.0):
+
+- **Diamond** `{label}` — `╱` top-left / `╲` top-right corners, `╲` / `╱` bottom.
+  Clearly distinguishes a decision node from a plain rectangle.
+- **Circle** `((label))` — `(` / `)` replace the side border at the midpoint row.
+  The label text is undecorated ("Circle", not "( Circle )").
+
 ### Colors via classDef + class
 
 ```mermaid

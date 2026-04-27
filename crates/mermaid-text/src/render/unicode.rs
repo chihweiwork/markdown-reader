@@ -1242,12 +1242,18 @@ fn draw_node_box(grid: &mut Grid, node: &Node, pos: GridPos, geom: NodeGeom) {
             grid.draw_diamond(col, row, geom.width, geom.height);
         }
         NodeShape::Circle => {
-            // Render circle as rounded box with extra parenthesis markers
+            // Render circle as a rounded box with '(' and ')' replacing the
+            // vertical border characters at the label row.  Placing the markers
+            // ON the border (not one cell inside it) keeps the label region
+            // clear and prevents the decorators from appearing as literal parens
+            // inside the label text.
             grid.draw_rounded_box(col, row, geom.width, geom.height);
-            // Place '(' and ')' inside the leftmost/rightmost interior columns
             let mid = row + geom.cy();
-            grid.set(col + 1, mid, '(');
-            grid.set(col + geom.width - 2, mid, ')');
+            // Overwrite the left and right border cells on the middle row with
+            // '(' / ')' so the mid-row reads "(  label  )" while the top and
+            // bottom rows keep their rounded-corner glyphs.
+            grid.set(col, mid, '(');
+            grid.set(col + geom.width - 1, mid, ')');
         }
         NodeShape::Stadium => {
             grid.draw_stadium(col, row, geom.width, geom.height);
@@ -2477,5 +2483,32 @@ mod tests {
             out.contains("\x1b]8;;https://color.example\x1b\\"),
             "OSC 8 missing in color render:\n{out:?}"
         );
+    }
+
+    /// Regression test for Bug 2: rhombus/diamond nodes must render with
+    /// diagonal corner characters (`╱` U+2571 / `╲` U+2572) instead of the
+    /// old rectangle-with-`◇`-markers style.
+    ///
+    /// Both a short label ("Hi") and a longer label are checked so the
+    /// diagonal-corner approach works across a range of box widths.
+    #[test]
+    fn rhombus_uses_diagonal_corners() {
+        for label in &["Hi", "Rhombus", "This is a long rhombus label"] {
+            let src = format!("graph LR\nD{{{label}}}");
+            let out = render_diagram(&src);
+            assert!(
+                out.contains('╱'),
+                "diagonal corner '╱' missing for label {label:?} in:\n{out}"
+            );
+            assert!(
+                out.contains('╲'),
+                "diagonal corner '╲' missing for label {label:?} in:\n{out}"
+            );
+            // The old rectangular markers must no longer appear.
+            assert!(
+                !out.contains('◇'),
+                "old '◇' marker still present for label {label:?} in:\n{out}"
+            );
+        }
     }
 }

@@ -5,6 +5,15 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.14] — 2026-04-27
+
+### Changed
+
+- **`mermaid-text` 0.24.0** — shape rendering polish: circle labels no longer
+  show spurious `( )` delimiters; rhombus/diamond nodes now render with `╱` / `╲`
+  diagonal corners instead of a rectangle with `◇` markers. See
+  `crates/mermaid-text/CHANGELOG.md` for full details.
+
 ## [1.34.13] — 2026-04-27
 
 ### Added

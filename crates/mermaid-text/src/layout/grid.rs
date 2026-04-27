@@ -797,26 +797,35 @@ impl Grid {
         }
     }
 
-    /// Draw a diamond-style node box: a standard rectangle with `◇` markers
-    /// overwriting the horizontal centre of the top and bottom edges.
+    /// Draw a diamond-style (rhombus) node box using diagonal corner characters.
     ///
-    /// This is the termaid convention — readable at any terminal width and
-    /// unambiguous even with proportional fonts.
+    /// The visual style is:
+    /// ```text
+    /// ╱────────╲
+    /// │  label  │
+    /// ╲────────╱
+    /// ```
+    ///
+    /// `╱` (U+2571) and `╲` (U+2572) at the four corners clearly distinguish a
+    /// rhombus from a plain rectangle at any terminal width.  The horizontal
+    /// edges remain `─` and the vertical sides remain `│`, so routing logic
+    /// that already understands rectangles continues to work without changes.
     ///
     /// `w` and `h` are the total bounding-box dimensions.
     pub fn draw_diamond(&mut self, col: usize, row: usize, w: usize, h: usize) {
         if w < 2 || h < 2 {
             return;
         }
-        // Draw the standard rectangle first.
+        // Draw the standard rectangle skeleton first, then overwrite the four
+        // corner characters with diagonal glyphs.
         self.draw_box(col, row, w, h);
 
-        // Overwrite the horizontal centre of the top and bottom edges with ◇.
-        // Using `col + w / 2` gives a deterministic centre regardless of
-        // whether `w` is odd or even.
-        let cx = col + w / 2;
-        self.set(cx, row, '◇');
-        self.set(cx, row + h - 1, '◇');
+        // Top corners: ╱ top-left, ╲ top-right.
+        self.set(col, row, '╱');
+        self.set(col + w - 1, row, '╲');
+        // Bottom corners: ╲ bottom-left, ╱ bottom-right.
+        self.set(col, row + h - 1, '╲');
+        self.set(col + w - 1, row + h - 1, '╱');
     }
 
     /// Fill a `w × h` rectangular block at `(col, row)` with full-block `█`

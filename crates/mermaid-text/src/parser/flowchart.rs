@@ -1100,6 +1100,21 @@ mod tests {
     }
 
     #[test]
+    fn circle_syntax_does_not_leak_parens_into_label() {
+        // Regression test for Bug 1: the `((` / `))` delimiters in Mermaid's
+        // circle syntax are structural — they must NOT appear in the rendered
+        // label.  Previously the parser extracted "( Circle )" (with the inner
+        // paren pair included), causing the box to display as "│( Circle )│".
+        let g = parse("graph LR\nB((Circle))").unwrap();
+        let node = g.node("B").unwrap();
+        assert_eq!(node.shape, NodeShape::Circle);
+        // The label must be "Circle", not "( Circle )" or "(Circle)".
+        assert_eq!(node.label, "Circle");
+        assert!(!node.label.contains('('), "label must not contain '(': {:?}", node.label);
+        assert!(!node.label.contains(')'), "label must not contain ')': {:?}", node.label);
+    }
+
+    #[test]
     fn parse_rounded_node() {
         let g = parse("graph LR\nA(Rounded)").unwrap();
         assert_eq!(g.node("A").unwrap().shape, NodeShape::Rounded);

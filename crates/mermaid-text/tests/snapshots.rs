@@ -594,7 +594,10 @@ Branch2 --> Sync
 state Sync <<join>>
 Sync --> [*]";
     let out = mermaid_text::render(src).unwrap();
-    assert!(out.contains('◇'), "missing diamond marker for <<choice>>");
+    // <<choice>> now renders with diagonal corner characters (╱ ╲) instead of
+    // the old ◇ markers, giving a clearer visual distinction from plain rects.
+    assert!(out.contains('╱'), "missing diagonal corner '╱' for <<choice>>");
+    assert!(out.contains('╲'), "missing diagonal corner '╲' for <<choice>>");
     assert!(
         out.contains('█'),
         "missing filled-block glyph for <<fork>>/<<join>> in default LR layout"
@@ -1804,4 +1807,37 @@ fn git_graph_main_develop_merge() {
         "branch label 'develop' missing:\n{out}"
     );
     insta::assert_snapshot!("git_graph_main_develop_merge", out);
+}
+
+// ---------------------------------------------------------------------------
+// md-tui integration evaluation diagram (regression baseline from 0.24.0)
+// ---------------------------------------------------------------------------
+/// Snapshot test for the exact diagram submitted by the md-tui maintainer when
+/// evaluating mermaid-text for integration. Serves as the visible regression
+/// baseline for the 0.24.0 circle / rhombus shape-rendering polish.
+///
+/// Expected properties after the fix:
+/// - Node B is `((Circle))` — rendered with `(` / `)` ON the border, not
+///   embedded in the label text ("Circle", not "( Circle )").
+/// - Node D is `{Rhombus}` — rendered with `╱` / `╲` diagonal corners, not
+///   a rectangle with `◇` markers.
+#[test]
+fn flowchart_md_tui_test_diagram() {
+    let src = "graph LR
+    A[Square Rect] -- Link text --> B((Circle))
+    A --> C(Round Rect)
+    B --> D{Rhombus}
+    C --> D";
+    let out = mermaid_text::render(src).unwrap();
+    // Circle label must be clean — no leaked parens.
+    assert!(out.contains("Circle"), "Circle label missing:\n{out}");
+    assert!(
+        !out.contains("( Circle )"),
+        "circle label still leaks parens — bug 1 not fixed:\n{out}"
+    );
+    // Rhombus must use diagonal corners.
+    assert!(out.contains('╱'), "diagonal corner '╱' missing for Rhombus:\n{out}");
+    assert!(out.contains('╲'), "diagonal corner '╲' missing for Rhombus:\n{out}");
+    assert!(!out.contains('◇'), "old '◇' marker still present:\n{out}");
+    assert_snapshot!("flowchart_md_tui_test_diagram", out);
 }
