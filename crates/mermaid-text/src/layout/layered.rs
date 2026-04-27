@@ -1381,10 +1381,8 @@ fn compute_positions(
                         // This only applies when both nodes are in different
                         // top-level subgraphs (boundary count >= 2); within a
                         // single subgraph the sibling_gap formula is exact.
-                        let chain_prev =
-                            node_subgraph_chain(prev_id, &node_to_sg, &sg_parent);
-                        let chain_curr =
-                            node_subgraph_chain(id, &node_to_sg, &sg_parent);
+                        let chain_prev = node_subgraph_chain(prev_id, &node_to_sg, &sg_parent);
+                        let chain_curr = node_subgraph_chain(id, &node_to_sg, &sg_parent);
                         if subgraph_boundary_count(&chain_prev, &chain_curr) >= 2 {
                             // The outermost (last) entry in the chain is the
                             // top-level subgraph ID that A belongs to.
@@ -1402,10 +1400,7 @@ fn compute_positions(
                                     });
                                 // Left anchor of the previous subgraph in
                                 // this pre-offset coordinate system.
-                                let anchor = sg_col_min
-                                    .get(prev_top_sg)
-                                    .copied()
-                                    .unwrap_or(0);
+                                let anchor = sg_col_min.get(prev_top_sg).copied().unwrap_or(0);
                                 // Minimum safe column for the new subgraph's
                                 // node: anchor + widest member + right border
                                 // pad + one inter-border gap cell.
@@ -1419,7 +1414,10 @@ fn compute_positions(
                         }
                     }
                     // Record the leftmost column assigned to this top-level subgraph.
-                    if let Some(top_sg) = node_subgraph_chain(id, &node_to_sg, &sg_parent).last().copied() {
+                    if let Some(top_sg) = node_subgraph_chain(id, &node_to_sg, &sg_parent)
+                        .last()
+                        .copied()
+                    {
                         let entry = sg_col_min.entry(top_sg.to_owned()).or_insert(col);
                         *entry = (*entry).min(col);
                     }

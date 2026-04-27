@@ -28,6 +28,12 @@ line.
   non-identifying line styles.
 - **Pie charts** rendered as horizontal bar charts (more legible in
   monospace than any ASCII pie attempt).
+- **Gantt charts** (`gantt`) rendered as Unicode horizontal bar charts
+  with a tick-labelled date axis, section headings, `█`/`░` task bars,
+  and `[start → end, Nd]` annotations. Supports explicit dates, `after
+  <id>` dependencies, and chained implicit-start tasks. Phase 1
+  limitations: status tags (`done`, `active`, `crit`, `milestone`) and
+  `excludes`/`includes` are silently ignored.
 
 Recent rendering improvements: arrow tips merge into destination box
 borders (`┌─▾─┐` instead of floating `▾` above), edge labels never
@@ -355,12 +361,93 @@ percentage. Decimal values are supported.
 
 ---
 
+---
+
+## Gantt charts
+
+Gantt diagrams render as horizontal bar charts, one task per row. Task bars
+(`█` active, `░` empty) are scaled to fit the terminal width. A tick-labelled
+date axis appears above the bars.
+
+### Simple project schedule
+
+```mermaid
+gantt
+    title Software Release v2
+    dateFormat YYYY-MM-DD
+    axisFormat %m-%d
+    section Design
+      Research       :r1, 2024-01-01, 7d
+      Wireframes     :after r1, 5d
+    section Development
+      Backend        :b1, 2024-01-13, 14d
+      Frontend       :after b1, 10d
+    section QA
+      Testing        :2024-02-06, 7d
+```
+
+Expected output (trimmed to 80 columns):
+
+```text
+Gantt: Software Release v2 (2024-01-01 → 2024-02-12, 43 days)
+
+                  01-01    01-08    01-15    01-22    01-29    02-05
+Design
+  Research        ░███████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  [01-01 → 01-07, 7d]
+  Wireframes      ░░░░░░░░░░█████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  [01-08 → 01-12, 5d]
+
+Development
+  Backend         ░░░░░░░░░░░░░░░░█████████████████░░░░░░░░░░░  [01-13 → 01-26, 14d]
+  Frontend        ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░███████░░  [01-27 → 02-05, 10d]
+
+QA
+  Testing         ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░███░  [02-06 → 02-12, 7d]
+```
+
+### Classic Mermaid example with axisFormat %b %d
+
+```mermaid
+gantt
+    title A Gantt Diagram
+    dateFormat YYYY-MM-DD
+    axisFormat %b %d
+    section Section A
+        Design        :a1, 2014-01-01, 30d
+        Implementation:after a1, 20d
+    section Section B
+        Testing       :2014-02-15, 15d
+        Deployment    :3d
+```
+
+Expected output (trimmed to 80 columns):
+
+```text
+Gantt: A Gantt Diagram (2014-01-01 → 2014-03-04, 63 days)
+
+                  Jan 01   Jan 11    Jan 21   Jan 31    Feb 10   Feb 20    Mar
+
+Section A
+  Design          ████████████████████████████░░░░░░░░░░░░░░░░░░░░  [Jan 01 → Jan 30, 30d]
+  Implementation  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██████████████████░  [Jan 31 → Feb 19, 20d]
+
+Section B
+  Testing         ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██████  [Feb 15 → Mar 01, 15d]
+  Deployment      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██  [Mar 02 → Mar 04, 3d]
+```
+
+**Phase 1 limitations.** Status tags (`done`, `active`, `crit`, `milestone`)
+are silently ignored. `excludes`/`includes` (weekend skipping) and
+`tickInterval` are not implemented. Non-`YYYY-MM-DD` date formats produce a
+parse error. See `mermaid-text` 0.20.0 CHANGELOG for the full list.
+
+---
+
 ## Not yet supported
 
 These Mermaid diagram types fall back to showing source text rather
 than rendering:
 
-- `gantt`, `journey`, `classDiagram` — lower priority; may land if
+- `journey`, `classDiagram` — lower priority; may land if
   a real use case shows up.
 - `rect <colour>` colour-highlight blocks inside sequence diagrams
   (the block grammar itself is supported — only the colour form is

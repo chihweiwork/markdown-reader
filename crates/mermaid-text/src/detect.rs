@@ -23,6 +23,10 @@ pub enum DiagramKind {
     /// `journey` (user-journey) diagrams. Render as a section/task tree
     /// with filled-star satisfaction scores per step.
     Journey,
+    /// `gantt` diagrams. Render as a horizontal bar chart with one row
+    /// per task aligned to a date axis (Phase 1 — no status tags,
+    /// excludes, or milestones).
+    Gantt,
 }
 
 /// Detect the kind of Mermaid diagram described by `input`.
@@ -52,8 +56,8 @@ pub enum DiagramKind {
 /// assert_eq!(detect("flowchart TD\nA-->B").unwrap(), DiagramKind::Flowchart);
 /// assert_eq!(detect("sequenceDiagram\nA->>B: hi").unwrap(), DiagramKind::Sequence);
 /// assert_eq!(detect("pie title Pets").unwrap(), DiagramKind::Pie);
+/// assert_eq!(detect("gantt\ntitle Roadmap").unwrap(), DiagramKind::Gantt);
 /// assert!(detect("").is_err());
-/// assert!(detect("gantt title Roadmap").is_err());
 /// ```
 pub fn detect(input: &str) -> Result<DiagramKind, Error> {
     let first = input
@@ -73,6 +77,7 @@ pub fn detect(input: &str) -> Result<DiagramKind, Error> {
         "erdiagram" => Ok(DiagramKind::Er),
         "classdiagram" => Ok(DiagramKind::Class),
         "journey" => Ok(DiagramKind::Journey),
+        "gantt" => Ok(DiagramKind::Gantt),
         other => Err(Error::UnsupportedDiagram(other.to_string())),
     }
 }
@@ -102,11 +107,18 @@ mod tests {
 
     #[test]
     fn unknown_type_returns_error() {
-        // `gantt` is still unsupported; `pie` was added in 0.9.4.
+        // A truly unsupported type returns UnsupportedDiagram.
         assert!(matches!(
-            detect("gantt title Roadmap"),
+            detect("xychart title Roadmap"),
             Err(Error::UnsupportedDiagram(_))
         ));
+    }
+
+    #[test]
+    fn detects_gantt_keyword() {
+        assert_eq!(detect("gantt\ntitle A Plan").unwrap(), DiagramKind::Gantt);
+        // Case-insensitive.
+        assert_eq!(detect("Gantt").unwrap(), DiagramKind::Gantt);
     }
 
     #[test]

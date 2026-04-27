@@ -1,6 +1,6 @@
 [package]
 name = "mermaid-text"
-version = "0.19.1"
+version = "0.20.0"
 edition = "2024"
 # edition = "2024" requires Rust 1.85+; use that as the floor.
 rust-version = "1.92"
@@ -19,6 +19,7 @@ path = "src/bin/mermaid_text.rs"
 [dependencies]
 unicode-width = "0.2"
 ascii-dag = "0.9.1"
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 
 [dev-dependencies]
 insta = "1"

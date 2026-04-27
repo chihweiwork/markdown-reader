@@ -3,6 +3,77 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.20.0 — 2026-04-27 — Phase 7: `gantt` support
+
+### Added
+
+- **`gantt` diagram type** (eighth diagram type). Full support for Mermaid's
+  project-schedule syntax: `title`, `dateFormat`, `axisFormat`, `section`, and
+  task lines.
+
+- **`GanttDiagram`, `GanttSection`, `GanttTask`** — new public data-model types
+  in `mermaid_text::gantt`. `GanttDiagram` holds an optional title, a
+  date-format string (`YYYY-MM-DD`), an axis-format string, and an ordered list
+  of `GanttSection`s. `GanttTask` stores `name`, an optional `id` (used as a
+  dependency target), and fully-resolved `start` / `end` `NaiveDate` values.
+  Helper methods: `min_date()`, `max_date()`, `total_tasks()`, `span_days()`,
+  `duration_days()`.
+
+- **`parser::gantt::parse`** — two-pass parser. Pass 1 collects raw task specs
+  (literal start dates, `after <id>` deps, implicit-start markers). Pass 2
+  resolves every task to concrete `NaiveDate` values, detecting unknown
+  dependency ids with a clear `ParseError`. Supported features:
+  - `dateFormat YYYY-MM-DD` (only; other patterns produce `ParseError`)
+  - `axisFormat` with `%b %d`, `%Y-%m-%d`, `%m/%d`, `%d`, `%m-%d` (default)
+  - `section <name>` — tasks before any section go into an implicit unnamed section
+  - Task syntax: `<name> : [id,] [start-spec,] duration`
+  - Duration units: `d` (days), `w` (weeks = 7 days), `h` (hours, rounded up to
+    whole days)
+  - Start specs: explicit `YYYY-MM-DD` date, `after <task_id>` (dep), or
+    implicit (chains from previous task's end in same section; first implicit
+    task defaults to today's date matching Mermaid's web renderer)
+  - Status tags (`done`, `active`, `crit`, `milestone`) silently ignored
+  - `excludes`, `includes`, `tickInterval`, `weekday`, `click` silently ignored
+  - `%%` line comments stripped
+
+- **`render::gantt::render`** — horizontal bar-chart renderer. Layout:
+  header line with title and date range, a tick-labelled date axis, then
+  per-section rows with task name (left-aligned, padded to a column), a
+  Unicode bar (`█` active cells, `░` empty cells), and a date annotation
+  `[start → end, Nd]`. When `max_width` is `Some(N)`, the bar zone scales to
+  fit; when `None`, 1 cell = 1 day (capped at 60 cells). `█` and `░` map to
+  `#` and `.` in ASCII mode via `to_ascii`.
+
+- **`chrono = "0.4"` dependency** added for `NaiveDate` arithmetic (no
+  timezone features; `std` + `clock` only for `Local::now()`).
+
+- **26 new tests**: 5 in `gantt.rs` (data-model), 12 in `parser/gantt.rs`
+  (parse correctness), 6 in `render/gantt.rs` (render correctness), 1
+  in `detect.rs`, 1 snapshot in `tests/snapshots.rs`, and 2 updated
+  existing lib tests that previously asserted `gantt` was unsupported.
+
+### Limitations (Phase 1)
+
+The following Mermaid `gantt` features are **not** supported in this release.
+Diagrams using them are still accepted (the relevant tokens are silently
+skipped) but the features have no visual effect:
+
+- **Status tags** (`done`, `active`, `crit`, `milestone`) — parsed but
+  ignored; no colour coding or visual distinction in the bar.
+- **`excludes` / `includes`** — weekend and holiday skipping are not
+  implemented; all days count as working days.
+- **`tickInterval`** — tick spacing is auto-computed from the span;
+  explicit intervals are ignored.
+- **`weekday`** setting — week-start is not configurable.
+- **`click` handlers** — hyperlink annotations are silently dropped.
+- **`todayMarker`** — the "today" line is not rendered.
+- **Non-`YYYY-MM-DD` date formats** — `dateFormat` values other than
+  `YYYY-MM-DD` return `ParseError` (not silently ignored) because the parser
+  cannot interpret task dates in any other format.
+- **Dependency cycles** — a cycle via `after X` chains returns `ParseError`;
+  cycle detection is implicit (unknown id lookup fails) rather than explicit
+  graph traversal.
+
 ## 0.19.1 — 2026-04-27 — Bug fix B7: TB sibling-subgraph horizontal collision
 
 ### Fixed

@@ -452,8 +452,9 @@ in image mode (flowcharts, sequence, state, class, ER, Gantt, pie,
 and more). The text-mode fallback ([`mermaid-text`](crates/mermaid-text/),
 also our own crate) covers flowcharts, state diagrams,
 sequence diagrams (with autonumber, notes, activation bars, and block
-statements), pie charts, ER diagrams, class diagrams, and user-journey
-diagrams. Fidelity on subgraphs and complex layouts
+statements), pie charts, ER diagrams, class diagrams, user-journey
+diagrams, and Gantt charts (Phase 1 — bar chart with date axis; status
+tags and excludes are silently ignored). Fidelity on subgraphs and complex layouts
 depends on each renderer's maturity — when a specific diagram fails,
 the source is shown with a short error in the footer.
 

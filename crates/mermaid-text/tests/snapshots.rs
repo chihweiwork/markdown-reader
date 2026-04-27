@@ -1533,6 +1533,39 @@ fn journey_working_day() {
 }
 
 // ---------------------------------------------------------------------------
+// Gantt diagram snapshot
+// ---------------------------------------------------------------------------
+
+/// Representative `gantt` diagram: title, dateFormat, axisFormat, two
+/// sections, explicit dates, an `after X` dep, and chained implicit start.
+/// All tasks have explicit or derivable dates — no today-anchored implicit
+/// start — so this snapshot is fully deterministic across runs.
+#[test]
+fn gantt_project_schedule() {
+    let src = "gantt
+    title Software Release v2
+    dateFormat YYYY-MM-DD
+    axisFormat %m-%d
+    section Design
+      Research       :r1, 2024-01-01, 7d
+      Wireframes     :after r1, 5d
+    section Development
+      Backend        :b1, 2024-01-13, 14d
+      Frontend       :after b1, 10d
+    section QA
+      Testing        :2024-02-06, 7d";
+    let out = mermaid_text::render_with_width(src, Some(100)).unwrap();
+    assert!(
+        out.contains("Software Release v2"),
+        "title missing in:\n{out}"
+    );
+    assert!(out.contains("Research"), "Research task missing in:\n{out}");
+    assert!(out.contains("Backend"), "Backend task missing in:\n{out}");
+    assert!(out.contains("Testing"), "Testing task missing in:\n{out}");
+    insta::assert_snapshot!("gantt_project_schedule", out);
+}
+
+// ---------------------------------------------------------------------------
 // B7. TB sibling-subgraph horizontal collision — regression guard.
 //
 // Repro source: two top-level subgraphs in a `flowchart TB` diagram where
@@ -1578,7 +1611,10 @@ fn b7_tb_sibling_subgraph_no_horizontal_collision() {
     // Extract the column ranges of the two subgraph borders from the first
     // (top border) line of each.  The top border line contains the subgraph
     // label and unique box-drawing corners (`╭` / `╮`).
-    let first_line = out.lines().next().expect("output should have at least one line");
+    let first_line = out
+        .lines()
+        .next()
+        .expect("output should have at least one line");
 
     // Find all occurrences of `╭` (left corner) on the top border line.
     let corners: Vec<usize> = first_line

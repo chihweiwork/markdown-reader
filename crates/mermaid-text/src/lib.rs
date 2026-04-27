@@ -73,7 +73,7 @@
 //! | `pie` (with optional `showData` and `title`) | yes (rendered as horizontal bar chart) |
 //! | `erDiagram` (entities + relationships with cardinality) | yes (Phase 1 — name-only boxes) |
 //! | `journey` (user-journey, section/task tree with score bars) | yes |
-//! | `gantt`, etc. | not supported |
+//! | `gantt` (project schedule bar chart) | yes (Phase 1 — bar chart, no excludes/status tags/milestones) |
 //!
 //! ## Limitations
 //!
@@ -102,6 +102,7 @@
 pub mod class;
 pub mod detect;
 pub mod er;
+pub mod gantt;
 pub mod journey;
 pub mod layout;
 pub mod parser;
@@ -115,6 +116,7 @@ pub use class::{
     Stereotype, Visibility,
 };
 pub use er::{Attribute, AttributeKey, Cardinality, Entity, ErDiagram, LineStyle, Relationship};
+pub use gantt::{GanttDiagram, GanttSection, GanttTask};
 pub use journey::{JourneyDiagram, Section, Task};
 pub use pie::{PieChart, PieSlice};
 pub use sequence::{Message, MessageStyle, Participant, SequenceDiagram};
@@ -263,6 +265,12 @@ pub fn render_with_width(input: &str, max_width: Option<usize>) -> Result<String
             // no compaction pass needed.
             let diag = parser::journey::parse(input)?;
             return Ok(render::journey::render(&diag, max_width));
+        }
+        DiagramKind::Gantt => {
+            // Gantt diagrams render as a horizontal bar chart — fixed layout,
+            // honours the optional width budget directly.
+            let diag = parser::gantt::parse(input)?;
+            return Ok(render::gantt::render(&diag, max_width));
         }
         DiagramKind::Flowchart => parser::parse(input)?,
         DiagramKind::State => {
@@ -484,6 +492,12 @@ pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, 
             let diag = parser::journey::parse(input)?;
             render::journey::render(&diag, opts.max_width)
         }
+        DiagramKind::Gantt => {
+            // Gantt diagrams render as a horizontal bar chart. Color opts
+            // are not applicable (monochrome only in Phase 1).
+            let diag = parser::gantt::parse(input)?;
+            render::gantt::render(&diag, opts.max_width)
+        }
         DiagramKind::Flowchart => {
             let graph = parser::parse(input)?;
             render_flowchart_with_color(
@@ -638,6 +652,10 @@ pub fn to_ascii(s: &str) -> String {
             '◂' => '<',
             '▾' => 'v',
             '▴' => '^',
+            // ---- Gantt bar characters and annotation glyphs ----
+            '\u{2588}' => '#', // █ FULL BLOCK → #
+            '\u{2591}' => '.', // ░ LIGHT SHADE → .
+            '\u{2192}' => '>', // → RIGHTWARDS ARROW (used in date range "start → end")
             // ---- Endpoint / decorator glyphs ----
             '◇' => '*',
             '◆' => '#',
@@ -855,8 +873,8 @@ mod tests {
 
     #[test]
     fn unknown_diagram_type_returns_error() {
-        // `pie` was added in 0.9.4; `gantt` remains unsupported.
-        let err = render("gantt title Roadmap").unwrap_err();
+        // An actually unsupported diagram type returns UnsupportedDiagram.
+        let err = render("xychart-beta\n  line [1, 2, 3]").unwrap_err();
         assert!(
             matches!(err, Error::UnsupportedDiagram(_)),
             "expected UnsupportedDiagram, got {err:?}"
@@ -1436,14 +1454,12 @@ mod tests {
     }
 
     #[test]
-    fn unknown_diagram_types_still_error() {
-        // `gantt` is unsupported; `journey` was added in 0.19.0.
-        let err = render("gantt\ntitle Roadmap\nsection Phase1\nTask: done, 2024-01-01, 30d")
-            .unwrap_err();
-        assert!(
-            matches!(err, Error::UnsupportedDiagram(_)),
-            "expected UnsupportedDiagram, got {err:?}"
-        );
+    fn gantt_diagram_now_renders() {
+        // `gantt` was added in 0.20.0; must now return Ok, not an error.
+        let out =
+            render("gantt\n  dateFormat YYYY-MM-DD\n  section Phase1\n  Task :2024-01-01, 30d")
+                .unwrap();
+        assert!(out.contains("Task"), "task name missing in: {out}");
     }
 
     #[test]

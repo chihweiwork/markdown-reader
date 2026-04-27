@@ -5,6 +5,18 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 1.34.7
+
+### Added
+
+- **`gantt` diagram type** rendered in the markdown viewer via the
+  `mermaid-text` workspace dependency bump to 0.20.0. Project Gantt charts now
+  render as Unicode horizontal bar charts with a date axis, section headings,
+  task bars scaled to the column budget, and `[start → end, Nd]` annotations —
+  instead of falling back to an error. Phase 1 limitations: status tags,
+  excludes, and milestones are silently ignored; see `mermaid-text` 0.20.0
+  CHANGELOG for the full limitations list.
+
 ## [1.34.6] — 2026-04-27
 
 ### Fixed
