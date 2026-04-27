@@ -1,6 +1,7 @@
 use crate::app::DocSearchState;
 use crate::theme::Palette;
 use crate::ui::editor::TabEditor;
+use crate::ui::hybrid_editor::HybridState;
 use crate::ui::markdown_view::MarkdownViewState;
 use std::path::PathBuf;
 
@@ -23,6 +24,13 @@ pub struct Tab {
     /// Vim-style editor state.  `Some` while the tab is in edit mode, `None`
     /// when viewing the rendered markdown.
     pub editor: Option<TabEditor>,
+    /// Hybrid live-preview editing state.  `Some` while the tab is in hybrid
+    /// mode (entered via `enter_hybrid_mode`, sub-phase 4), `None` otherwise.
+    /// Today nothing populates this field — it is always `None` after sub-phase 2.
+    /// Sub-phase 4 introduces the `I` keybinding that calls `enter_hybrid_mode`.
+    // Dormant until sub-phase 4; suppress the dead_code lint.
+    #[allow(dead_code)]
+    pub hybrid: Option<HybridState>,
 }
 
 /// Ordered collection of open tabs with an active-tab pointer.
@@ -135,6 +143,7 @@ impl Tabs {
             },
             doc_search: DocSearchState::default(),
             editor: None,
+            hybrid: None,
         });
         self.set_active(id);
         (id, OpenOutcome::Opened)

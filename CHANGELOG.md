@@ -5,6 +5,39 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.2] - 2026-04-27
+
+### Internal — Hybrid live-preview editing sub-phase 2 (source buffer + apply_edit)
+
+Plumbing — no user-visible change. Builds on sub-phase 1's data
+model.
+
+- New module `src/ui/hybrid_editor.rs` with `HybridState` struct
+  (10 fields: editor_state, source, baseline, line_boundaries,
+  active_block, command_line, status_message, close_after_save).
+  Owns the canonical `source: String` buffer for hybrid mode plus
+  edtui's `EditorState` as the text-editing primitive.
+- `Tab::hybrid: Option<HybridState>` field added (initialized
+  `None` in `open_or_focus`; sub-phase 4 will populate it on mode
+  entry).
+- `HybridState::apply_edit(blocks, byte_offset, deleted, inserted)`
+  — mutates the source, rebuilds `line_boundaries`, shifts every
+  affected block's `source_byte_start`/`source_byte_end` by the
+  byte delta. Does NOT re-parse anything (sub-phase 6's job).
+  Two non-obvious edge cases the tests caught:
+  - "Before" check is strict (`<`, not `<=`) — `end == byte_offset`
+    is insert-at-block-end, handled by "inside" case.
+  - Pure insertions at block boundaries get a `defer_to_after`
+    guard so the insertion lands in block N (where the user typed)
+    rather than ambiguously in N or N+1.
+
+8 new tests pin: in-block insert, doc-start insert, in-block delete,
+insert-at-block-end stays in block, contiguity invariant after
+arbitrary edit sequence, line_boundaries rebuild, line_delta math,
+UTF-8 boundary panic.
+
+906 tests pass (+8). Clippy + fmt clean.
+
 ## [1.29.1] - 2026-04-27
 
 ### Internal — Hybrid live-preview editing sub-phase 1 (foundation)
