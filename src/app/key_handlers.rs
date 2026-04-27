@@ -1241,6 +1241,16 @@ fn dispatch_hybrid_key(
         KeyCode::Char('u') if ctrl => delete_to_line_start(hybrid, view),
         KeyCode::Char('k') if ctrl => delete_to_line_end(hybrid, view),
 
+        // ── Readline-style Alt+letter shortcuts ───────────────────────────────
+        // macOS Terminal / iTerm2 with "Use Option as Meta" send Option+Right
+        // as `Alt+f` (Char('f') + ALT) and Option+Left as `Alt+b`, mirroring
+        // GNU readline's `forward-word` / `backward-word` bindings — never as
+        // `Alt+Right` / `Alt+Left`. Without these arms the Char(_) if alt
+        // catch-all below would silently swallow them.
+        KeyCode::Char('f') if alt => move_cursor_word_right(hybrid, view),
+        KeyCode::Char('b') if alt => move_cursor_word_left(hybrid, view),
+        KeyCode::Char('d') if alt => delete_word_after(hybrid, view),
+
         // ── Editing keys ──────────────────────────────────────────────────────
         // Characters are inserted literally at the cursor.  The active block
         // renders raw while the cursor is inside it; pulldown-cmark styling

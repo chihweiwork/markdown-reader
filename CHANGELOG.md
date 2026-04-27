@@ -5,7 +5,28 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 1.34.3
+## [Unreleased] — 1.34.4
+
+### Fixed — Hybrid mode now recognises readline-style `Alt+f` / `Alt+b` / `Alt+d`
+
+Diagnosed via `cargo run --example key_debug`: macOS Terminal and iTerm2
+with "Use Option as Meta" enabled send Option+Right as `Char('f') + ALT`
+and Option+Left as `Char('b') + ALT` — mirroring GNU readline's
+`forward-word` / `backward-word` bindings. They never send `Right + ALT`
+or `Left + ALT`, which is what 1.34.1 was matching.
+
+The 1.34.1 catch-all `Char(_) if alt` arm swallowed those events
+silently, so Option-modified arrow keys did nothing in hybrid mode.
+
+Added explicit arms before the catch-all:
+- `Alt+f` → move word right
+- `Alt+b` → move word left
+- `Alt+d` → delete word forward (matches readline `kill-word`)
+
+`Alt+Backspace` already worked because `KeyCode::Backspace` carries the
+modifier directly. The new arms cover the readline `Char + ALT` pattern.
+
+## [1.34.3] — 2026-04-27
 
 ### Added — Ctrl+Left/Right as terminal-independent word jump in hybrid mode
 
