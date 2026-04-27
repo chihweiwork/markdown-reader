@@ -299,6 +299,14 @@ In addition to arrows, Home/End, Page Up/Down, Backspace and Delete:
 | `Ctrl+K` | Delete to line end |
 | `Ctrl+A` / `Ctrl+E` | Line start / end (works over SSH) |
 | `:w` / `:wq` / `:q` / `:q!` | Save / save+quit / quit / force quit |
+
+> **macOS Option key gotcha**: by default Apple Terminal and some iTerm2
+> profiles send Option as a literal Esc-prefix (`Esc b` for Option+Left,
+> etc.) instead of as a modifier. If word-jumping doesn't fire, enable
+> "Use Option as Meta" (Apple Terminal: Preferences → Profiles → Keyboard;
+> iTerm2: Preferences → Profiles → Keys → "Left/Right Option Key" →
+> `Esc+`). The Ctrl-prefixed shortcuts above are reliable everywhere and
+> need no terminal configuration.
 | `V` | Enter visual-line selection mode |
 | `yy` | Copy current line to clipboard |
 | `y` (visual) | Copy selected range to clipboard and exit visual mode |

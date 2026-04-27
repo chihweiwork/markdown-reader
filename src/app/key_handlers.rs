@@ -1198,8 +1198,16 @@ fn dispatch_hybrid_key(
     let code = key.code;
     let m = key.modifiers;
     // Aggregate modifier flags so the match below can read like a keymap.
-    let alt = m.contains(KeyModifiers::ALT); // macOS Option
-    let cmd = m.contains(KeyModifiers::SUPER); // macOS Command (rarely passes through)
+    //
+    // Terminal emulators are wildly inconsistent about which modifier flag
+    // they tag macOS Option with — crossterm parses it as `ALT` for some
+    // terminals and `META` for others, depending on the underlying CSI
+    // sequence the terminal sends. macOS Cmd similarly arrives as `SUPER`
+    // when it arrives at all (most terminals swallow it). Normalising both
+    // here keeps the match below stable across iTerm2, Ghostty, Wezterm,
+    // Apple Terminal, and Alacritty.
+    let alt = m.contains(KeyModifiers::ALT) || m.contains(KeyModifiers::META);
+    let cmd = m.contains(KeyModifiers::SUPER);
     let ctrl = m.contains(KeyModifiers::CONTROL);
 
     match code {

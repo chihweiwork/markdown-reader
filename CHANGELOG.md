@@ -5,7 +5,27 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 1.34.1
+## [Unreleased] — 1.34.2
+
+### Fixed — Hybrid mode now recognises Option as `META` modifier too
+
+Some terminals (notably iTerm2 with certain key profiles, plus Ghostty and
+Wezterm in some configurations) tag macOS Option as `KeyModifiers::META`
+rather than `KeyModifiers::ALT`. The 1.34.1 keymap only checked `ALT`, so
+Option-modified arrows fell through to the plain-character path and the
+cursor moved one column instead of jumping by word.
+
+The `alt` predicate in `dispatch_hybrid_key` now matches either flag, so
+Option works consistently regardless of which constant the terminal
+chooses to send. No matching change is needed for `cmd` (terminals that
+forward Cmd at all use `SUPER` uniformly).
+
+If Option still doesn't trigger word jumps after this update, the terminal
+is sending the raw Esc-prefixed legacy sequence (`Esc b` / `Esc f`) instead
+of a modified key event. Enable "Use Option as Meta" in your terminal's
+keyboard preferences to switch it to the modified-key path.
+
+## [1.34.1] — 2026-04-27
 
 ### Added — Hybrid mode word-, line-, and document-level navigation shortcuts
 
