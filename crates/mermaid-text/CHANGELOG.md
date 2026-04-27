@@ -3,6 +3,94 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.22.0 — 2026-04-27 — Phase 9: `timeline` support
+
+### Added
+
+- **`timeline` diagram type** (tenth diagram type). Supports Mermaid's timeline
+  syntax: `title`, `section`, and event lines of the form
+  `<period> : <event1> [: <event2> ...]`.
+
+- **`Timeline`, `TimelineSection`, `TimelineEntry`** — new public data-model types
+  in `mermaid_text::timeline`. `Timeline` holds an optional title and an ordered
+  list of `TimelineSection`s. Each `TimelineSection` has an optional name and a
+  list of `TimelineEntry` rows. Each `TimelineEntry` stores a free-text period
+  label and a `Vec<String>` of events. Helper methods: `total_entries()`,
+  `total_events()`.
+
+- **`parser::timeline::parse`** — line-by-line parser. Strips `%%` inline
+  comments via `parser::common::strip_inline_comment`. Events before the first
+  `section` keyword are grouped under an implicit unnamed section. Multiple
+  colon-separated events per period are split into a `Vec<String>`. Period labels
+  are treated as opaque text (no date parsing). `accTitle`/`accDescr`
+  accessibility metadata is silently ignored.
+
+- **`render::timeline::render`** — bullet-on-a-wire renderer. Each section
+  heading is a `── Name ────` horizontal rule. Each period renders as
+  `<period> ●── <first event>` with subsequent events below as
+  `           └── <next event>`. Period labels within a section are
+  right-padded so the bullet column aligns. `max_width` truncates event text
+  with `…` when a line would exceed the budget. Section rules and period labels
+  are never truncated.
+
+- **`detect::DiagramKind::Timeline`** — case-insensitive `timeline` keyword
+  detection.
+
+### Phase 1 limitations
+
+- `&` to mark "and" relationships between events is treated as literal text.
+- Custom themes/colours and `accTitle`/`accDescr` accessibility metadata are
+  silently ignored.
+
+## 0.21.0 — 2026-04-27 — Phase 8: `gitGraph` support
+
+### Added
+
+- **`gitGraph` diagram type** (ninth diagram type). Supports Mermaid's git-graph
+  syntax: `commit`, `commit id: "..."`, `commit tag: "..."`, `branch <name>`,
+  `checkout <name>`, `merge <name>`, and `cherry-pick id: "..."`.
+
+- **`GitGraph`, `Branch`, `Commit`, `CommitKind`, `Event`** — new public
+  data-model types in `mermaid_text::git_graph`. `GitGraph` holds an ordered list
+  of branches (creation order; `main` always at index 0), a timeline-ordered list
+  of commits, and a source-ordered event log. `Commit` records the branch name,
+  display id, optional tag, commit kind (`Normal`, `Merge`, `CherryPick`), and
+  parent/merge-parent commit indices. `Branch` records the fork-point commit
+  index. Helper methods: `lane_of()`, `head_of()`.
+
+- **`parser::git_graph::parse`** — line-by-line single-pass parser. Strips `%%`
+  inline comments. Tracks current branch state, auto-generating sequential ids
+  (`c0`, `c1`, …) when none are provided. Validates `checkout` against known
+  branches and `cherry-pick` against known commit ids. Emits `ParseError` for
+  malformed inputs; silently ignores unknown directives for forward compatibility.
+
+- **`render::git_graph::render`** — lane-based commit graph renderer. Layout:
+  each branch is a vertical column; commits flow top-to-bottom. Glyphs:
+  `*` (normal), `M` (merge), `C` (cherry-pick), `│` (lane continuation),
+  `╭`/`╮` (branch fork arc), `╰`/`╯` (merge arc), `─` (horizontal connector).
+  Commit ids and optional tags (`[tag]`) appear to the right of the lane section.
+  Branch names printed at the bottom. `max_width` truncates long ids with `…`.
+
+- **`detect::DiagramKind::GitGraph`** — case-insensitive `gitGraph` keyword
+  detection (lowercased to `gitgraph` before matching).
+
+- **31 new tests**: 5 in `git_graph.rs` (data-model), 13 in
+  `parser/git_graph.rs`, 6 in `render/git_graph.rs`, 1 snapshot in
+  `tests/snapshots.rs`.
+
+### Phase 1 limitations
+
+- `gitGraph LR` / `gitGraph TB` direction modifiers are silently ignored;
+  output is always top-to-bottom.
+- `commit type: REVERSE | HIGHLIGHT` extended commit types are silently ignored.
+- `commit message:` full-message attribute is silently ignored (only `id:` and
+  `tag:` are rendered).
+- `accTitle` / `accDescr` accessibility metadata is silently ignored.
+- Branch reordering / `orientation:` directives are not supported.
+- Custom themes have no effect.
+- Lanes are laid out left-to-right strictly in branch-creation order; no
+  crossing minimisation between lanes.
+
 ## 0.20.0 — 2026-04-27 — Phase 7: `gantt` support
 
 ### Added

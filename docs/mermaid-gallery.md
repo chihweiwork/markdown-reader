@@ -34,6 +34,20 @@ line.
   <id>` dependencies, and chained implicit-start tasks. Phase 1
   limitations: status tags (`done`, `active`, `crit`, `milestone`) and
   `excludes`/`includes` are silently ignored.
+- **Timeline diagrams** (`timeline`) rendered as a vertical
+  bullet-on-a-wire flow. Each section has a `── Name ─────` header;
+  each time period gets a `●──` bullet; additional events for the same
+  period hang below with `└──` connectors. Phase 1 limitations: `&`
+  relationship links and custom colour themes are silently ignored.
+- **Git graph diagrams** (`gitGraph`) rendered as a lane-based commit
+  graph with one branch per vertical column and time flowing
+  top-to-bottom. Glyphs: `*` normal commit, `M` merge commit, `C`
+  cherry-pick; `╭╮╰╯─` for fork and merge arcs; `│` for lane
+  continuation. Commit ids and optional `[tag]` annotations appear to
+  the right. Branch names are printed at the bottom of each lane.
+  Phase 1 limitations: direction modifiers (`LR`/`TB`), extended
+  commit types (`REVERSE`/`HIGHLIGHT`), and custom themes are silently
+  ignored.
 
 Recent rendering improvements: arrow tips merge into destination box
 borders (`┌─▾─┐` instead of floating `▾` above), edge labels never
@@ -442,13 +456,157 @@ parse error. See `mermaid-text` 0.20.0 CHANGELOG for the full list.
 
 ---
 
+## Timeline diagrams
+
+### Social media history (two sections, multi-event period)
+
+```mermaid
+timeline
+    title History of Social Media
+    section 2002-2004
+        2002 : LinkedIn
+        2003 : MySpace launched
+        2004 : Facebook : Google goes public
+    section 2005-2008
+        2005 : YouTube
+        2006 : Twitter
+        2007 : iPhone : Tumblr
+```
+
+Expected output:
+
+```text
+Timeline: History of Social Media
+
+── 2002-2004 ─────────────────────────────────────
+  2002 ●── LinkedIn
+  2003 ●── MySpace launched
+  2004 ●── Facebook
+       └── Google goes public
+
+── 2005-2008 ─────────────────────────────────────
+  2005 ●── YouTube
+  2006 ●── Twitter
+  2007 ●── iPhone
+       └── Tumblr
+```
+
+### Technology milestones (implicit unnamed section)
+
+Events that appear before any `section` keyword land in an implicit unnamed
+section — no section header is rendered for those entries.
+
+```mermaid
+timeline
+    title Key Technology Milestones
+    1991 : World Wide Web
+    1993 : Mosaic browser
+    section Late 90s
+        1995 : JavaScript : Java applets
+        1998 : Google founded
+    section 2000s
+        2001 : Wikipedia
+        2004 : Gmail
+        2007 : iPhone
+```
+
+Expected output (the 1991–1993 events appear without a section header):
+
+```text
+Timeline: Key Technology Milestones
+
+  1991 ●── World Wide Web
+  1993 ●── Mosaic browser
+
+── Late 90s ─────────────────────────────────────
+  1995 ●── JavaScript
+       └── Java applets
+  1998 ●── Google founded
+
+── 2000s ────────────────────────────────────────
+  2001 ●── Wikipedia
+  2004 ●── Gmail
+  2007 ●── iPhone
+```
+
+**Phase 1 limitations.** `&` relationship links between events are treated
+as literal text. Custom colour themes are silently ignored.
+
+---
+
+## Git graph diagrams
+
+A `gitGraph` diagram shows a commit history across one or more branches as a
+lane-based text diagram. Time flows top-to-bottom; each branch occupies a
+vertical column.
+
+### Example 1 — main branch with a feature branch and merge
+
+```mermaid
+gitGraph
+    commit
+    commit id: "second"
+    branch develop
+    checkout develop
+    commit
+    commit id: "feature-x"
+    checkout main
+    merge develop
+    commit tag: "v1.0"
+```
+
+Expected text-mode output:
+
+```
+*    c0
+*    second
+╭ ╮
+│ *  c2
+│ *  feature-x
+╰ ╯
+M │  c4
+* │  c5 [v1.0]
+main develop
+```
+
+### Example 2 — cherry-pick commit
+
+```mermaid
+gitGraph
+    commit id: "init"
+    branch hotfix
+    checkout hotfix
+    commit id: "patch"
+    checkout main
+    cherry-pick id: "patch"
+    commit tag: "v1.1"
+```
+
+Expected text-mode output:
+
+```
+*    init
+╭ ╮
+│ *  patch
+╰ ╯
+C │  c3
+* │  c4 [v1.1]
+main hotfix
+```
+
+**Phase 1 limitations.** `gitGraph LR` direction modifiers are silently
+ignored. Extended commit types (`REVERSE`, `HIGHLIGHT`) and `commit message:`
+are silently ignored. Custom themes have no effect. Branch lanes are ordered
+strictly by creation order with no crossing minimisation.
+
+---
+
 ## Not yet supported
 
 These Mermaid diagram types fall back to showing source text rather
 than rendering:
 
-- `journey`, `classDiagram` — lower priority; may land if
-  a real use case shows up.
+- `xychart` — lower priority; may land if a real use case shows up.
 - `rect <colour>` colour-highlight blocks inside sequence diagrams
   (the block grammar itself is supported — only the colour form is
   deferred; Mermaid's grammar is hard to express without bigger

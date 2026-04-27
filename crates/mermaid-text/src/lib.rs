@@ -74,6 +74,8 @@
 //! | `erDiagram` (entities + relationships with cardinality) | yes (Phase 1 — name-only boxes) |
 //! | `journey` (user-journey, section/task tree with score bars) | yes |
 //! | `gantt` (project schedule bar chart) | yes (Phase 1 — bar chart, no excludes/status tags/milestones) |
+//! | `timeline` (vertical time-period bullet list) | yes (Phase 1 — title, sections, multi-event periods; no custom themes) |
+//! | `gitGraph` (branch/commit lane diagram) | yes (Phase 1 — normal/merge/cherry-pick commits; no custom themes or orientation) |
 //!
 //! ## Limitations
 //!
@@ -103,12 +105,14 @@ pub mod class;
 pub mod detect;
 pub mod er;
 pub mod gantt;
+pub mod git_graph;
 pub mod journey;
 pub mod layout;
 pub mod parser;
 pub mod pie;
 pub mod render;
 pub mod sequence;
+pub mod timeline;
 pub mod types;
 
 pub use class::{
@@ -117,7 +121,9 @@ pub use class::{
 };
 pub use er::{Attribute, AttributeKey, Cardinality, Entity, ErDiagram, LineStyle, Relationship};
 pub use gantt::{GanttDiagram, GanttSection, GanttTask};
+pub use git_graph::{Branch, Commit, CommitKind, Event as GitEvent, GitGraph};
 pub use journey::{JourneyDiagram, Section, Task};
+pub use timeline::{Timeline, TimelineEntry, TimelineSection};
 pub use pie::{PieChart, PieSlice};
 pub use sequence::{Message, MessageStyle, Participant, SequenceDiagram};
 pub use types::{Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape};
@@ -271,6 +277,18 @@ pub fn render_with_width(input: &str, max_width: Option<usize>) -> Result<String
             // honours the optional width budget directly.
             let diag = parser::gantt::parse(input)?;
             return Ok(render::gantt::render(&diag, max_width));
+        }
+        DiagramKind::Timeline => {
+            // Timeline diagrams render as a vertical bullet-on-a-wire flow —
+            // fixed layout, honours the optional width budget for truncation.
+            let diag = parser::timeline::parse(input)?;
+            return Ok(render::timeline::render(&diag, max_width));
+        }
+        DiagramKind::GitGraph => {
+            // Git graph diagrams render as a lane-based commit graph —
+            // fixed layout, honours the optional width budget for id truncation.
+            let diag = parser::git_graph::parse(input)?;
+            return Ok(render::git_graph::render(&diag, max_width));
         }
         DiagramKind::Flowchart => parser::parse(input)?,
         DiagramKind::State => {
@@ -497,6 +515,18 @@ pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, 
             // are not applicable (monochrome only in Phase 1).
             let diag = parser::gantt::parse(input)?;
             render::gantt::render(&diag, opts.max_width)
+        }
+        DiagramKind::Timeline => {
+            // Timeline diagrams render as a vertical bullet-on-a-wire flow.
+            // Color opts are not applicable in Phase 1.
+            let diag = parser::timeline::parse(input)?;
+            render::timeline::render(&diag, opts.max_width)
+        }
+        DiagramKind::GitGraph => {
+            // Git graph diagrams render as a lane-based commit graph.
+            // Color opts are not applicable in Phase 1.
+            let diag = parser::git_graph::parse(input)?;
+            render::git_graph::render(&diag, opts.max_width)
         }
         DiagramKind::Flowchart => {
             let graph = parser::parse(input)?;

@@ -1652,3 +1652,63 @@ fn b7_tb_sibling_subgraph_no_horizontal_collision() {
     // Snapshot so any future layout change that touches these positions is caught.
     insta::assert_snapshot!("b7_tb_sibling_subgraph_no_horizontal_collision", out);
 }
+
+// ---------------------------------------------------------------------------
+// Timeline diagram snapshot
+// ---------------------------------------------------------------------------
+
+/// Representative `timeline` diagram: title, two sections, multi-event period.
+/// The source mirrors the canonical Mermaid documentation example for timelines.
+#[test]
+fn timeline_social_media_history() {
+    let src = "timeline
+    title History of Social Media
+    section 2002-2004
+        2002 : LinkedIn
+        2003 : MySpace launched
+        2004 : Facebook : Google goes public
+    section 2005-2008
+        2005 : YouTube
+        2006 : Twitter
+        2007 : iPhone : Tumblr";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(
+        out.contains("History of Social Media"),
+        "title missing in:\n{out}"
+    );
+    assert!(out.contains("LinkedIn"), "LinkedIn missing in:\n{out}");
+    assert!(
+        out.contains("Google goes public"),
+        "multi-event entry missing in:\n{out}"
+    );
+    assert!(out.contains("2002-2004"), "section header missing in:\n{out}");
+    assert!(out.contains("2005-2008"), "section header missing in:\n{out}");
+    insta::assert_snapshot!("timeline_social_media_history", out);
+}
+
+// ---------------------------------------------------------------------------
+// Git graph diagram snapshot
+// ---------------------------------------------------------------------------
+
+/// Representative `gitGraph` with main + develop branch and a merge commit.
+/// The source mirrors the canonical Mermaid gitGraph documentation example.
+#[test]
+fn git_graph_main_develop_merge() {
+    let src = "gitGraph
+    commit
+    commit id: \"second\"
+    branch develop
+    checkout develop
+    commit
+    commit id: \"feature-x\"
+    checkout main
+    merge develop
+    commit tag: \"v1.0\"";
+    let out = mermaid_text::render(src).unwrap();
+    assert!(out.contains("second"), "commit id 'second' missing:\n{out}");
+    assert!(out.contains("feature-x"), "commit id 'feature-x' missing:\n{out}");
+    assert!(out.contains("v1.0"), "tag 'v1.0' missing:\n{out}");
+    assert!(out.contains("main"), "branch label 'main' missing:\n{out}");
+    assert!(out.contains("develop"), "branch label 'develop' missing:\n{out}");
+    insta::assert_snapshot!("git_graph_main_develop_merge", out);
+}

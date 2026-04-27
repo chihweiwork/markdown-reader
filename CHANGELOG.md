@@ -5,9 +5,26 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 1.34.7
+## [1.34.9] — 2026-04-27
 
 ### Added
+
+- **`timeline` diagram type** rendered in the markdown viewer via the
+  `mermaid-text` workspace dependency bump to 0.22.0. Timeline diagrams now
+  render as a vertical bullet-on-a-wire flow with section headers, aligned
+  period labels, and colon-separated events per period — instead of falling back
+  to an error. Phase 1 limitations: `&` relationship links and custom themes are
+  silently ignored; see `mermaid-text` 0.22.0 CHANGELOG for the full limitations
+  list.
+
+- **`gitGraph` diagram type** rendered in the markdown viewer via the
+  `mermaid-text` workspace dependency bump to 0.21.0. Git commit graphs now
+  render as lane-based Unicode text diagrams with one branch per vertical column,
+  commits flowing top-to-bottom, fork/merge arcs using `╭╮╰╯─│` box-drawing
+  characters, and commit ids + tags printed to the right — instead of falling
+  back to an error. Phase 1 limitations: direction modifiers, extended commit
+  types (`REVERSE`/`HIGHLIGHT`), and custom themes are silently ignored; see
+  `mermaid-text` 0.21.0 CHANGELOG for the full limitations list.
 
 - **`gantt` diagram type** rendered in the markdown viewer via the
   `mermaid-text` workspace dependency bump to 0.20.0. Project Gantt charts now

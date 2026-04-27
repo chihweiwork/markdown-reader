@@ -1,0 +1,13 @@
+---
+source: crates/mermaid-text/tests/snapshots.rs
+expression: out
+---
+*    c0
+*    second
+╭ ╮
+│ *  c2
+│ *  feature-x
+╰ ╯
+M │  c4
+* │  c5 [v1.0]
+main develop

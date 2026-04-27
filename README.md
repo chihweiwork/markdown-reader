@@ -453,8 +453,12 @@ and more). The text-mode fallback ([`mermaid-text`](crates/mermaid-text/),
 also our own crate) covers flowcharts, state diagrams,
 sequence diagrams (with autonumber, notes, activation bars, and block
 statements), pie charts, ER diagrams, class diagrams, user-journey
-diagrams, and Gantt charts (Phase 1 — bar chart with date axis; status
-tags and excludes are silently ignored). Fidelity on subgraphs and complex layouts
+diagrams, Gantt charts (Phase 1 — bar chart with date axis; status
+tags and excludes are silently ignored), timeline diagrams
+(Phase 1 — bullet-on-a-wire flow with titled sections and multi-event
+periods), and git graph diagrams (Phase 1 — lane-based commit graph
+with `*`/`M`/`C` glyphs for normal/merge/cherry-pick commits, fork and
+merge arcs, and commit ids/tags). Fidelity on subgraphs and complex layouts
 depends on each renderer's maturity — when a specific diagram fails,
 the source is shown with a short error in the footer.
 

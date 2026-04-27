@@ -27,6 +27,14 @@ pub enum DiagramKind {
     /// per task aligned to a date axis (Phase 1 — no status tags,
     /// excludes, or milestones).
     Gantt,
+    /// `timeline` diagrams. Render as a vertical bullet-on-a-wire flow with
+    /// one row per time period and event text hanging off bullet connectors
+    /// (Phase 1 — no custom themes or colour, no `&` relationship links).
+    Timeline,
+    /// `gitGraph` diagrams. Render as a lane-based commit graph with
+    /// branches as vertical columns and commits flowing top-to-bottom
+    /// (Phase 1 — no custom themes, orientation, or extended commit types).
+    GitGraph,
 }
 
 /// Detect the kind of Mermaid diagram described by `input`.
@@ -57,6 +65,8 @@ pub enum DiagramKind {
 /// assert_eq!(detect("sequenceDiagram\nA->>B: hi").unwrap(), DiagramKind::Sequence);
 /// assert_eq!(detect("pie title Pets").unwrap(), DiagramKind::Pie);
 /// assert_eq!(detect("gantt\ntitle Roadmap").unwrap(), DiagramKind::Gantt);
+/// assert_eq!(detect("timeline\n2002 : LinkedIn").unwrap(), DiagramKind::Timeline);
+/// assert_eq!(detect("gitGraph\ncommit").unwrap(), DiagramKind::GitGraph);
 /// assert!(detect("").is_err());
 /// ```
 pub fn detect(input: &str) -> Result<DiagramKind, Error> {
@@ -78,6 +88,10 @@ pub fn detect(input: &str) -> Result<DiagramKind, Error> {
         "classdiagram" => Ok(DiagramKind::Class),
         "journey" => Ok(DiagramKind::Journey),
         "gantt" => Ok(DiagramKind::Gantt),
+        "timeline" => Ok(DiagramKind::Timeline),
+        // gitGraph is camelCase in Mermaid spec; match case-insensitively for
+        // resilience against linters/formatters that normalise the keyword.
+        "gitgraph" => Ok(DiagramKind::GitGraph),
         other => Err(Error::UnsupportedDiagram(other.to_string())),
     }
 }
@@ -180,5 +194,25 @@ mod tests {
         );
         // Case-insensitive.
         assert_eq!(detect("Journey").unwrap(), DiagramKind::Journey);
+    }
+
+    #[test]
+    fn detects_timeline_keyword() {
+        assert_eq!(
+            detect("timeline\n2002 : LinkedIn").unwrap(),
+            DiagramKind::Timeline
+        );
+        // Case-insensitive.
+        assert_eq!(detect("Timeline").unwrap(), DiagramKind::Timeline);
+    }
+
+    #[test]
+    fn detects_git_graph_keyword() {
+        assert_eq!(
+            detect("gitGraph\ncommit").unwrap(),
+            DiagramKind::GitGraph
+        );
+        // Case-insensitive match: "gitgraph" lowercased.
+        assert_eq!(detect("GitGraph").unwrap(), DiagramKind::GitGraph);
     }
 }
