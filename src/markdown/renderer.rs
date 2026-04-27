@@ -782,6 +782,7 @@ impl MdRenderer {
                 self.pending_heading_anchors.push(HeadingAnchor {
                     anchor,
                     line: crate::cast::u32_sat(self.lines.len()),
+                    level: self.heading_level,
                 });
                 self.flush_line();
                 // Blank line is part of this heading's block (visual separator),

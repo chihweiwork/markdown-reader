@@ -8,6 +8,7 @@ pub mod help;
 pub mod hybrid_editor;
 pub mod layout;
 pub mod link_picker;
+pub mod outline_picker;
 pub mod markdown_view;
 pub mod mermaid_modal;
 pub mod search_modal;
@@ -157,6 +158,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         link_picker::draw(f, app);
     }
 
+    if app.outline_picker.is_some() {
+        outline_picker::draw(f, app);
+    }
+
     if app.table_modal.is_some() {
         table_modal::draw(f, app);
     }
@@ -206,6 +211,7 @@ fn is_viewer_focused(focus: Focus) -> bool {
             | Focus::MermaidModal
             | Focus::CopyMenu
             | Focus::LinkPicker
+            | Focus::OutlinePicker
             | Focus::Editor
             | Focus::HybridEditor
     )

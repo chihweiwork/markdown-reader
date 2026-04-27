@@ -120,6 +120,8 @@ pub struct AbsoluteAnchor {
     pub anchor: String,
     /// Absolute 0-indexed display line within the document.
     pub line: u32,
+    /// ATX heading level: 1 = `#`, 2 = `##`, …, 6 = `######`.
+    pub level: u8,
 }
 
 /// Runtime state for the markdown preview panel.
@@ -222,6 +224,7 @@ impl MarkdownViewState {
                     abs_anchors.push(AbsoluteAnchor {
                         anchor: ha.anchor.clone(),
                         line: block_offset + visual_row,
+                        level: ha.level,
                     });
                 }
             }

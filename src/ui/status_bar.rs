@@ -23,6 +23,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
         Focus::MermaidModal => "MERMAID",
         Focus::CopyMenu => "COPY",
         Focus::LinkPicker => "LINKS",
+        Focus::OutlinePicker => "OUTLINE",
         Focus::Editor => "EDIT",
         // Hybrid mode shows the viewer panel formatted; the status bar
         // reflects the editing context (sub-phase 9 will rename this to EDIT).

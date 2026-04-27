@@ -881,6 +881,20 @@ impl App {
         self.focus = Focus::LinkPicker;
     }
 
+    /// Open the outline (heading) picker for the active tab.
+    ///
+    /// Collects every heading anchor from the active tab's rendered blocks and
+    /// opens the `OutlinePicker` overlay. No-ops when there is no active tab.
+    /// When the document contains no headings, the picker still opens so the
+    /// user sees the "no headings" placeholder message.
+    pub(super) fn open_outline_picker(&mut self) {
+        let Some(picker) = crate::ui::outline_picker::OutlinePickerState::build(self) else {
+            return;
+        };
+        self.outline_picker = Some(picker);
+        self.focus = Focus::OutlinePicker;
+    }
+
     /// Expand every ancestor directory of `file` in the tree and select the file.
     ///
     /// Delegates to [`FileTreeState::reveal_path`], which handles the ancestor

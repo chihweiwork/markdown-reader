@@ -275,6 +275,31 @@ The exported document includes:
 The output is a single `.html` file you can open in any browser or send to
 someone who doesn't have `markdown-reader` installed.
 
+### Link validation
+
+Scan a directory (or the current directory) for broken markdown links — no TUI
+launched, exits with a non-zero status when broken links are found:
+
+```sh
+markdown-reader --check-links docs/
+markdown-reader --check-links          # current directory
+```
+
+What is checked:
+
+- Same-file anchors: `[text](#heading)` — verified against the file's actual headings.
+- Cross-file links: `[text](./other.md)` — verified that the target file exists.
+- Cross-file anchors: `[text](./other.md#section)` — target file AND anchor both checked.
+
+What is skipped:
+
+- `http(s)://` external links (skipped unless `--check-external` is passed, which is
+  currently a stub that prints a notice and falls back to internal-only validation).
+- `mailto:`, `ftp://`, and other non-http schemes.
+
+Exit codes: `0` when all links are valid, `1` when any broken links are found.
+The TUI is not launched in this mode.
+
 Once inside the TUI, press `?` at any time for the keyboard help overlay.
 Press `c` to open the settings modal (themes, line numbers, tree
 position). Press `q`
@@ -340,6 +365,7 @@ In addition to arrows, Home/End, Page Up/Down, Backspace and Delete:
 | `n` / `N` | Next / previous match |
 | `:` | Go to line (centred on target) — use `:5` to jump to line 5 (`<number>G` vim-style count register is not yet implemented) |
 | `f` | Open anchor link picker (jump to a heading) |
+| `o` | Open outline / heading picker (navigate by heading level) |
 | `Enter` | Expand the first visible table into the modal viewer |
 | `Tab` | Switch focus to tree |
 

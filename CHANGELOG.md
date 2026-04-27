@@ -5,6 +5,59 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.13] — 2026-04-27
+
+### Added
+
+- **Link validator (`--check-links`)** — new CLI subcommand that walks a
+  directory recursively, parses every `.md` file with `pulldown-cmark`, and
+  validates all internal links:
+
+  - Same-file anchors (`#heading`) are checked against the file's actual
+    headings using the same slugification function (`heading_to_anchor`) as the
+    TUI renderer — no risk of slug-mismatch false positives.
+  - Cross-file links (`./other.md`) are checked for file existence.
+  - Cross-file anchors (`./other.md#section`) check file existence AND anchor
+    presence in the target file.
+
+  External `http(s)://` links are skipped by default. Passing `--check-external`
+  prints a notice ("not yet implemented") and continues with internal-only
+  validation — the flag is present and validated by clap but no HTTP client
+  requests are made. `mailto:`, `ftp://`, and other non-http schemes are silently
+  ignored.
+
+  Output format (one line per broken link, grep-friendly):
+
+  ```
+  guide.md:
+    line 42: broken anchor #nonexistent  [#nonexistent]
+    line 87: missing file ./does-not-exist.md  [./does-not-exist.md]
+
+  1 broken link(s) across 1 file(s) (7 .md files scanned in 0.01s).
+  ```
+
+  Exit codes: `0` — all links valid; `1` — at least one broken link. The TUI
+  is never launched when `--check-links` is present.
+
+  Directory traversal uses the `ignore` crate (already a dependency), so
+  `.gitignore` rules and hidden directories are respected automatically.
+
+## [1.34.12] — 2026-04-27
+
+### Added
+
+- **Outline / heading navigator (`o`)** — press `o` in the viewer to open a
+  popup listing every heading in the current document. Headings are shown in
+  document order, indented by level (`# H1`, `  ## H2`, `    ### H3`, …).
+  Navigate with `j`/`k` or the arrow keys; press `Enter` to jump to that
+  heading (centred in the viewport); press `Esc`, `q`, or `o` again to
+  dismiss. The popup is zero-layout-impact — it floats over the existing
+  viewer, matching the existing link-picker (`f`) and tab-picker (`T`) UX.
+  Documents with no headings show a "no headings in this document" placeholder
+  row instead of opening an empty popup.
+  `HeadingAnchor` and `AbsoluteAnchor` were extended with a `level: u8` field
+  so the outline picker can display and indent by heading level.
+
 ## [1.34.11] — 2026-04-27
 
 ### Changed

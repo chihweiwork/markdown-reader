@@ -2226,3 +2226,45 @@ fn hybrid_mode_does_not_alter_rendered_blocks() {
         );
     }
 }
+
+// ── Outline picker ────────────────────────────────────────────────────────────
+
+/// Pressing `o` in the viewer should open the outline picker with one entry
+/// per heading in the document and set focus to `OutlinePicker`.
+#[test]
+fn pressing_o_opens_outline_picker() {
+    use crate::markdown::renderer::render_markdown;
+    use crate::theme::{Palette, Theme};
+
+    let src = "# First Heading\n\nSome text.\n\n## Second Heading\n\nMore text.\n";
+    let palette = Palette::from_theme(Theme::Default);
+    let blocks = render_markdown(src, &palette, Theme::Default);
+
+    let mut app = App::new(PathBuf::from("."), None);
+    app.tabs
+        .open_or_focus(&PathBuf::from("/fake/outline_test.md"), true);
+    if let Some(tab) = app.tabs.active_tab_mut() {
+        tab.view.total_lines = blocks.iter().map(DocBlock::height).sum();
+        tab.view.rendered = blocks;
+        tab.view.recompute_positions();
+    }
+    app.focus = Focus::Viewer;
+
+    // Simulate pressing `o`.
+    app.open_outline_picker();
+
+    assert_eq!(
+        app.focus,
+        Focus::OutlinePicker,
+        "focus must switch to OutlinePicker"
+    );
+    let picker = app.outline_picker.as_ref().expect("outline_picker must be Some");
+    assert_eq!(
+        picker.entries.len(),
+        2,
+        "doc has 2 headings, picker must list both"
+    );
+    // Entries are in document order: H1 before H2.
+    assert_eq!(picker.entries[0].level, 1, "first entry must be H1");
+    assert_eq!(picker.entries[1].level, 2, "second entry must be H2");
+}

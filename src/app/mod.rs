@@ -10,6 +10,7 @@ use crate::state::{AppState, TabSession};
 use crate::theme::{Palette, Theme, Tokens};
 use crate::ui::file_tree::FileTreeState;
 use crate::ui::link_picker::LinkPickerState;
+use crate::ui::outline_picker::OutlinePickerState;
 use crate::ui::markdown_view::TableLayout;
 use crate::ui::search_modal::SearchState;
 use crate::ui::tab_picker::TabPickerState;
@@ -224,6 +225,8 @@ pub enum Focus {
     CopyMenu,
     /// Internal-link anchor picker (opened with `f`).
     LinkPicker,
+    /// Heading outline picker (opened with `o`).
+    OutlinePicker,
     /// Vim-style in-place editor for the active tab's source file.
     Editor,
     /// Hybrid live-preview editing mode (read-only in sub-phase 4).
@@ -416,6 +419,8 @@ pub struct App {
     pub tab_picker: Option<TabPickerState>,
     /// Link picker overlay state; `None` when the picker is closed.
     pub link_picker: Option<LinkPickerState>,
+    /// Outline (heading) picker overlay state; `None` when the picker is closed.
+    pub outline_picker: Option<OutlinePickerState>,
     /// Cached area of the file-tree panel for mouse hit-testing.
     pub tree_area_rect: Option<ratatui::layout::Rect>,
     /// Cached area of the viewer panel for mouse hit-testing.
@@ -521,6 +526,7 @@ impl App {
             search_result_rects: Vec::new(),
             tab_picker: None,
             link_picker: None,
+            outline_picker: None,
             tree_area_rect: None,
             viewer_area_rect: None,
             mermaid_cache: MermaidCache::new(),
@@ -1150,6 +1156,12 @@ impl App {
             Focus::LinkPicker => {
                 crate::ui::link_picker::handle_key(self, code);
                 if self.link_picker.is_none() {
+                    self.focus = Focus::Viewer;
+                }
+            }
+            Focus::OutlinePicker => {
+                crate::ui::outline_picker::handle_key(self, code);
+                if self.outline_picker.is_none() {
                     self.focus = Focus::Viewer;
                 }
             }

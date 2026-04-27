@@ -389,6 +389,9 @@ impl App {
             KeyCode::Char('f') => {
                 self.open_link_picker();
             }
+            KeyCode::Char('o') => {
+                self.open_outline_picker();
+            }
             KeyCode::Char('n') => self.doc_search_next(),
             KeyCode::Char('N') => self.doc_search_prev(),
             KeyCode::Char('c') => {

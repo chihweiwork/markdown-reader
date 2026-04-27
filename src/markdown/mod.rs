@@ -25,10 +25,13 @@ pub struct LinkInfo {
 /// `anchor` is the GitHub-style slug derived from the heading text.
 /// `line` is 0-indexed within the containing `DocBlock::Text` block; it is
 /// converted to an absolute display line in `MarkdownViewState::load`.
+/// `level` is the ATX heading level (1 for `#`, 2 for `##`, …, 6 max).
 #[derive(Debug, Clone)]
 pub struct HeadingAnchor {
     pub anchor: String,
     pub line: u32,
+    /// ATX heading level: 1 = `#`, 2 = `##`, …, 6 = `######`.
+    pub level: u8,
 }
 
 /// Opaque identifier for a mermaid diagram block, derived from a hash of its source.

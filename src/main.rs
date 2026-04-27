@@ -1,6 +1,7 @@
 mod action;
 mod app;
 mod cast;
+mod checklinks;
 mod config;
 mod event;
 mod export;
@@ -76,6 +77,21 @@ struct Cli {
     /// Output path for `--export-html` (default: stdout).
     #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
+
+    /// Validate internal links in all `.md` files under DIR (default: current directory).
+    ///
+    /// Checks same-file anchors (`#heading`), cross-file links, and cross-file
+    /// anchors. Exits with status 0 when all links are valid, or 1 when any
+    /// broken links are found. The TUI is not launched when this flag is present.
+    #[arg(long, value_name = "DIR", num_args = 0..=1, default_missing_value = ".")]
+    check_links: Option<PathBuf>,
+
+    /// Also validate `http(s)://` links when `--check-links` is active.
+    ///
+    /// Currently a stub: prints a notice and continues with internal-only
+    /// validation. No HTTP client requests are made in this release.
+    #[arg(long, requires = "check_links")]
+    check_external: bool,
 }
 
 /// Read all of stdin into a freshly-created temp file with a `.md` suffix.
@@ -169,6 +185,22 @@ async fn main() -> Result<()> {
                 .context("failed to write HTML to stdout")?;
         }
         return Ok(());
+    }
+
+    // ── Link validation mode ─────────────────────────────────────────────────
+    // When `--check-links` is supplied, walk the target directory, validate
+    // every .md file's links, print the report, then exit — no TUI is started.
+    if let Some(ref dir) = cli.check_links {
+        let root = dir
+            .canonicalize()
+            .with_context(|| format!("could not resolve path: {}", dir.display()))?;
+        let opts = checklinks::CheckOpts {
+            check_external: cli.check_external,
+        };
+        let report = checklinks::check_dir(&root, &opts);
+        report.print(&root);
+        let exit_code = if report.is_clean() { 0 } else { 1 };
+        std::process::exit(exit_code);
     }
 
     // ── stdin piping ─────────────────────────────────────────────────
