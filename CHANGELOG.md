@@ -5,6 +5,16 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.19] — 2026-04-28
+
+### Changed — mermaid-text 0.27.1 (test-infra bump)
+
+Bumped `mermaid-text` dependency to 0.27.1. This release ships pure test
+infrastructure — no renderer behaviour changes. A 51-source, 102-snapshot
+regression corpus now guards the routing-attach code path before the
+forthcoming B3/B9/B12 deferred fixes (Phase 3). See
+`crates/mermaid-text/CHANGELOG.md §0.27.1` for the full harness description.
+
 ## [1.34.18] — 2026-04-28
 
 ### Changed — mermaid-text 0.27.0

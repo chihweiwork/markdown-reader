@@ -3,6 +3,44 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.27.1 — 2026-04-28 — Routing regression-test harness (Phase 1)
+
+### Added — Frozen-gallery snapshot corpus
+
+Introduced a dedicated regression corpus harness at
+`crates/mermaid-text/tests/regression_corpus/` to build the safety net needed
+before fixing deferred routing-attach bugs B3, B9, and B12. The routing-attach
+path took three iterations to stabilise in 1.22.x; the regression risk is real
+and this harness is the required pre-condition for Phase 3 surgery.
+
+**Corpus contents (51 sources, 102 snapshots):**
+
+- 29 flowchart / architecture sources — covering back-edges (B12), width
+  constraints (B3), edge-label placement, subgraph crossing, bidirectional
+  edges, and all node/edge shape variants.
+- 11 state diagram sources — covering circuit-breaker, choice/fork/join,
+  composite states, self-loops, and the note-anchored form (B9 territory).
+- 3 ER diagram sources — single-row and grid-layout (80-col constraint).
+- 2 Gantt, 2 Timeline, 2 Git graph sources — non-routing paths, included
+  for completeness.
+
+Each source is rendered **twice**: natural-size and width-constrained to 80
+columns (the width-constrained path is where B3 manifests). Snapshots live
+under `tests/regression_corpus/snapshots/`, isolated from the existing
+`tests/snapshots/` directory.
+
+**Workflow:** `cargo test --test regression_corpus` must be green before
+touching routing code. After a change, use `cargo insta review` to classify
+each diff as Improvement (A), Neutral (B), or Regression (C). Reject the
+change if any diff is class C.
+
+The diff classifier binary (for automated A/B/C triage) is deferred to 0.27.2
+— the snapshot suite itself is the critical deliverable and ships first.
+
+No renderer behaviour was changed in this release. The snapshots document
+current output including known bugs (B3/B9/B12 artefacts); they will improve
+to class-A diffs when Phase 3 fixes ship.
+
 ## 0.27.0 — 2026-04-28 — Four rendering bug-fixes (gitGraph arc, ER inline attrs, ER spine, LR labels)
 
 ### Fixed — gitGraph fork/merge arc connector (`╭─╮` / `╰─╯`)
