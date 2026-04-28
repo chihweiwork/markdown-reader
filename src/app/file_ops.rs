@@ -144,12 +144,7 @@ impl App {
     /// * `jump_to_source` – when `Some(line)`, position the cursor at the
     ///   rendered logical line matching the given 0-indexed source line after
     ///   the file loads (or immediately when already open).
-    pub fn open_or_focus(
-        &mut self,
-        path: PathBuf,
-        new_tab: bool,
-        jump_to_source: Option<u32>,
-    ) {
+    pub fn open_or_focus(&mut self, path: PathBuf, new_tab: bool, jump_to_source: Option<u32>) {
         self.open_or_focus_named(path, new_tab, jump_to_source, None);
     }
 

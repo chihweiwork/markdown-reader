@@ -89,9 +89,7 @@ pub fn extract_section(source: &str, name: &str) -> Option<String> {
     // Higher level = lower H number (`#` outranks `##`).
     let end = lines[start + 1..]
         .iter()
-        .position(|&line| {
-            heading_level(line).is_some_and(|lvl| lvl <= section_level)
-        })
+        .position(|&line| heading_level(line).is_some_and(|lvl| lvl <= section_level))
         .map(|rel| start + 1 + rel)
         .unwrap_or(n);
 

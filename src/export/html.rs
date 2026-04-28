@@ -7,8 +7,10 @@
 //! syntax-highlighted with inline `<span style="…">` attributes via `syntect`.
 
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, Options, Parser, Tag, TagEnd};
-use syntect::html::{IncludeBackground, append_highlighted_html_for_styled_line, start_highlighted_html_snippet};
 use syntect::easy::HighlightLines;
+use syntect::html::{
+    IncludeBackground, append_highlighted_html_for_styled_line, start_highlighted_html_snippet,
+};
 use syntect::util::LinesWithEndings;
 
 use crate::markdown::highlight::{SYNTAX_SET, THEME_SET};
@@ -259,8 +261,7 @@ fn render_body(content: &str, theme: Theme) -> String {
 /// Falls back to displaying the raw source in a plain `<pre>` when
 /// `mermaid-text` cannot parse the diagram (unsupported type, syntax error, etc.).
 fn render_mermaid_block(source: &str) -> String {
-    let rendered = mermaid_text::render(source)
-        .unwrap_or_else(|_| source.to_owned());
+    let rendered = mermaid_text::render(source).unwrap_or_else(|_| source.to_owned());
     format!(
         "<pre class=\"mermaid-text\">{}</pre>\n",
         html_escape(&rendered)
@@ -343,12 +344,12 @@ fn html_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for ch in s.chars() {
         match ch {
-            '&'  => out.push_str("&amp;"),
-            '<'  => out.push_str("&lt;"),
-            '>'  => out.push_str("&gt;"),
-            '"'  => out.push_str("&quot;"),
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#39;"),
-            _    => out.push(ch),
+            _ => out.push(ch),
         }
     }
     out
@@ -367,7 +368,10 @@ mod tests {
             html.starts_with("<!DOCTYPE html>"),
             "output must start with DOCTYPE"
         );
-        assert!(html.contains("<style>"), "output must contain inline <style>");
+        assert!(
+            html.contains("<style>"),
+            "output must contain inline <style>"
+        );
         assert!(
             html.contains("</html>"),
             "output must be a complete HTML document"
@@ -386,10 +390,7 @@ mod tests {
     #[test]
     fn renders_heading() {
         let html = render_to_html("# Title", "t", Theme::Default);
-        assert!(
-            html.contains("<h1>Title</h1>"),
-            "expected h1 tag: {html}"
-        );
+        assert!(html.contains("<h1>Title</h1>"), "expected h1 tag: {html}");
     }
 
     #[test]

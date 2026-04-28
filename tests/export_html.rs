@@ -3,8 +3,8 @@
 //! Runs the compiled binary against the project's own `sample.md` and
 //! checks that the output looks like a complete HTML document.
 
-use std::process::Command;
 use std::path::Path;
+use std::process::Command;
 
 /// Resolve the path to the compiled debug binary.
 fn binary() -> std::path::PathBuf {
@@ -45,10 +45,7 @@ fn export_html_produces_valid_html_document() {
 
     let html = String::from_utf8(output.stdout).expect("output is not valid UTF-8");
 
-    assert!(
-        !html.is_empty(),
-        "expected non-empty HTML output"
-    );
+    assert!(!html.is_empty(), "expected non-empty HTML output");
     assert!(
         html.starts_with("<!DOCTYPE html>"),
         "output must start with DOCTYPE declaration"

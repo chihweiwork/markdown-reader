@@ -2232,9 +2232,11 @@ mod tests {
         let view = view_with_blocks(blocks);
         set_cursor_to_byte(&mut state, 0);
         super::move_cursor_word_right(&mut state, &view);
-        let byte =
-            byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
-        assert_eq!(byte, 5, "should land at the space after 'alpha', got {byte}");
+        let byte = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        assert_eq!(
+            byte, 5,
+            "should land at the space after 'alpha', got {byte}"
+        );
     }
 
     /// From the middle of a word, `move_cursor_word_right` finishes the
@@ -2246,8 +2248,7 @@ mod tests {
         let view = view_with_blocks(blocks);
         set_cursor_to_byte(&mut state, 2); // inside "alpha"
         super::move_cursor_word_right(&mut state, &view);
-        let byte =
-            byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        let byte = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
         assert_eq!(byte, 5, "should finish 'alpha', got {byte}");
     }
 
@@ -2260,8 +2261,7 @@ mod tests {
         // Cursor at end of "beta" (byte 10 = '\n').
         set_cursor_to_byte(&mut state, 10);
         super::move_cursor_word_left(&mut state, &view);
-        let byte =
-            byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        let byte = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
         assert_eq!(byte, 6, "should land at start of 'beta', got {byte}");
     }
 
@@ -2275,8 +2275,7 @@ mod tests {
         set_cursor_to_byte(&mut state, 10); // end of "beta"
         super::delete_word_before(&mut state, &mut view);
         assert_eq!(state.source, "alpha  gamma\n", "got {:?}", state.source);
-        let byte =
-            byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
+        let byte = byte_offset_from_editor_state(&state.editor_state, &state.line_boundaries);
         assert_eq!(byte, 6, "cursor should sit where 'beta' started");
     }
 
@@ -2291,7 +2290,11 @@ mod tests {
         // (line 1 starts at byte 11, so 13 - 11 = col 2).
         set_cursor_to_byte(&mut state, 13);
         super::delete_to_line_start(&mut state, &mut view);
-        assert_eq!(state.source, "first line\ncond line\n", "got {:?}", state.source);
+        assert_eq!(
+            state.source, "first line\ncond line\n",
+            "got {:?}",
+            state.source
+        );
     }
 
     /// `delete_to_line_end` removes from the cursor up to (but not including)

@@ -101,9 +101,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     // cap at the terminal height minus 4 rows so the popup never fills the
     // screen completely.
     let content_rows = entries.len().max(1); // at least 1 for the empty message
-    let height = crate::cast::u16_sat(
-        content_rows.min((area.height as usize).saturating_sub(4)) + 2,
-    );
+    let height =
+        crate::cast::u16_sat(content_rows.min((area.height as usize).saturating_sub(4)) + 2);
     let width = 72u16.min(area.width.saturating_sub(2));
 
     let popup_area = centered_rect(width, height, area);
@@ -149,9 +148,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 Style::default().fg(p.dim)
             };
             let prefix_style = if is_cursor {
-                Style::default()
-                    .fg(p.accent)
-                    .add_modifier(Modifier::BOLD)
+                Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(p.dim)
             };
@@ -309,9 +306,21 @@ mod tests {
     /// `display_prefix` produces the correct indentation and hashes per level.
     #[test]
     fn display_prefix_matches_level() {
-        let e1 = OutlineEntry { label: "x".into(), level: 1, line: 0 };
-        let e2 = OutlineEntry { label: "x".into(), level: 2, line: 0 };
-        let e3 = OutlineEntry { label: "x".into(), level: 3, line: 0 };
+        let e1 = OutlineEntry {
+            label: "x".into(),
+            level: 1,
+            line: 0,
+        };
+        let e2 = OutlineEntry {
+            label: "x".into(),
+            level: 2,
+            line: 0,
+        };
+        let e3 = OutlineEntry {
+            label: "x".into(),
+            level: 3,
+            line: 0,
+        };
 
         assert_eq!(e1.display_prefix(), "# ");
         assert_eq!(e2.display_prefix(), "  ## ");

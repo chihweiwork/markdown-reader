@@ -31,7 +31,6 @@ pub struct CheckOpts {
     pub check_external: bool,
 }
 
-
 /// A single broken link found during validation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BrokenLink {
@@ -519,10 +518,7 @@ mod tests {
 
     #[test]
     fn valid_cross_file_link_passes() {
-        let (_dir, root) = make_temp_dir(&[
-            ("a.md", "[link](./b.md)\n"),
-            ("b.md", "# B file\n"),
-        ]);
+        let (_dir, root) = make_temp_dir(&[("a.md", "[link](./b.md)\n"), ("b.md", "# B file\n")]);
         let report = check_dir(&root, &CheckOpts::default());
         assert_eq!(report.broken_count, 0, "expected no broken links");
     }
@@ -561,9 +557,13 @@ mod tests {
 
     #[test]
     fn external_link_skipped_silently_when_check_external_off() {
-        let (_dir, root) =
-            make_temp_dir(&[("doc.md", "[link](https://example.com)\n")]);
-        let report = check_dir(&root, &CheckOpts { check_external: false });
+        let (_dir, root) = make_temp_dir(&[("doc.md", "[link](https://example.com)\n")]);
+        let report = check_dir(
+            &root,
+            &CheckOpts {
+                check_external: false,
+            },
+        );
         assert_eq!(report.broken_count, 0, "external links must be skipped");
     }
 

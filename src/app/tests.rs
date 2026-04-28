@@ -2258,7 +2258,10 @@ fn pressing_o_opens_outline_picker() {
         Focus::OutlinePicker,
         "focus must switch to OutlinePicker"
     );
-    let picker = app.outline_picker.as_ref().expect("outline_picker must be Some");
+    let picker = app
+        .outline_picker
+        .as_ref()
+        .expect("outline_picker must be Some");
     assert_eq!(
         picker.entries.len(),
         2,
