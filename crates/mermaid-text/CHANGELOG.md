@@ -3,7 +3,7 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## 0.27.0 — 2026-04-27 — Four rendering bug-fixes (gitGraph arc, ER inline attrs, ER spine, LR labels)
+## 0.27.0 — 2026-04-28 — Four rendering bug-fixes (gitGraph arc, ER inline attrs, ER spine, LR labels)
 
 ### Fixed — gitGraph fork/merge arc connector (`╭─╮` / `╰─╯`)
 
