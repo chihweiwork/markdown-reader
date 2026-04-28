@@ -3,6 +3,48 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.28.1 — 2026-04-28 — Fix B3 forward-edge top-border pierce (try_u_route)
+
+### Fixed — B3: `App` top border corrupted when both L-routes are blocked by an
+obstacle
+
+**Root cause** (traced in `docs/scope-routing-attach-1.22-history.md`,
+"Phase 3 Step 3 attempt notes"): In LR layouts with `spread_sources`, the
+longest forward edge from a node receives the topmost exit row (row R, the
+node's top border row). When a `NodeBox` obstacle sits between source and
+target at that row, both single-bend L-routes (H-first and V-first) are
+blocked. A* then evaluates two corridor options: one cell UP into the perimeter
+corridor above the source (cost ~1) or several cells DOWN through already-edge-
+occupied rows to a corridor below the obstacle (cost ~4+). A* rationally picks
+UP, causing the route to wrap over the top of the diagram and corrupt the source
+node's top border: `┌─────┐────┐` / `└─────┘────┐`.
+
+**Mechanism**: New `try_u_route` helper in `router.rs`, inserted between
+`try_l_route` and the A* fallback. It activates only for LR forward edges where
+`src.col < dst.col` (both L-routes were None). It sweeps `below_row` downward
+from `max(src.row, dst.row) + 1` and `turn_col` across `src.col..dst.col`,
+checking whether a 4-segment path (horizontal → vertical-down → horizontal →
+vertical to dst) is NodeBox-free. On success, the path is built as explicit
+waypoints and drawn via the new `Grid::draw_path` crate-visible entry point. On
+failure, A* runs as before.
+
+**Invariant preserved**: B9, B12, and the width-budget fix are unaffected.
+`try_u_route` is purely additive — it only fires when both L-routes return
+`None` and only for LR forward edges.
+
+**Corpus diff**: 7 snapshots changed (all Bucket A — Improvement):
+- `flowchart_app_db_architecture.snap` / `.width80.snap`: B3 top-border
+  corruption removed; App→PostgreSQL routes via below-obstacle corridor.
+- `state_fork_join_full.snap` / `.width80.snap`: Decision→FinalState edge
+  routed via U-corridor, cleaning up `┌▸│` corruption on label cell.
+- `snapshots__architecture_diagram_with_sugiyama_backend.snap`: same App/
+  PostgreSQL improvement as corpus snapshot.
+- `snapshots__state_diagram_special_shapes.snap`: same fork_join improvement.
+- `crossings__crossings_architecture_sugiyama.snap`: crossing count 2→0
+  (U-route avoids the top corridor that was crossing other edges).
+
+0 regressions.
+
 ## 0.28.0 — 2026-04-28 — Width-budget label wrapping (md-tui integration request)
 
 ### Added — Label-wrap fallback in `render_with_width`

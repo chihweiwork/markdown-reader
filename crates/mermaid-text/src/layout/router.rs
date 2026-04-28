@@ -85,6 +85,8 @@ pub(crate) fn route_all(
             Some(p)
         } else if let Some(p) = try_l_route(grid, src, dst, horizontal_first, tip) {
             Some(p)
+        } else if let Some(p) = try_u_route(grid, src, dst, tip) {
+            Some(p)
         } else {
             grid.route_edge(src.col, src.row, dst.col, dst.row, horizontal_first, tip)
         };
@@ -308,6 +310,122 @@ fn l_cost(grid: &Grid, src: Attach, dst: Attach, hv_first: bool) -> Option<u32> 
     Some(cost)
 }
 
+/// Attempt a U-shaped route for LR forward edges when both L-routes are blocked.
+///
+/// Activates only when:
+/// 1. Both L-route orientations returned `None` (NodeBox obstacle on both L-corners).
+/// 2. The flow is left-to-right (`src.col < dst.col`).
+///
+/// Produces a 4-segment (at most) path that bypasses the blocking obstacle by
+/// routing DOWNWARD below it rather than letting A\* escape upward over the top
+/// of the diagram:
+///
+/// ```text
+///   src ──┐
+///         │
+///   ┌─────┘   ← below_row, free horizontal corridor
+///   └──────── dst
+/// ```
+///
+/// The search sweeps `turn_col` from `src.col` rightward and `below_row`
+/// downward from `max(src.row, dst.row) + 1` until it finds a combination
+/// where all four segments (H → V → H → V) are free of `NodeBox` cells.  If
+/// no combination is found within the grid bounds, returns `None` and A\* runs
+/// as the fallback.
+fn try_u_route(
+    grid: &mut Grid,
+    src: Attach,
+    dst: Attach,
+    tip: char,
+) -> Option<Vec<(usize, usize)>> {
+    // Only applies to left-to-right forward edges.
+    if src.col >= dst.col {
+        return None;
+    }
+
+    let grid_h = grid.rows();
+
+    // Sweep below_row first (outer), turn_col second (inner) so we find the
+    // shallowest bypass first — stays visually compact.
+    let below_start = src.row.max(dst.row).saturating_add(1);
+    for below_row in below_start..grid_h {
+        for turn_col in src.col..dst.col {
+            if u_route_clear(grid, src, dst, turn_col, below_row) {
+                let path = build_u_path(src, dst, turn_col, below_row);
+                return grid.draw_path(path, tip);
+            }
+        }
+    }
+    None
+}
+
+/// Return `true` when the 4-segment U-route through `(turn_col, below_row)`
+/// does not pass through any `NodeBox` cell (excluding the destination cell
+/// itself, which is a node border and is always treated as reachable).
+fn u_route_clear(grid: &Grid, src: Attach, dst: Attach, turn_col: usize, below_row: usize) -> bool {
+    // Segment 1 — horizontal from src to (turn_col, src.row).
+    let (c0, c1) = min_max(src.col, turn_col);
+    for c in c0..=c1 {
+        if grid.is_node_box(c, src.row) {
+            return false;
+        }
+    }
+    // Segment 2 — vertical from (turn_col, src.row) to (turn_col, below_row).
+    let (r0, r1) = min_max(src.row, below_row);
+    for r in r0..=r1 {
+        if grid.is_node_box(turn_col, r) {
+            return false;
+        }
+    }
+    // Segment 3 — horizontal from (turn_col, below_row) to (dst.col, below_row).
+    let (c0, c1) = min_max(turn_col, dst.col);
+    for c in c0..=c1 {
+        if grid.is_node_box(c, below_row) {
+            return false;
+        }
+    }
+    // Segment 4 — vertical from (dst.col, below_row) to dst.  The dst cell
+    // itself is the arrow-tip node border — treat it as reachable.
+    let (r0, r1) = min_max(below_row, dst.row);
+    for r in r0..r1 {
+        if grid.is_node_box(dst.col, r) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Build the flat waypoint list for a U-route through `(turn_col, below_row)`.
+///
+/// Preconditions guaranteed by `try_u_route`:
+/// - `src.col <= turn_col < dst.col`   → seg 1 goes right, seg 3 goes right
+/// - `below_row > max(src.row, dst.row)` → seg 2 goes down, seg 4 goes up
+fn build_u_path(
+    src: Attach,
+    dst: Attach,
+    turn_col: usize,
+    below_row: usize,
+) -> Vec<(usize, usize)> {
+    let mut path: Vec<(usize, usize)> = Vec::new();
+    // Seg 1: right along src.row from src.col to turn_col (inclusive).
+    for c in src.col..=turn_col {
+        path.push((c, src.row));
+    }
+    // Seg 2: down from src.row+1 to below_row at turn_col.
+    for r in (src.row + 1)..=below_row {
+        path.push((turn_col, r));
+    }
+    // Seg 3: right from turn_col+1 to dst.col at below_row.
+    for c in (turn_col + 1)..=dst.col {
+        path.push((c, below_row));
+    }
+    // Seg 4: up from below_row-1 to dst.row at dst.col.
+    for r in (dst.row..below_row).rev() {
+        path.push((dst.col, r));
+    }
+    path
+}
+
 /// Sort two values into `(min, max)` order.
 fn min_max(a: usize, b: usize) -> (usize, usize) {
     if a <= b { (a, b) } else { (b, a) }
@@ -495,5 +613,96 @@ mod tests {
         let pos_none = order.iter().position(|&i| i == 0).unwrap();
         let pos_some = order.iter().position(|&i| i == 1).unwrap();
         assert!(pos_some < pos_none, "edge with no attach should sort last");
+    }
+
+    /// Reproduces the B3 bug scenario: an LR forward edge from App to PostgreSQL
+    /// where both L-route orientations are blocked by a NodeBox obstacle
+    /// (representing RabbitMQ) sitting at the same row as the source exit.
+    ///
+    /// Layout:
+    /// - App   : cols 0–6, rows 2–4 (NodeBox)
+    /// - Rabbit: cols 9–17, rows 2–4 (NodeBox — blocks both L-corners)
+    /// - Src   : attach at (7, 2) — top exit of App in spread order
+    /// - Dst   : attach at (18, 3) — middle entry of PostgreSQL
+    ///
+    /// The H-first L-corner (18, 2) is inside the NodeBox of Rabbit → blocked.
+    /// The V-first L-corner (7, 3) is free, but the horizontal segment at row 3
+    /// from col 7 to col 18 passes through Rabbit's NodeBox → blocked.
+    ///
+    /// Expected: try_u_route finds a clean path going DOWN below row 4 and
+    /// looping below the obstacle. The result must:
+    /// 1. Be Some (a path was found).
+    /// 2. Not contain any cell that lies inside App's NodeBox (cols 0–6, rows 2–4).
+    /// 3. Not contain any cell inside Rabbit's NodeBox (cols 9–17, rows 2–4).
+    /// 4. Contain at least one cell whose row is strictly greater than 4 (goes below
+    ///    the obstacle) — confirming U-shape, not a top-wrap.
+    #[test]
+    fn forward_edge_uses_u_route_when_l_routes_blocked() {
+        let mut g = Graph::new(Direction::LeftToRight);
+        g.nodes.push(Node::new("App", "App", NodeShape::Rectangle));
+        g.nodes
+            .push(Node::new("PostgreSQL", "PostgreSQL", NodeShape::Rectangle));
+        g.edges.push(Edge::new("App", "PostgreSQL", None));
+
+        // Src exits from App's top spread row at (7, 2); dst enters PostgreSQL at (18, 3).
+        let src = Attach { col: 7, row: 2 };
+        let dst = Attach { col: 18, row: 3 };
+        let attaches = vec![Some((src, dst))];
+
+        // Grid large enough for a down-and-around route (10 rows).
+        let mut grid = Grid::new(25, 10);
+
+        // App bounding box: cols 0–6, rows 2–4.
+        grid.mark_node_box(0, 2, 7, 3);
+        // RabbitMQ bounding box: cols 9–17, rows 2–4 — blocks both L-routes.
+        // H-first corner at (18, 2): passes through cols 9–17 row 2 → NodeBox.
+        // V-first corner at (7, 3): horizontal at row 3 from col 7 to col 18 →
+        //   passes through cols 9–17 → NodeBox.
+        grid.mark_node_box(9, 2, 9, 3);
+
+        let paths = route_all(
+            &mut grid,
+            &g,
+            &attaches,
+            |_| crate::layout::grid::arrow::RIGHT,
+            |_| false,
+        );
+
+        let path = paths[0].as_ref().expect("expected a path for the LR edge");
+
+        // Must start at the source exit and end at the destination.
+        assert_eq!(
+            path.first(),
+            Some(&(src.col, src.row)),
+            "path must start at source exit"
+        );
+        assert_eq!(
+            path.last(),
+            Some(&(dst.col, dst.row)),
+            "path must end at destination"
+        );
+
+        // Must not pass through the App NodeBox (cols 0–6, rows 2–4).
+        for &(c, r) in path.iter() {
+            assert!(
+                !(c <= 6 && (2..=4).contains(&r)),
+                "path must not enter App's bounding box at ({c}, {r})"
+            );
+        }
+
+        // Must not pass through Rabbit's NodeBox (cols 9–17, rows 2–4).
+        for &(c, r) in path.iter() {
+            assert!(
+                !((9..=17).contains(&c) && (2..=4).contains(&r)),
+                "path must not enter obstacle's bounding box at ({c}, {r})"
+            );
+        }
+
+        // Must contain at least one cell below row 4 — confirms U-route used the
+        // below-obstacle corridor rather than escaping upward over the top.
+        assert!(
+            path.iter().any(|&(_, r)| r > 4),
+            "U-route must descend below the obstacle (row > 4); path stayed at or above the obstacle"
+        );
     }
 }

@@ -2083,7 +2083,10 @@ mod tests {
             C[Yet another]";
         let out = render_with_width(src, Some(80)).unwrap();
         // All word fragments must still appear in the output.
-        assert!(out.contains("long node label"), "label fragment missing:\n{out}");
+        assert!(
+            out.contains("long node label"),
+            "label fragment missing:\n{out}"
+        );
         assert!(out.contains("Another"), "label fragment missing:\n{out}");
         // Every rendered line must fit within the 80-column budget.
         let max_w = out

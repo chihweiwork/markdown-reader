@@ -5,6 +5,21 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 1.34.23
+
+### Changed — mermaid-text 0.28.1 (B3 forward-edge top-border pierce fix)
+
+Bumped `mermaid-text` dependency to 0.28.1. Fixes B3: in LR diagrams where the
+longest forward edge from a node exits from the top spread row and both L-routes
+are blocked by a NodeBox obstacle, A* was routing the edge upward over the top
+of the diagram, corrupting the source node's top border (`┌─────┐────┐`). The
+fix adds a `try_u_route` helper that's tried before A* — it sweeps downward for
+a free below-obstacle corridor and returns a clean 4-segment path. On failure,
+A* still runs as the fallback. 7 corpus and snapshot baselines improved (all
+Bucket A), crossing count for architecture_sugiyama 2→0, 0 regressions. B9,
+B12, and the width-budget fix are unaffected.
+See `crates/mermaid-text/CHANGELOG.md §0.28.1` for full mechanism details.
+
 ## [Unreleased] — 1.34.22
 
 ### Changed — mermaid-text 0.28.0 (width-budget label wrapping)

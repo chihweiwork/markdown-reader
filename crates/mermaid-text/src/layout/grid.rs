@@ -330,6 +330,11 @@ impl Grid {
         }
     }
 
+    /// Return the number of rows in this grid.
+    pub(crate) fn rows(&self) -> usize {
+        self.height
+    }
+
     /// OR the given direction bits into the cell at `(col, row)` and update
     /// the cell's glyph from the direction-to-char lookup table.
     ///
@@ -1636,6 +1641,27 @@ impl Grid {
             bits |= neighbor_bit(c, r, nc, nr);
             self.add_dirs(c, r, bits);
         }
+    }
+
+    /// Draw a pre-computed path of `(col, row)` waypoints on the grid and
+    /// return the path.  The final waypoint receives the arrow `tip` glyph and
+    /// is protected against overwriting by later edges.
+    ///
+    /// This is the crate-visible entry point for custom routing strategies
+    /// (e.g. `try_u_route` in `router.rs`) that build their own waypoint lists
+    /// without going through A\*.  The path must contain at least two cells and
+    /// must not pass through any `NodeBox` cell — the caller is responsible for
+    /// that precondition.
+    pub(crate) fn draw_path(
+        &mut self,
+        path: Vec<(usize, usize)>,
+        tip: char,
+    ) -> Option<Vec<(usize, usize)>> {
+        if path.len() < 2 {
+            return None;
+        }
+        self.draw_routed_path(&path, tip);
+        Some(path)
     }
 }
 
