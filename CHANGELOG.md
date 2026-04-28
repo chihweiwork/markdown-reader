@@ -5,6 +5,19 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.20] — 2026-04-28
+
+### Changed — mermaid-text 0.27.2 (B9 back-edge perimeter pierce fix)
+
+Bumped `mermaid-text` dependency to 0.27.2. Fixes B9: in LR state diagrams
+where a node is simultaneously the source of one back-edge and the destination
+of another, the source exit cell showed `├` (a T-junction that visually reads
+as a line piercing the box bottom border) instead of the correct `┴` (the
+standard perimeter exit stub). The fix extends the `back_edge_path_joins`
+stamping guard in the renderer to recognise this specific collision pattern and
+overwrite with `┴`. 2 corpus snapshots improved (A), 0 regressions (C). See
+`crates/mermaid-text/CHANGELOG.md §0.27.2` for full root-cause details.
+
 ## [1.34.19] — 2026-04-28
 
 ### Changed — mermaid-text 0.27.1 (test-infra bump)

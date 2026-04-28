@@ -856,10 +856,18 @@ fn render_inner(
     }
     for (col, row) in &back_edge_path_joins {
         // Only upgrade the path cell if it's a plain horizontal/vertical line
-        // from the router — corners and other junctions are left alone so we
-        // don't mangle complex routed paths.
+        // from the router, or a junction glyph formed by the exact collision
+        // pattern (B9) where the exit cell is simultaneously a transit cell for
+        // another back-edge arriving at the same node.  For LR/RL layouts that
+        // collision produces `├` (UP+DOWN+RIGHT) at the source exit cell; we
+        // still want to stamp the exit-stub glyph (`┴`) there so the
+        // perimeter path reads cleanly.  Other junctions are left alone.
         let current = grid.get(*col, *row);
-        if current != '─' && current != '│' {
+        let is_exit_collision = matches!(
+            graph.direction,
+            Direction::LeftToRight | Direction::RightToLeft
+        ) && current == '├';
+        if current != '─' && current != '│' && !is_exit_collision {
             continue;
         }
         let glyph = match graph.direction {
@@ -2945,6 +2953,63 @@ if_state --> False: !condition";
         assert!(
             !out.contains("choice_1"),
             "partial synthetic id 'choice_1' leaked into rendered output:\n{out}"
+        );
+    }
+
+    /// Regression test for B9: back-edge source exit cell must not contain `├`
+    /// when the same node is simultaneously the destination of another back-edge.
+    ///
+    /// In LR layout, `exit_point_back_edge` and `entry_point_back_edge` both
+    /// use the center column of the bottom border.  When a node is both the
+    /// SOURCE of one back-edge (exit at `cx, r+height`) and the DESTINATION of
+    /// another (entry at `cx, r+height-1`), the destination route transits
+    /// through the source exit cell, depositing a DOWN bit that combines with
+    /// the source's existing RIGHT bit to produce `├` (UP+DOWN+RIGHT).  The
+    /// `back_edge_path_joins` stamping must detect this collision and overwrite
+    /// the `├` with the correct exit-stub glyph `┴`.
+    ///
+    /// The state_basic_machine diagram exposes this pattern: Running is both
+    /// the source of `Running→Idle` and the destination of `Paused→Running`.
+    #[test]
+    fn back_edge_attach_does_not_pierce_source_perimeter() {
+        let src = "stateDiagram-v2
+    [*] --> Idle
+    Idle --> Running : start
+    Running --> Paused : pause
+    Paused --> Running : resume
+    Running --> Idle : stop
+    Idle --> [*]";
+        let out = crate::render(src).expect("render must succeed");
+
+        // The source exit cell (one row below Running's bottom border, center
+        // column) must be `┴` — not `├`.  `├` is the B9 bug glyph: it appears
+        // as if the back-edge route is piercing through the box border.
+        //
+        // Strategy: find the row immediately below `╰────┬────╯` (Running's
+        // bottom border) and assert `├` is absent from that row while `┴` is
+        // present at the same horizontal position.
+        let lines: Vec<&str> = out.lines().collect();
+        let bottom_border_row = lines
+            .iter()
+            .position(|l| l.contains("╰") && l.contains("┬") && l.contains("╯"))
+            .expect("Running box bottom border row not found");
+
+        // The row immediately below the bottom border is the perimeter row
+        // containing the source exit stub.
+        let perimeter_row = lines
+            .get(bottom_border_row + 1)
+            .expect("row below Running bottom border must exist");
+
+        assert!(
+            !perimeter_row.contains('├'),
+            "B9 regression: `├` found on perimeter row adjacent to Running box bottom border.\n\
+             Expected `┴` (exit stub) instead of `├` (pierce glyph).\n\
+             Perimeter row: {perimeter_row:?}\nFull output:\n{out}"
+        );
+        assert!(
+            perimeter_row.contains('┴'),
+            "Expected `┴` (back-edge exit stub) on the perimeter row below Running's bottom \
+             border, but it was not found.\nPerimeter row: {perimeter_row:?}\nFull output:\n{out}"
         );
     }
 }

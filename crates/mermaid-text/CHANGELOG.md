@@ -3,6 +3,47 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.27.2 — 2026-04-28 — Fix B9 back-edge perimeter pierce
+
+### Fixed — B9: `├` glyph deposited on source-node perimeter row
+
+**Root cause** (per `docs/scope-routing-attach-1.22-history.md`, implications for
+B9): In LR layout, `exit_point_back_edge` and `entry_point_back_edge` both use
+the center column (`c + cx()`) of the source/destination node's bottom border.
+When a node is simultaneously the **source** of one back-edge and the
+**destination** of another, their perimeter cells are vertically adjacent:
+source exit at `(cx, r+height)` and destination entry at `(cx, r+height-1)`.
+The A\* route to the destination must transit upward through the source exit
+cell, depositing UP+DOWN direction bits there.  Combined with the source
+back-edge's own RIGHT bit (the path exits rightward), the junction glyph
+resolves to `├` (UP+DOWN+RIGHT) — visually read as a line piercing through
+the box bottom border.
+
+**Fix mechanism**: Extended the `back_edge_path_joins` stamping guard in
+`render_inner()` inside `src/render/unicode.rs`.  The existing guard only
+overwrites `─` or `│`; a new exception detects the collision pattern — LR/RL
+layout AND current glyph == `├` — and allows overwriting with the correct
+exit-stub glyph `┴` (UP+LEFT+RIGHT, the standard perimeter T-junction).
+The `grid.set()` call writes the character only; the underlying direction bits
+are unchanged, so no subsequent routing is affected.
+
+**Regression-corpus diff classification:**
+- 2 Improvement (A) diffs: `state_basic_machine.snap`,
+  `state_basic_machine.width80.snap` — `├` → `┴` on the perimeter row
+  immediately below Running's bottom border.
+- 0 Neutral (B) diffs.
+- 0 Regression (C) diffs.
+
+**B12 transitive fix**: Not achieved.  `flowchart_back_edge_lr.snap` and
+`state_circuit_breaker.snap` were not affected by this change.  B12 (rounded
+bottom border receiving `┬` stamp) requires a separate fix as the root cause
+is in `back_edge_border_cells` stamping, not in `back_edge_path_joins`.
+
+**New regression test**: `render::unicode::tests::back_edge_attach_does_not_pierce_source_perimeter`
+in `src/render/unicode.rs` — synthesises the `state_basic_machine` diagram and
+asserts `├` is absent (and `┴` is present) on the perimeter row immediately
+below the Running box's bottom border.
+
 ## 0.27.1 — 2026-04-28 — Routing regression-test harness (Phase 1)
 
 ### Added — Frozen-gallery snapshot corpus

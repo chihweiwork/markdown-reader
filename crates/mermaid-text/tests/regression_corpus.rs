@@ -47,19 +47,16 @@ fn render_and_snapshot(path: &Path) {
         .to_str()
         .expect("stem is valid UTF-8");
 
-    let src = fs::read_to_string(path).unwrap_or_else(|e| {
-        panic!("failed to read corpus source {}: {e}", path.display())
-    });
+    let src = fs::read_to_string(path)
+        .unwrap_or_else(|e| panic!("failed to read corpus source {}: {e}", path.display()));
 
     // Natural-size render — no width constraint.
-    let natural = mermaid_text::render(&src).unwrap_or_else(|e| {
-        panic!("render failed for {stem}: {e}")
-    });
+    let natural =
+        mermaid_text::render(&src).unwrap_or_else(|e| panic!("render failed for {stem}: {e}"));
 
     // Width-constrained render — 80 columns. Bug B3 only manifests here.
-    let constrained = mermaid_text::render_with_width(&src, Some(80)).unwrap_or_else(|e| {
-        panic!("render_with_width(80) failed for {stem}: {e}")
-    });
+    let constrained = mermaid_text::render_with_width(&src, Some(80))
+        .unwrap_or_else(|e| panic!("render_with_width(80) failed for {stem}: {e}"));
 
     // Snapshot names must be static string literals for insta's macro, so we
     // use the `with_settings!` + `assert_snapshot!` pattern that insta
