@@ -370,6 +370,24 @@ impl Grid {
         }
     }
 
+    /// Clear all direction bits at `(col, row)` without touching the glyph or
+    /// protection flag.
+    ///
+    /// Used by the subgraph-border drawer after writing label text into the top
+    /// border row: `seed_border_dirs` had previously seeded `DIR_LEFT|DIR_RIGHT`
+    /// on every top-border cell (including the cells that will hold label chars).
+    /// When edge routing later calls `add_dirs` on a protected cell, it only
+    /// skips the update when `directions == 0`.  Without clearing, those seeded
+    /// bits cause `add_dirs` to bypass protection and overwrite the title
+    /// character with a junction glyph (`┼`/`┬`/`┴`), corrupting the label (B-
+    /// title bug).  Clearing the bits restores the invariant that protected label
+    /// cells have `directions == 0` and are therefore immune to `add_dirs`.
+    pub(crate) fn clear_dirs(&mut self, col: usize, row: usize) {
+        if row < self.height && col < self.width {
+            self.directions[row][col] = 0;
+        }
+    }
+
     /// Mark a cell as protected — subsequent [`Grid::add_dirs`] calls will
     /// not touch it. Used for rounded corners, arrow tips, and label text
     /// that must survive edge routing.

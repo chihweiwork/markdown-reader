@@ -1433,6 +1433,16 @@ fn draw_subgraph_border(grid: &mut Grid, bounds: &SubgraphBounds, style: Option<
     let label = truncate_to_width(&bounds.label, max_label_w);
     if !label.is_empty() {
         grid.write_text_protected(label_col, label_row, &label);
+        // B-title fix: `seed_border_dirs` seeded DIR_LEFT|DIR_RIGHT on every
+        // top-border cell (including the ones that now hold label chars).
+        // `Grid::add_dirs` skips protected cells ONLY when directions == 0.
+        // With stale seeded bits, routing would bypass protection and overwrite
+        // title characters with junction glyphs (e.g. `┼`), corrupting the
+        // subgraph label.  Clearing the bits here restores the invariant.
+        let label_display_w = unicode_width::UnicodeWidthStr::width(label.as_str());
+        for dx in 0..label_display_w {
+            grid.clear_dirs(label_col + dx, label_row);
+        }
     }
 }
 
@@ -3119,6 +3129,57 @@ if_state --> False: !condition";
             out.contains('┴'),
             "Expected at least one `┴` (back-edge perimeter exit stub) in the output, \
              but none found.\nFull output:\n{out}"
+        );
+    }
+
+    /// Regression test for B-title: a vertical route passing DOWN through a
+    /// subgraph's top border row must not overwrite the subgraph title characters
+    /// with junction glyphs (`┼`/`┬`/`┴`).
+    ///
+    /// Root cause: `draw_subgraph_border` calls `seed_border_dirs` on every cell
+    /// of the top border row (including the cells that will hold the label) before
+    /// calling `write_text_protected` to stamp the label.  `Grid::add_dirs`
+    /// bypasses protection when `directions != 0`, so the seeded bits caused
+    /// routing to overwrite protected title chars with junction glyphs.
+    ///
+    /// Fix: after `write_text_protected`, call `Grid::clear_dirs` on each label
+    /// cell so that `directions == 0` is restored and `add_dirs` honours the
+    /// protection flag.
+    ///
+    /// Repro: two sibling subgraphs (Frontend / Backend) arranged TB where
+    /// UI→API and SW→API route vertically through the Backend title row.
+    #[test]
+    fn route_does_not_pierce_subgraph_title_row() {
+        let src = "flowchart TB
+    subgraph frontend [Frontend]
+        UI[Browser UI]
+        SW[Service Worker]
+    end
+    subgraph backend [Backend]
+        API[REST API]
+        DB[(Postgres)]
+    end
+    UI --> API
+    SW --> API
+    API --> DB";
+        let out = crate::render(src).expect("render must succeed");
+
+        // "Backend" must appear as a contiguous substring somewhere in the output.
+        // If routing pierces the title row, the label is split into "Backen"
+        // (with a junction glyph where "d" should be).
+        assert!(
+            out.contains("Backend"),
+            "B-title regression: 'Backend' subgraph title is not intact.\n\
+             Route(s) likely overwrote a title character with a junction glyph.\n\
+             Full output:\n{out}"
+        );
+
+        // Confirm "Frontend" is also intact (it sits on the top border row of
+        // the first subgraph and is not on any route path — belt-and-suspenders).
+        assert!(
+            out.contains("Frontend"),
+            "B-title regression: 'Frontend' subgraph title is not intact.\n\
+             Full output:\n{out}"
         );
     }
 }

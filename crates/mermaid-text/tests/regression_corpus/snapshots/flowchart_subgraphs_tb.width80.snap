@@ -16,7 +16,7 @@ expression: constrained
                         │ │
                         │ │
                         │ │
-                ╭─Backen┼─┼────╮
+                ╭─Backend─┼────╮
                 │       │ │    │
                 │ ┌─────▾─▾──┐ │
                 │ │ REST API │ │

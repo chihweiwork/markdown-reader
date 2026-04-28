@@ -16,7 +16,7 @@ expression: natural
                         │ │
                         │ │
                         │ │
-                ╭─Backen┼─┼────╮
+                ╭─Backend─┼────╮
                 │       │ │    │
                 │ ┌─────▾─▾──┐ │
                 │ │ REST API │ │

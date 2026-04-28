@@ -5,6 +5,20 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 1.34.24
+
+### Changed — mermaid-text 0.28.2 (subgraph title pierce fix)
+
+Bumped `mermaid-text` dependency to 0.28.2. Fixes B-title: in TB/LR diagrams
+where vertical routes passed through a subgraph's top border row, the seeded
+direction bits on border-line cells caused `Grid::add_dirs` to bypass protection
+and overwrite title characters with junction glyphs (`┼`). The fix adds
+`Grid::clear_dirs` and calls it on each label cell after `write_text_protected`
+in `draw_subgraph_border`, restoring `directions == 0` so protection is
+honoured. 2 corpus baselines improved (Bucket A), 0 regressions. B9, B12, B3,
+and width-budget fixes unaffected.
+See `crates/mermaid-text/CHANGELOG.md §0.28.2` for full mechanism details.
+
 ## [Unreleased] — 1.34.23
 
 ### Changed — mermaid-text 0.28.1 (B3 forward-edge top-border pierce fix)

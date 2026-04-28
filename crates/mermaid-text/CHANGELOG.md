@@ -3,6 +3,38 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.28.2 — 2026-04-28 — Fix subgraph title pierce
+
+### Fixed — B-title: vertical routes overwrote subgraph title characters with
+junction glyphs
+
+**Root cause**: `draw_subgraph_border` calls `seed_border_dirs` on every cell of
+the subgraph's top border row (including the cells that will hold the inline
+label) to enable proper junction rendering where routes cross the border.
+`write_text_protected` then stamps the label and marks those cells protected.
+However, `Grid::add_dirs` only honours protection when `directions == 0`. The
+seeded `DIR_LEFT | DIR_RIGHT` bits remained on the label cells, so when edge
+routing called `add_dirs` through a title cell, the protection flag was bypassed
+and the label character was replaced with a junction glyph (`┼`, `┬`, etc.).
+Example: "Backend" rendered as `Backen┼─┼`.
+
+**Fix (Option A — guard on grid direction bits)**:
+
+New `Grid::clear_dirs` method (1 function, ~10 lines) that zeroes the direction
+bits of a cell without touching its glyph or protection flag. Called in
+`draw_subgraph_border` after `write_text_protected` for each label cell. With
+directions set back to 0, `add_dirs` correctly skips the protected label cell and
+the title is preserved.
+
+**Diff classification**:
+- 2 Improvement (A): `flowchart_subgraphs_tb` (natural + width80) — "Backend"
+  title is now intact.
+- 0 Neutral (B)
+- 0 Regressions
+
+New regression test: `route_does_not_pierce_subgraph_title_row`.
+B9 / B12 / B3 / width-budget fixes unaffected.
+
 ## 0.28.1 — 2026-04-28 — Fix B3 forward-edge top-border pierce (try_u_route)
 
 ### Fixed — B3: `App` top border corrupted when both L-routes are blocked by an
