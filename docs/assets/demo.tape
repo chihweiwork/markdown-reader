@@ -2,18 +2,21 @@
 #
 # Run: `vhs docs/assets/demo.tape`  → produces docs/assets/demo.gif
 #
-# Sequence (~50 seconds):
-#   1. Open the project directory (file tree on left, picker mode)
-#   2. Navigate the tree, open demo.md → show rendered Mermaid + math
-#   3. Press `o` for outline picker, jump between sections
-#   4. Press `c` for settings, cycle through 2 themes
-#   5. Open a NEW tab from the tree (`t`) — README.md
-#   6. Tab through to a heading, press Enter on a table → modal
-#   7. Press `i` for hybrid live-preview editing — the killer feature
-#   8. Press `/` for global content search
-#   9. `:q` to quit
+# Sequence (~35 seconds):
+#   1. Open project root (file tree visible)
+#   2. Open demo.md via search modal (filename mode)
+#   3. PageDown 3x through demo.md — flowchart, sequence, state diagram
+#   4. Settings: cycle through 2 themes
+#   5. Outline picker — demo navigation
+#   6. Hybrid live-preview editing
+#   7. Quit
 
 Output docs/assets/demo.gif
+
+# Force bash so we don't depend on the user's fish/zsh startup time.
+# When ttyd spawned fish, its plugin-laden startup ate the first ~30
+# characters of the launch command, leaving just `> .` on screen.
+Set Shell "bash"
 
 Set Width 1500
 Set Height 850
@@ -22,71 +25,71 @@ Set Theme "Dracula"
 Set Padding 20
 Set TypingSpeed 50ms
 
-# Pre-build invisibly so the recording starts hot.
+# IMPORTANT: pre-build the release binary BEFORE running this script:
+#
+#   cargo build --release
+#   vhs docs/assets/demo.tape
+#
+# Earlier versions tried to build inside a Hide block, but the release
+# build can take >60s on a cold cache, and any commands typed while the
+# build is still running get queued in stdin and silently lost. Building
+# beforehand is the simplest reliable approach.
+
+# Wait for the shell prompt to fully render before typing the launch
+# command. Without this, the first characters of the command race the
+# prompt and get dropped.
 Hide
-Type "cargo build --release -q"
-Enter
-Sleep 60s
-Type "clear"
-Enter
-Sleep 200ms
+Sleep 2s
 Show
 
-# Step 1 — launch the TUI against the project ROOT (file tree visible).
+# Step 1 — launch against project ROOT (file tree visible)
 Type "./target/release/markdown-reader ."
 Enter
 Sleep 2s
 
-# Let viewers see the file tree + welcome state
+# Step 2 — open demo.md via the search modal (reliable, deterministic).
+# Tree navigation by j/l counts is too fragile — root directory order
+# depends on what's checked in (and whether tests/, target/, examples/
+# are filtered by .gitignore). Search by filename is the robust path.
+Type "/"
+Sleep 1000ms
+Type "demo"
 Sleep 1500ms
+Enter
+Sleep 1800ms
 
-# Step 2 — navigate to docs/, expand it, open demo.md
-# Tree starts focused.
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
+# Step 3 — PageDown three times. Each press shifts the viewport one full
+# screen so the three mermaid diagrams (flowchart, sequence, state)
+# come into view in sequence. We stop before the comparison table —
+# tables aren't part of this demo.
+PageDown
+Sleep 2500ms
+PageDown
+Sleep 2500ms
+PageDown
+Sleep 2500ms
+
+# Step 4 — settings: cycle through 2 themes
+Type "c"
+Sleep 1200ms
 Type "j"
 Sleep 300ms
-Type "l"
-Sleep 600ms
-# Inside docs/, find the demo file (assets/ is one of the entries)
-Type "j"
-Sleep 200ms
-Type "l"
-Sleep 600ms
-Type "j"
-Sleep 200ms
 Enter
-Sleep 2s
-
-# Switch focus to viewer
-Tab
+Sleep 1500ms
+Type "j"
+Sleep 300ms
+Enter
+Sleep 1500ms
+Escape
 Sleep 800ms
 
-# Scroll past the heading + paragraph to see the rendered Mermaid
-Type "j"
+# Step 5 — back to top, demo the outline picker
+Type "g"
 Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 1500ms
-
-# Step 3 — outline picker
+Type "g"
+Sleep 600ms
 Type "o"
 Sleep 1500ms
-Type "j"
-Sleep 300ms
 Type "j"
 Sleep 300ms
 Type "j"
@@ -96,58 +99,7 @@ Sleep 500ms
 Enter
 Sleep 1500ms
 
-# Step 4 — settings: cycle through themes
-Type "c"
-Sleep 1200ms
-Type "j"
-Sleep 300ms
-Enter
-Sleep 1200ms
-Type "j"
-Sleep 300ms
-Enter
-Sleep 1200ms
-Escape
-Sleep 800ms
-
-# Back to tree
-Tab
-Sleep 600ms
-
-# Step 5 — open README.md in a NEW tab (`t` in tree opens in new tab)
-Type "g"
-Sleep 200ms
-Type "g"
-Sleep 400ms
-# README.md should be near the top of the tree
-Type "j"
-Sleep 200ms
-Type "j"
-Sleep 200ms
-Type "t"
-Sleep 1500ms
-
-# Step 6 — switch focus to viewer, scroll to a table, open the modal
-Tab
-Sleep 800ms
-Type "G"
-Sleep 1s
-Type "k"
-Sleep 200ms
-Type "k"
-Sleep 200ms
-Type "k"
-Sleep 200ms
-Type "k"
-Sleep 200ms
-Enter
-Sleep 2500ms
-Escape
-Sleep 800ms
-
-# Step 7 — switch back to demo.md tab, demo hybrid mode
-Type "1"
-Sleep 800ms
+# Step 6 — hybrid live-preview editing
 Type "g"
 Sleep 200ms
 Type "g"
@@ -170,16 +122,6 @@ Type ":q!"
 Enter
 Sleep 1500ms
 
-# Step 8 — global content search (Tab from default FileName mode to Content)
-Type "/"
-Sleep 1000ms
-Tab
-Sleep 500ms
-Type "mermaid"
-Sleep 2s
-Escape
-Sleep 800ms
-
-# Step 9 — quit
+# Step 7 — quit
 Type "q"
 Sleep 1s
