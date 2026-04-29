@@ -5,7 +5,33 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] — 1.34.34
+## [1.34.36] — 2026-04-29
+
+### Added — `architecture-beta` diagram support (mermaid-text 0.38.0)
+
+Bumped `mermaid-text` dependency to 0.38.0. Mermaid `architecture-beta`
+diagrams (system architecture with groups, services, and port-to-port edges)
+now render as labeled group border boxes containing horizontal rows of service
+boxes, with a textual connections summary below. Port specifiers (`L`, `R`,
+`T`, `B`) are preserved in the connections summary. Top-level services not
+assigned to a group appear as standalone boxes above the group section. Phase 1
+limitations: icon names are stored but not rendered; junction nodes silently
+skipped; no spatial edge routing; services render in a single horizontal row
+per group.
+
+## [1.34.35] — 2026-04-29
+
+### Added — `packet-beta` diagram support (mermaid-text 0.37.0)
+
+Bumped `mermaid-text` dependency to 0.37.0. Mermaid `packet-beta` diagrams
+(bit-range to field-name mapping) now render as a 32-bit-wide row table:
+each row shows a bit-number ruler above it and field labels centred in their
+bit cells. Multi-row fields (wider than 32 bits) wrap at the 32-bit boundary;
+the label appears in the first fragment only. Single-bit fields display a
+truncated label with `…`. Phase 1 limitations: row width is fixed at 32 bits;
+no custom colours; `accTitle`/`accDescr` silently ignored.
+
+## [1.34.34] — 2026-04-29
 
 ### Added — version-check-on-exit
 

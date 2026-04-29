@@ -61,6 +61,14 @@ pub enum DiagramKind {
     /// rectangle blocks with an edge summary below (Phase 1 — rectangles only,
     /// no nested blocks, no vertical spanning, no custom colours).
     BlockDiagram,
+    /// `architecture-beta` (or `architecture`) diagrams. Render as labeled
+    /// group boxes containing service boxes with a connection summary below
+    /// (Phase 1 — no icon rendering, no spatial edge routing, no junction nodes).
+    Architecture,
+    /// `packet-beta` (or `packet`) diagrams. Render as a 32-bit-wide row table
+    /// with field labels occupying their bit ranges and a bit-number ruler above
+    /// each row (Phase 1 — fixed 32-bit row width; no custom colours).
+    Packet,
 }
 
 /// Detect the kind of Mermaid diagram described by `input`.
@@ -101,6 +109,10 @@ pub enum DiagramKind {
 /// assert_eq!(detect("xychart\nbar [1,2,3]").unwrap(), DiagramKind::XyChart);
 /// assert_eq!(detect("block-beta\n    A B").unwrap(), DiagramKind::BlockDiagram);
 /// assert_eq!(detect("block\n    A B").unwrap(), DiagramKind::BlockDiagram);
+/// assert_eq!(detect("architecture-beta\n    service s(server)[S]").unwrap(), DiagramKind::Architecture);
+/// assert_eq!(detect("architecture\n    service s(server)[S]").unwrap(), DiagramKind::Architecture);
+/// assert_eq!(detect("packet-beta\n    0-15: \"Src\"").unwrap(), DiagramKind::Packet);
+/// assert_eq!(detect("packet\n    0-15: \"Src\"").unwrap(), DiagramKind::Packet);
 /// assert!(detect("").is_err());
 /// ```
 pub fn detect(input: &str) -> Result<DiagramKind, Error> {
@@ -140,6 +152,12 @@ pub fn detect(input: &str) -> Result<DiagramKind, Error> {
         // `block-beta` is the official Mermaid keyword; `block` is accepted
         // as a relaxed alias for resilience against linters.
         "block-beta" | "block" => Ok(DiagramKind::BlockDiagram),
+        // `architecture-beta` is the official Mermaid keyword; `architecture`
+        // is accepted as a relaxed alias for resilience against linters.
+        "architecture-beta" | "architecture" => Ok(DiagramKind::Architecture),
+        // `packet-beta` is the official Mermaid keyword; `packet` is accepted
+        // as a relaxed alias for resilience against linters.
+        "packet-beta" | "packet" => Ok(DiagramKind::Packet),
         other => Err(Error::UnsupportedDiagram(other.to_string())),
     }
 }
@@ -352,5 +370,55 @@ mod tests {
             DiagramKind::BlockDiagram
         );
         assert_eq!(detect("BLOCK\n    A").unwrap(), DiagramKind::BlockDiagram);
+    }
+
+    #[test]
+    fn detects_architecture_beta_keyword() {
+        assert_eq!(
+            detect("architecture-beta\n    service s(server)[S]").unwrap(),
+            DiagramKind::Architecture
+        );
+        // Relaxed alias.
+        assert_eq!(
+            detect("architecture\n    service s(server)[S]").unwrap(),
+            DiagramKind::Architecture
+        );
+    }
+
+    #[test]
+    fn detects_architecture_beta_keyword_case_insensitive() {
+        assert_eq!(
+            detect("Architecture-Beta\n    service s(server)[S]").unwrap(),
+            DiagramKind::Architecture
+        );
+        assert_eq!(
+            detect("ARCHITECTURE\n    service s(server)[S]").unwrap(),
+            DiagramKind::Architecture
+        );
+    }
+
+    #[test]
+    fn detects_packet_beta_keyword() {
+        assert_eq!(
+            detect("packet-beta\n    0-15: \"Src\"").unwrap(),
+            DiagramKind::Packet
+        );
+        // Relaxed alias without `-beta`.
+        assert_eq!(
+            detect("packet\n    0-15: \"Src\"").unwrap(),
+            DiagramKind::Packet
+        );
+    }
+
+    #[test]
+    fn detects_packet_beta_keyword_case_insensitive() {
+        assert_eq!(
+            detect("Packet-Beta\n    0-15: \"Src\"").unwrap(),
+            DiagramKind::Packet
+        );
+        assert_eq!(
+            detect("PACKET\n    0-15: \"Src\"").unwrap(),
+            DiagramKind::Packet
+        );
     }
 }

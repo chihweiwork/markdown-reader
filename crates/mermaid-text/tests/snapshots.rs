@@ -2306,3 +2306,95 @@ fn block_beta_canonical_example() {
 
     assert_snapshot!("block_beta_canonical_example", out);
 }
+
+// ---------------------------------------------------------------------------
+// architecture-beta — canonical Phase 1 system-architecture example.
+//     Regression guard: groups, services, and connection summary must all
+//     render correctly.
+// ---------------------------------------------------------------------------
+#[test]
+fn architecture_beta_canonical_example() {
+    let src = "architecture-beta
+    group api(cloud)[API]
+
+    service db(database)[Database] in api
+    service disk1(disk)[Storage] in api
+    service disk2(disk)[Storage] in api
+    service server(server)[Server] in api
+
+    db:L -- R:server
+    disk1:T -- B:server
+    disk2:T -- B:db";
+
+    let out = mermaid_text::render(src).unwrap();
+
+    // Group label must appear.
+    assert!(out.contains("API"), "group label 'API' missing:\n{out}");
+    // Service labels must appear.
+    for label in &["Database", "Storage", "Server"] {
+        assert!(out.contains(label), "service label {label} missing:\n{out}");
+    }
+    // Box-drawing characters must be present.
+    assert!(out.contains('\u{250C}'), "top-left corner ┌ missing:\n{out}");
+    assert!(out.contains('\u{2518}'), "bottom-right corner ┘ missing:\n{out}");
+    assert!(out.contains('\u{2502}'), "vertical bar │ missing:\n{out}");
+    // Connections section must appear.
+    assert!(out.contains("Connections:"), "Connections: header missing:\n{out}");
+    // Port specifiers must appear in the connection lines.
+    assert!(out.contains("db:L"), "source port db:L missing:\n{out}");
+    assert!(out.contains("R:server"), "target port R:server missing:\n{out}");
+
+    assert_snapshot!("architecture_beta_canonical_example", out);
+}
+
+// ---------------------------------------------------------------------------
+// packet-beta — canonical TCP Packet example.
+//     Regression guard: title, 32-bit rows, field labels, bit ruler, and
+//     box-drawing borders must all appear correctly.
+// ---------------------------------------------------------------------------
+#[test]
+fn packet_beta_canonical_example() {
+    let src = "packet-beta
+    title TCP Packet
+    0-15: \"Source Port\"
+    16-31: \"Destination Port\"
+    32-63: \"Sequence Number\"
+    64-95: \"Acknowledgment Number\"
+    96-99: \"Data Offset\"
+    100-105: \"Reserved\"
+    106: \"URG\"
+    107: \"ACK\"
+    108: \"PSH\"
+    109: \"RST\"
+    110: \"SYN\"
+    111: \"FIN\"
+    112-127: \"Window\"
+    128-143: \"Checksum\"
+    144-159: \"Urgent Pointer\"
+    160-191: \"(Options and Padding)\"
+    192-223: \"Data (variable length)\"";
+
+    let out = mermaid_text::render(src).unwrap();
+
+    // Title must appear.
+    assert!(out.contains("TCP Packet"), "title missing:\n{out}");
+    // Field labels that fit their cells must appear.
+    assert!(out.contains("Source Port"), "Source Port missing:\n{out}");
+    assert!(out.contains("Destination Port"), "Destination Port missing:\n{out}");
+    assert!(out.contains("Sequence Number"), "Sequence Number missing:\n{out}");
+    assert!(out.contains("Acknowledgment Number"), "Acknowledgment Number missing:\n{out}");
+    assert!(out.contains("Window"), "Window missing:\n{out}");
+    assert!(out.contains("Checksum"), "Checksum missing:\n{out}");
+    assert!(out.contains("(Options and Padding)"), "(Options and Padding) missing:\n{out}");
+    assert!(out.contains("Data (variable length)"), "Data (variable length) missing:\n{out}");
+    // Box-drawing characters must be present.
+    assert!(out.contains('\u{250C}'), "top-left corner ┌ missing:\n{out}");
+    assert!(out.contains('\u{2510}'), "top-right corner ┐ missing:\n{out}");
+    assert!(out.contains('\u{2514}'), "bottom-left corner └ missing:\n{out}");
+    assert!(out.contains('\u{2518}'), "bottom-right corner ┘ missing:\n{out}");
+    assert!(out.contains('\u{2502}'), "vertical bar │ missing:\n{out}");
+    // Continuation row border ├ must be present (TCP header spans multiple rows).
+    assert!(out.contains('\u{251C}'), "continuation row border ├ missing:\n{out}");
+
+    assert_snapshot!("packet_beta_canonical_example", out);
+}

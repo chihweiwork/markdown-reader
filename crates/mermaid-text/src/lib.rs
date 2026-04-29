@@ -82,6 +82,8 @@
 //! | `sankey-beta` / `sankey` (directed flow between named nodes) | yes (Phase 1 — grouped-arrow list layout; proportional band routing planned for Phase 2) |
 //! | `xychart-beta` / `xychart` (bar/line chart with categorical or numeric axes) | yes (Phase 1 — last bar/line series; horizontal orientation rendered vertically; no custom colours) |
 //! | `block-beta` / `block` (fixed-width block grid with directed edges) | yes (Phase 1 — rectangle blocks only; nested blocks and vertical spans ignored; edge summary as text below grid) |
+//! | `packet-beta` / `packet` (network packet header bit-range diagram) | yes (Phase 1 — fixed 32-bit row width; no custom colours) |
+//! | `architecture-beta` / `architecture` (system architecture with groups, services, and edges) | yes (Phase 1 — labeled group boxes with service boxes; connection summary as text; no icon rendering or spatial edge routing) |
 //!
 //! ## Limitations
 //!
@@ -107,6 +109,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod architecture;
 pub mod block_diagram;
 pub mod class;
 pub mod detect;
@@ -116,6 +119,7 @@ pub mod git_graph;
 pub mod journey;
 pub mod layout;
 pub mod mindmap;
+pub mod packet;
 pub mod parser;
 pub mod pie;
 pub mod quadrant_chart;
@@ -127,6 +131,7 @@ pub mod timeline;
 pub mod types;
 pub mod xy_chart;
 
+pub use architecture::{ArchEdge, ArchGroup, ArchService, Architecture, Port};
 pub use block_diagram::{Block, BlockDiagram, BlockEdge};
 pub use class::{
     Attribute as ClassAttribute, Class, ClassDiagram, Member, Method, RelKind, Relation,
@@ -137,6 +142,7 @@ pub use gantt::{GanttDiagram, GanttSection, GanttTask};
 pub use git_graph::{Branch, Commit, CommitKind, Event as GitEvent, GitGraph};
 pub use journey::{JourneyDiagram, Section, Task};
 pub use mindmap::{Mindmap, MindmapNode};
+pub use packet::{Packet, PacketField};
 pub use pie::{PieChart, PieSlice};
 pub use quadrant_chart::{AxisLabels, QuadrantChart, QuadrantLabels, QuadrantPoint};
 pub use requirement_diagram::{
@@ -351,6 +357,19 @@ pub fn render_with_width(input: &str, max_width: Option<usize>) -> Result<String
             // width budget for grid column scaling.
             let diag = parser::block_diagram::parse(input)?;
             return Ok(render::block_diagram::render(&diag, max_width));
+        }
+        DiagramKind::Architecture => {
+            // Architecture diagrams render as labeled group boxes containing
+            // service boxes with a connection summary below — fixed layout,
+            // honours the optional width budget for service label truncation.
+            let diag = parser::architecture::parse(input)?;
+            return Ok(render::architecture::render(&diag, max_width));
+        }
+        DiagramKind::Packet => {
+            // Packet diagrams render as a 32-bit-wide row table with field
+            // labels in their bit ranges and a ruler above each row.
+            let diag = parser::packet::parse(input)?;
+            return Ok(render::packet::render(&diag, max_width));
         }
         DiagramKind::Flowchart => parser::parse(input)?,
         DiagramKind::State => {
@@ -652,6 +671,20 @@ pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, 
             // Color opts are not applicable in Phase 1.
             let diag = parser::block_diagram::parse(input)?;
             render::block_diagram::render(&diag, opts.max_width)
+        }
+        DiagramKind::Architecture => {
+            // Architecture diagrams render as labeled group boxes containing
+            // service boxes with a connection summary below.
+            // Color opts are not applicable in Phase 1.
+            let diag = parser::architecture::parse(input)?;
+            render::architecture::render(&diag, opts.max_width)
+        }
+        DiagramKind::Packet => {
+            // Packet diagrams render as a 32-bit-wide row table with field
+            // labels in their bit ranges and a bit-number ruler above each row.
+            // Color opts are not applicable in Phase 1.
+            let diag = parser::packet::parse(input)?;
+            render::packet::render(&diag, opts.max_width)
         }
         DiagramKind::Flowchart => {
             let graph = parser::parse(input)?;

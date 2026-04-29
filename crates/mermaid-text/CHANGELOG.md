@@ -3,6 +3,123 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.38.0 — 2026-04-29 — Phase 16: `architecture-beta` support
+
+### Added
+
+- **`architecture-beta` diagram type** (Phase 1). Parses Mermaid
+  `architecture-beta` and `architecture` source (groups, services, and
+  port-to-port or simple directed edges) and renders it as labeled group
+  border boxes containing service boxes, with a textual connections summary
+  below.
+
+- **`src/architecture.rs`** — public types:
+  - `Architecture { groups, services, edges }` — top-level diagram.
+  - `ArchGroup { id, icon, label }` — a named cluster (group). Icon names
+    such as `cloud`, `database`, `disk`, `internet`, and `server` are parsed
+    but not rendered in Phase 1.
+  - `ArchService { id, icon, label, group }` — a service node. `group` is
+    `Some(group_id)` for services inside a group or `None` for top-level
+    services.
+  - `ArchEdge { source, source_port, target, target_port, label }` — an edge.
+    Port specifiers (`L`/`R`/`T`/`B`) are captured as `Option<Port>`.
+  - `Port` enum with `Left`, `Right`, `Top`, `Bottom` variants.
+  - `Architecture::find_group`, `find_service`, `services_in_group`,
+    `top_level_services` helpers.
+
+- **`src/parser/architecture.rs`** — hand-rolled parser:
+  - Accepts `architecture-beta` (canonical) and `architecture` (relaxed
+    alias) headers.
+  - Parses `group <id>(<icon>)[<label>]` declarations.
+  - Parses `service <id>(<icon>)[<label>]` and
+    `service … in <group_id>` declarations.
+  - Parses port edges: `<src>:<port> -- <port>:<tgt>` with `L`/`R`/`T`/`B`
+    port specifiers.
+  - Parses simple directed edges: `<src> --> <tgt>`.
+  - Silently skips `junction(id)` declarations.
+  - Strips `%%` comment lines and `accTitle`/`accDescr` lines silently.
+  - Returns `Error::ParseError` for unrecognised structural lines.
+
+- **`src/render/architecture.rs`** — group-and-service-box renderer:
+  - Groups rendered as labeled border boxes (`┌─ Name (icon) ─┐`) containing
+    a horizontal row of service boxes.
+  - Top-level services (not in any group) rendered as standalone service boxes
+    above the group section.
+  - Connections rendered as a text summary below the layout with port
+    specifiers preserved: `db:L ─── R:server`.
+  - `max_width` constrains service box label widths via truncation with `…`.
+
+- **Wiring** — `DiagramKind::Architecture` variant in `detect.rs`; `pub mod
+  architecture` in `lib.rs`, `parser/mod.rs`, and `render/mod.rs`; dispatch
+  arm in `render_with_width`.
+
+- **Tests** — 27 new unit tests: `architecture.rs` (6), `parser/architecture.rs`
+  (11), `render/architecture.rs` (5), plus 1 integration snapshot
+  (`tests/snapshots/snapshots__architecture_beta_canonical_example.snap`).
+
+### Phase 1 limitations
+
+- Icon names are stored but not rendered; icons appear only in group headers
+  as `Name (icon)` text.
+- Junction nodes (`junction(id)`) are silently skipped.
+- True spatial edge routing is not implemented; edges appear as a textual
+  connections summary below the group boxes.
+- All services in a group are rendered in a single horizontal row; very wide
+  groups with many services may exceed `max_width` even after truncation.
+- `accDescr`/`accTitle` are silently ignored.
+
+## 0.37.0 — 2026-04-29 — Phase 17: `packet-beta` support
+
+### Added
+
+- **`packet-beta` diagram type** (Phase 1). Parses Mermaid `packet-beta`
+  and `packet` source (bit-range to field-name mapping) and renders it as
+  a 32-bit-wide row table with field labels centred in their bit cells and
+  a bit-number ruler above each row.
+
+- **`src/packet.rs`** — public types:
+  - `Packet { title, fields }` — top-level diagram.
+  - `PacketField { start_bit, end_bit, label }` — a single field; both
+    bounds are inclusive and 0-based. Single-bit fields have
+    `end_bit == start_bit`.
+  - `PacketField::bit_width() -> u32` — number of bits spanned.
+  - `Packet::total_bits() -> u32` — `highest_end_bit + 1`; `0` when empty.
+
+- **`src/parser/packet.rs`** — hand-rolled parser:
+  - Accepts `packet-beta` (canonical) and `packet` (relaxed alias) headers.
+  - Parses `title <text>` (optional, quoting optional).
+  - Parses each field row as `N-M: "label"` or `N: "label"` (single bit).
+  - Accepts both double-quoted, single-quoted, and unquoted labels.
+  - Rejects `end_bit < start_bit` with `Error::ParseError`.
+  - Rejects overlapping ranges with `Error::ParseError`.
+  - Rejects unclosed quoted labels with `Error::ParseError`.
+  - Strips `%%` comment lines and `accTitle`/`accDescr` lines silently.
+
+- **`src/render/packet.rs`** — row-table renderer:
+  - Fields laid out in 32-bit-wide rows; multi-row fields wrap at the
+    32-bit boundary (label printed in first fragment only).
+  - Bit-number ruler printed above each row showing start, mid (bit 16N),
+    and end positions.
+  - Labels centred in their cells; labels too wide for their cell are
+    truncated with `…`.
+  - `max_width` scales the per-bit cell width down (floor: 1 char/bit).
+  - Empty diagram renders a `(empty packet diagram)` placeholder.
+
+- **Wiring** — `DiagramKind::Packet` variant in `detect.rs`; `pub mod packet`
+  in `lib.rs`, `parser/mod.rs`, and `render/mod.rs`; dispatch arms in
+  `render_with_width` and `render_with_options`.
+
+- **Tests** — 26 new unit tests: `packet.rs` (5), `parser/packet.rs` (13),
+  `render/packet.rs` (6), plus 1 integration snapshot
+  (`tests/snapshots__packet_beta_canonical_example.snap`).
+
+### Phase 1 limitations
+
+- Row width is fixed at 32 bits. Custom widths are not supported.
+- Custom colours and `accDescr`/`accTitle` are silently ignored.
+- Multi-row fields (bit width > 32) split at the 32-bit boundary; the
+  continuation rows are rendered blank (no "cont." marker).
+
 ## 0.35.0 — 2026-04-29 — Phase 14: `sankey-beta` support
 
 ### Added

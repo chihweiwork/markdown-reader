@@ -1,5 +1,6 @@
 //! Rendering pipeline: graph + positions → Unicode string.
 
+pub mod architecture;
 pub mod block_diagram;
 pub mod box_table;
 pub mod class;
@@ -8,6 +9,7 @@ pub mod gantt;
 pub mod git_graph;
 pub mod journey;
 pub mod mindmap;
+pub mod packet;
 pub mod pie;
 pub mod quadrant_chart;
 pub mod requirement_diagram;

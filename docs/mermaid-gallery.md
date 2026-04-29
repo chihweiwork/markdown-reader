@@ -92,6 +92,19 @@ line.
   column-width reduction. Phase 1 limitations: all block shapes are normalised
   to plain rectangles; nested `block … end` blocks are silently skipped;
   vertical spans are not supported; edge labels appear in the text summary only.
+- **Packet diagrams** (`packet-beta` / `packet`) rendered as a 32-bit-wide
+  row table. Each 32-bit word is one row; fields occupy their proportional bit
+  columns. A bit-number ruler is printed above each row. Field labels are
+  centred in their cells; labels that are too wide are truncated with `…`.
+  Phase 1 limitations: row width is fixed at 32 bits; no custom colours;
+  `accTitle`/`accDescr` silently ignored.
+- **Architecture diagrams** (`architecture-beta` / `architecture`) rendered
+  as labeled group border boxes containing horizontal rows of service boxes.
+  Top-level services appear as standalone boxes above the group section.
+  Connections between services are listed below as a text summary preserving
+  port specifiers (`db:L ─── R:server`). Phase 1 limitations: icon names are
+  stored but not rendered; junction nodes silently skipped; no spatial edge
+  routing; all services in a group appear in one horizontal row.
 
 Recent rendering improvements: arrow tips merge into destination box
 borders (`┌─▾─┐` instead of floating `▾` above), edge labels never
@@ -1035,6 +1048,148 @@ skipped by the parser. Vertical spans (multi-row blocks) are not supported. Edge
 labels (`-->|text|`) are captured but displayed in the text summary below the
 grid only — they are not drawn on the grid itself. Custom block colours and
 `accDescr` / `accTitle` are silently ignored.
+
+---
+
+## Packet diagrams
+
+A `packet-beta` diagram renders a network packet header (or any fixed-width
+binary structure) as a 32-bit-wide row table. Each field occupies the columns
+proportional to its bit width. A bit-number ruler is printed above each row.
+
+### TCP Packet header
+
+```mermaid
+packet-beta
+    title TCP Packet
+    0-15: "Source Port"
+    16-31: "Destination Port"
+    32-63: "Sequence Number"
+    64-95: "Acknowledgment Number"
+    96-99: "Data Offset"
+    100-105: "Reserved"
+    106: "URG"
+    107: "ACK"
+    108: "PSH"
+    109: "RST"
+    110: "SYN"
+    111: "FIN"
+    112-127: "Window"
+    128-143: "Checksum"
+    144-159: "Urgent Pointer"
+    160-191: "(Options and Padding)"
+    192-223: "Data (variable length)"
+```
+
+**Expected output:**
+
+```
+TCP Packet
+
+ 0                                               16                                           31
+┌───────────────────────────────────────────────┬───────────────────────────────────────────────┐
+│                  Source Port                  │               Destination Port                │
+ 32                                              48                                           63
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                        Sequence Number                                        │
+ 64                                              80                                           95
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                     Acknowledgment Number                                     │
+ 96                                              112                                          127
+├───────────┼─────────────────┼──┼──┼──┼──┼──┼──┼───────────────────────────────────────────────┤
+│Data Offset│    Reserved     │U…│A…│P…│R…│S…│F…│                    Window                     │
+ 128                                             144                                          159
+├───────────────────────────────────────────────┼───────────────────────────────────────────────┤
+│                   Checksum                    │                Urgent Pointer                 │
+ 160                                             176                                          191
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                     (Options and Padding)                                     │
+ 192                                             208                                          223
+├───────────────────────────────────────────────────────────────────────────────────────────────┤
+│                                    Data (variable length)                                     │
+└───────────────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Phase 1 limitations.** Row width is fixed at 32 bits (custom widths are not
+supported). Single-bit fields display a truncated label with `…` when the label
+exceeds the cell width. Multi-row fields (wider than 32 bits) split at the
+32-bit boundary; the label appears in the first fragment row only. Custom
+colours and `accDescr` / `accTitle` are silently ignored.
+
+---
+
+## Architecture diagrams
+
+An `architecture-beta` diagram describes system components — services grouped
+into named clusters — and the connections between them. Services may declare
+an icon name (e.g. `cloud`, `database`, `disk`, `server`) which is recorded
+but not yet rendered in Phase 1.
+
+**Example 1 — Cloud API cluster:**
+
+```
+architecture-beta
+    group api(cloud)[API]
+
+    service db(database)[Database] in api
+    service disk1(disk)[Storage] in api
+    service server(server)[Server] in api
+
+    db:L -- R:server
+    disk1:T -- B:server
+```
+
+Expected output:
+
+```
+┌─ API (cloud) ──────────────────────────────────────────────┐
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐            │
+│  │  Database  │  │  Storage   │  │   Server   │            │
+│  └────────────┘  └────────────┘  └────────────┘            │
+└────────────────────────────────────────────────────────────┘
+
+Connections:
+  db:L ─── R:server
+  disk1:T ─── B:server
+```
+
+**Example 2 — Mixed top-level and grouped services:**
+
+```
+architecture-beta
+    service gateway(internet)[Gateway]
+
+    group backend(cloud)[Backend]
+    service api(server)[API] in backend
+    service store(database)[Store] in backend
+
+    gateway --> api
+    api:R -- L:store
+```
+
+Expected output:
+
+```
+┌────────────┐
+│  Gateway   │
+└────────────┘
+┌─ Backend (cloud) ──────────────────────────┐
+│  ┌────────────┐  ┌────────────┐            │
+│  │    API     │  │   Store    │            │
+│  └────────────┘  └────────────┘            │
+└────────────────────────────────────────────┘
+
+Connections:
+  gateway ─── api
+  api:R ─── L:store
+```
+
+**Phase 1 limitations.** Icon names (`cloud`, `database`, etc.) are parsed and
+stored but not rendered as graphical glyphs — they appear parenthetically in
+group headers only. Junction nodes (`junction(id)`) are silently skipped. True
+spatial edge routing is not implemented; edges appear as a textual connections
+summary below the box layout. All services in a group are placed in a single
+horizontal row; very wide groups may exceed `max_width` even after truncation.
 
 ---
 

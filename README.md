@@ -631,7 +631,7 @@ brings the image back.
 **Supported diagram types.** Everything `mermaid-rs-renderer` supports
 in image mode (flowcharts, sequence, state, class, ER, Gantt, pie,
 and more). The text-mode fallback ([`mermaid-text`](crates/mermaid-text/),
-also our own crate) covers 16 diagram types: flowcharts, state diagrams,
+also our own crate) covers 18 diagram types: flowcharts, state diagrams,
 sequence diagrams (with autonumber, notes, activation bars, and block
 statements), pie charts, ER diagrams, class diagrams, user-journey
 diagrams, Gantt charts (Phase 1 — bar chart with date axis; status
@@ -645,8 +645,9 @@ glyphs; all node shapes normalised to text, icons silently ignored),
 quadrant charts (four-quadrant scatter with axis labels and titled points),
 requirement diagrams (boxed requirements with id/type/risk and verification
 links between them), `xychart-beta` (bar and line series with shared X/Y
-axes), `sankey-beta` (flow diagrams with source/target/value triples), and
-`block-beta` (grid-of-blocks layouts).
+axes), `sankey-beta` (flow diagrams with source/target/value triples),
+`block-beta` (grid-of-blocks layouts), and `packet-beta` (network packet
+header bit-range diagrams — 32-bit-wide rows with field labels and bit rulers).
 Fidelity on subgraphs and complex layouts
 depends on each renderer's maturity — when a specific diagram fails,
 the source is shown with a short error in the footer.
