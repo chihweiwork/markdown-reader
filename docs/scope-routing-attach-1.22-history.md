@@ -400,3 +400,135 @@ The U-route approach (Step 1) is the minimum-risk angle because:
 - It is additive: if the U-route fails, A\* still runs as fallback.
 
 Estimated effort: 1–2 focused hours for a careful implementation and harness run.
+
+---
+
+## Composite-edge attach-to-border attempt notes (2026-04-28)
+
+### Goal
+
+Make `Composite --> X` and `X --> Composite` transitions in state diagrams attach
+to the composite's OUTER BORDER instead of the inner synthesised `[*]` marker.
+Per ROADMAP entry: "Composite-edge attach-to-border (state diagrams)".
+
+### Root-cause trace
+
+When an external state `Start --> Container` or `Container --> Done` appears in a
+`stateDiagram-v2`, the parser's `rewrite_composite_edges()` in `state.rs` rewrites
+the edge:
+- `Start --> Container` becomes `Start --> __start__Container`
+- `Container --> Done` becomes `__end__Container --> Done`
+
+The proxy markers `__start__Container` and `__end__Container` are registered as
+members of the `Container` subgraph (via `register_node(&id, &path)`).
+
+**Layout problem**: Because these proxy markers are INSIDE the Container subgraph,
+the layered layout uses their positions to compute Container's bounding box.
+Specifically, `__end__Container` (which has no predecessors — it's a source node)
+is placed at the same column (layer 0) as other nodes with no predecessors, including
+`Inner1` (a real inner node) and `Start` (an external real node). This causes:
+
+1. Container's left boundary extends to column 0 (min column of all inner nodes).
+2. `Start` is ALSO at column 0, placing it inside Container's visual bounding box.
+3. The A* router then produces bizarre routes because `Start` appears to be inside
+   the composite's bounds, yet it needs to route to the composite's left border.
+
+For comparison: when `[*] --> Active` appears (marker → composite), `__start__Active`
+is both the proxy for the outer edge AND the inner `[*]` start marker (if the composite
+has inner `[*] --> State` transitions). In this case `__start__Active` is inside
+`Active` at a layer AFTER `__start__` (top-level), so `__start__` correctly appears
+BEFORE Active's left boundary. This is why `state_composite_nested` works correctly.
+
+The repro case differs: `Start` (layer 0) and `__end__Container` (layer 0, inside
+Container) are at the same column. Container's bounds include column 0, so `Start`
+appears inside Container.
+
+### What was tried
+
+**Option C (render-only post-process):**
+Three functions added to `render/unicode.rs`:
+1. `build_composite_proxy_map`: detect proxy markers (members of a subgraph whose
+   IDs start with `__start__`/`__end__`).
+2. `build_proxy_suppress_set`: identify pure proxies (no internal edges) for
+   suppression from drawing.
+3. `remap_composite_proxy_attaches`: redirect attach points from the inner marker
+   to the subgraph outer border, but only for real-state (non-marker) endpoints.
+Plus three modifications to `render_inner` passes (0b, 2, 3) to exclude proxy nodes.
+
+**Result**: All existing tests pass (0 regressions). The proxy markers are correctly
+suppressed (no stray circles/double-circles inside composites). The edge attach
+points ARE redirected to the composite outer border. However, the visual routing is
+still wrong because the LAYOUT places `Start` inside Container's bounds.
+
+**Why insufficient alone**: The render-time attach remapping cannot fix the layout
+mispositioning. The A* router, even with the correct destination (left border of
+Container), still produces odd paths because `Start` is at the same column as
+Container's left edge.
+
+**Scope**: ~222 lines added, exceeding the 100-line limit. Reverted.
+
+### Correct fix approach (two components required)
+
+**Component 1 — Parser/layout fix**: Proxy markers created by `rewrite_composite_edges`
+that are PURE proxies (not dual-use as inner `[*]` markers) should NOT be registered
+as members of the composite. Registering them at the TOP LEVEL (path = `[]`) would
+exclude them from the composite's bounding box calculation. This would allow the
+layout to place:
+- `Start` at column 0 (layer 0, before Container)
+- `__start__Container` at column N (layer 1, OUTSIDE Container but near its left border)
+- Container bounds based only on `Inner1` (col 0) and `Inner2` (col 16), starting
+  at col 0. But then `Start` and Container's left edge would still overlap at col 0.
+
+Actually, even with top-level registration, the issue remains because Container's
+leftmost real inner node (`Inner1`) is at layer 0 = col 0, same as `Start`.
+
+**Better Component 1**: Do NOT create proxy markers at all. Instead, add the edge
+`Start --> Container` directly to the graph WITH the composite ID as the target.
+Teach the layout to treat composite IDs as "virtual nodes" at the composite boundary
+when they appear in edges. This is a deeper change to both the parser and layout.
+
+**Component 2 — Renderer fix**: Once the layout correctly places `Start` before
+Container's left border, the renderer can use `sg_entry_point()`/`sg_exit_point()`
+(attach to the subgraph border) instead of the inner marker node. The suppression
+logic for pure proxies is also needed.
+
+### Why Component 1 is hard
+
+The layered layout in `layout/layered.rs` does not currently handle edges where
+`from` or `to` is a subgraph ID (not a node ID). Edges with subgraph IDs as
+endpoints are silently dropped (produce `None` in `compute_spread_attaches`). Adding
+this capability requires:
+1. Building a mapping from composite ID → the "border-adjacent position" in the layout.
+2. Using that position as the layer anchor when placing external nodes.
+3. Teaching `compute_subgraph_bounds` to exclude proxy markers from its min/max.
+
+Estimated scope: 150-300 lines across `layout/layered.rs`, `layout/subgraph.rs`,
+`parser/state.rs`, and `render/unicode.rs`. Definitely exceeds the 100-line limit.
+
+### Recommended plan for future work
+
+**Phase A** (~2 hours, ~80 lines):
+- In `state.rs::rewrite_composite_edges`: mark the rewritten edge with the original
+  composite ID using a new field `composite_origin: Option<String>` on `Edge`. This
+  stores the intent without changing the proxy location.
+- In `render/unicode.rs::compute_spread_attaches`: if `edge.composite_origin` is set
+  on the destination side, look up the composite's bounds in `sg_bounds` and use
+  `sg_entry_point()` instead of the inner marker's position.
+  If on the source side, use `sg_exit_point()`.
+- In `render/unicode.rs` pass 2 and 3: suppress proxy nodes that have no internal
+  edges (already prototyped above).
+
+**Problem with Phase A**: `Edge::composite_origin` is a breaking API change (struct
+has public fields). To avoid breaking external code that constructs `Edge` with
+struct literals, use `#[non_exhaustive]` on `Edge`. Alternatively, use a separate
+`Graph`-level `HashMap<usize, String>` from edge index to composite origin.
+
+**Phase B** (~4 hours, 200+ lines):
+- Fix the layout placement: teach the layered layout to place external nodes
+  (connected to composites) in the correct layer relative to the composite.
+- This is the deep fix. Likely requires a "composite node" concept in the layout
+  that acts as a placeholder at the composite's inbound/outbound boundary.
+
+**Suggested linearization**: Do Phase A first (render-only partial fix that improves
+the visual for marker-to-composite edges where the marker is positioned correctly
+by the existing layout). Then do Phase B in a separate initiative.

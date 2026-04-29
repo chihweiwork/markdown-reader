@@ -3,6 +3,51 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.31.0 — 2026-04-28 — Phase 12: `requirementDiagram` support
+
+### Added
+
+- **`requirementDiagram` diagram type** (Phase 1). Parses Mermaid
+  `requirementDiagram` source and renders it as labeled boxes with a
+  relationship summary.
+
+- **`src/requirement_diagram.rs`** — public types:
+  - `RequirementDiagram { requirements, elements, relationships }` — top-level diagram.
+  - `Requirement { kind, name, id, text, risk, verify_method }` — a requirement node.
+  - `RequirementKind` — enum: `Requirement`, `Functional`, `Interface`, `Performance`, `Physical`, `DesignConstraint`.
+  - `Risk` — enum: `Low`, `Medium`, `High`.
+  - `VerifyMethod` — enum: `Analysis`, `Inspection`, `Test`, `Demonstration`.
+  - `Element { name, kind, docref }` — a real-world element node.
+  - `RequirementRelationship { source, target, kind }` — a directed arc.
+  - `RelationshipKind` — enum: `Contains`, `Copies`, `Derives`, `Satisfies`, `Verifies`, `Refines`, `Traces`.
+  - `RequirementDiagram::total_items()` returns the count of requirements + elements.
+
+- **`src/parser/requirement_diagram.rs`** — multi-line block parser:
+  - Recognises all 6 requirement types, `element` blocks, and `source - kind -> target` relationship lines.
+  - Uses `parser::common::strip_inline_comment` for `%%` comment stripping.
+  - Rejects missing `id:` or `text:` in requirement blocks with `Error::ParseError`.
+  - Rejects missing `type:` in element blocks with `Error::ParseError`.
+  - Rejects malformed relationship arrows with `Error::ParseError`.
+  - `accTitle` / `accDescr` lines are silently ignored.
+  - Unknown top-level lines are silently ignored (forward-compatibility).
+
+- **`src/render/requirement_diagram.rs`** — box-based renderer:
+  - Requirements render as straight-cornered boxes (`┌┐└┘`) with `<<stereotype>>` header and data table.
+  - Elements render as rounded-cornered boxes (`╭╮╰╯`) to visually distinguish from requirements.
+  - Relationships are listed as `source --[kind]--> target` lines below all boxes.
+  - Respects `max_width` by truncating box content with `…`.
+
+- **Wiring** — `DiagramKind::RequirementDiagram` variant in `detect.rs`; `pub mod requirement_diagram` in `lib.rs`, `parser/mod.rs`, and `render/mod.rs`; match arms in `render_with_width` and `render_with_options`.
+
+- **Tests** — 21 new tests across `requirement_diagram.rs` (3), `parser/requirement_diagram.rs` (12), `render/requirement_diagram.rs` (5), and `tests/snapshots.rs` (1 canonical snapshot).
+
+### Phase 1 limitations
+
+- Layout is purely vertical (boxes stacked top-to-bottom); no side-by-side grid arrangement.
+- Relationship arcs are listed as a text summary, not drawn as graphical lines between boxes.
+- Custom styling/colours are not supported.
+- `accDescr` / `accTitle` accessibility metadata is silently ignored.
+
 ## 0.30.1 — 2026-04-29 — Phase 11: `quadrantChart` support
 
 ### Added

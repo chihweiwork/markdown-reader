@@ -78,6 +78,7 @@
 //! | `gitGraph` (branch/commit lane diagram) | yes (Phase 1 — normal/merge/cherry-pick commits; no custom themes or orientation) |
 //! | `mindmap` (hierarchical outline tree) | yes (Phase 1 — vertical tree with root box; all shapes normalised to text; icons silently ignored) |
 //! | `quadrantChart` (2x2 priority matrix) | yes (Phase 1 — cross-axis chart with quadrant labels and proportionally-placed data points; no custom point styling or background colours) |
+//! | `requirementDiagram` (formal requirements + elements + relationships) | yes (Phase 1 — vertical box list with relationship summary; no graphical connection lines) |
 //!
 //! ## Limitations
 //!
@@ -115,6 +116,7 @@ pub mod parser;
 pub mod pie;
 pub mod quadrant_chart;
 pub mod render;
+pub mod requirement_diagram;
 pub mod sequence;
 pub mod timeline;
 pub mod types;
@@ -130,6 +132,10 @@ pub use journey::{JourneyDiagram, Section, Task};
 pub use mindmap::{Mindmap, MindmapNode};
 pub use pie::{PieChart, PieSlice};
 pub use quadrant_chart::{AxisLabels, QuadrantChart, QuadrantLabels, QuadrantPoint};
+pub use requirement_diagram::{
+    Element as RequirementElement, RelationshipKind, Requirement, RequirementDiagram,
+    RequirementKind, RequirementRelationship, Risk, VerifyMethod,
+};
 pub use sequence::{Message, MessageStyle, Participant, SequenceDiagram};
 pub use timeline::{Timeline, TimelineEntry, TimelineSection};
 pub use types::{Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape};
@@ -309,6 +315,13 @@ pub fn render_with_width(input: &str, max_width: Option<usize>) -> Result<String
             // fixed layout, honours the optional width budget.
             let diag = parser::quadrant_chart::parse(input)?;
             return Ok(render::quadrant_chart::render(&diag, max_width));
+        }
+        DiagramKind::RequirementDiagram => {
+            // Requirement diagrams render as labeled boxes (requirements +
+            // elements) with a relationship summary — fixed layout, honours
+            // the optional width budget for content truncation.
+            let diag = parser::requirement_diagram::parse(input)?;
+            return Ok(render::requirement_diagram::render(&diag, max_width));
         }
         DiagramKind::Flowchart => parser::parse(input)?,
         DiagramKind::State => {
@@ -586,6 +599,12 @@ pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, 
             // Color opts are not applicable in Phase 1.
             let diag = parser::quadrant_chart::parse(input)?;
             render::quadrant_chart::render(&diag, opts.max_width)
+        }
+        DiagramKind::RequirementDiagram => {
+            // Requirement diagrams render as labeled boxes with relationship
+            // summary. Color opts are not applicable in Phase 1.
+            let diag = parser::requirement_diagram::parse(input)?;
+            render::requirement_diagram::render(&diag, opts.max_width)
         }
         DiagramKind::Flowchart => {
             let graph = parser::parse(input)?;

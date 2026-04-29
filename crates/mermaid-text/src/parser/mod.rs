@@ -2,7 +2,8 @@
 //!
 //! Supports `graph`/`flowchart`, `sequenceDiagram`, `stateDiagram` /
 //! `stateDiagram-v2`, `erDiagram`, `classDiagram`, `journey`, `gantt`,
-//! `timeline`, `gitGraph`, `mindmap`, and `quadrantChart` syntax.
+//! `timeline`, `gitGraph`, `mindmap`, `quadrantChart`, and
+//! `requirementDiagram` syntax.
 
 pub mod class;
 pub(crate) mod common;
@@ -14,6 +15,7 @@ pub mod journey;
 pub mod mindmap;
 pub mod pie;
 pub mod quadrant_chart;
+pub mod requirement_diagram;
 pub mod sequence;
 pub mod state;
 pub mod timeline;

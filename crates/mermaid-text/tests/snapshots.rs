@@ -2091,3 +2091,91 @@ fn quadrant_chart_canonical_example() {
 
     assert_snapshot!("quadrant_chart_canonical_example", out);
 }
+
+// ---------------------------------------------------------------------------
+// requirementDiagram — canonical Mermaid example.
+// ---------------------------------------------------------------------------
+#[test]
+fn requirement_diagram_canonical_example() {
+    let src = "requirementDiagram
+
+    requirement test_req {
+        id: 1
+        text: the test text.
+        risk: high
+        verifymethod: test
+    }
+
+    functionalRequirement test_req2 {
+        id: 1.1
+        text: the second test text.
+        risk: low
+        verifymethod: inspection
+    }
+
+    performanceRequirement test_req3 {
+        id: 1.2
+        text: the third test text.
+        risk: medium
+        verifymethod: demonstration
+    }
+
+    interfaceRequirement test_req4 {
+        id: 1.2.1
+        text: the fourth test text.
+        risk: medium
+        verifymethod: analysis
+    }
+
+    designConstraint test_req5 {
+        id: 1.2.2
+        text: the fifth test text.
+        risk: low
+        verifymethod: analysis
+    }
+
+    element test_entity {
+        type: simulation
+    }
+
+    element test_entity2 {
+        type: word doc
+        docref: reqs/test_entity
+    }
+
+    test_entity - satisfies -> test_req2
+    test_req - traces -> test_req2
+    test_req - contains -> test_req3
+    test_req3 - contains -> test_req4
+    test_req4 - derives -> test_req5
+    test_req5 - refines -> test_req4
+    test_entity2 - verifies -> test_req5
+    test_req5 - copies -> test_req2";
+
+    let out = mermaid_text::render(src).unwrap();
+
+    // All requirement names must appear.
+    for name in &["test_req", "test_req2", "test_req3", "test_req4", "test_req5"] {
+        assert!(out.contains(name), "{name} missing from output:\n{out}");
+    }
+    // All element names must appear.
+    assert!(out.contains("test_entity"), "test_entity missing");
+    assert!(out.contains("test_entity2"), "test_entity2 missing");
+    // Stereotype tags must appear.
+    assert!(
+        out.contains("<<requirement>>"),
+        "<<requirement>> tag missing"
+    );
+    assert!(
+        out.contains("<<functionalRequirement>>"),
+        "<<functionalRequirement>> tag missing"
+    );
+    // Element boxes must use rounded corners.
+    assert!(out.contains('\u{256D}'), "rounded corner ╭ missing");
+    // Relationships section must be present.
+    assert!(out.contains("Relationships:"), "Relationships section missing");
+    assert!(out.contains("satisfies"), "satisfies relationship missing");
+    assert!(out.contains("traces"), "traces relationship missing");
+
+    assert_snapshot!("requirement_diagram_canonical_example", out);
+}

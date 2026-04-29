@@ -43,6 +43,10 @@ pub enum DiagramKind {
     /// quadrants and proportionally-placed data points (Phase 1 — no custom
     /// point styling or background colours).
     QuadrantChart,
+    /// `requirementDiagram` diagrams. Render as labeled requirement and element
+    /// boxes with relationship arcs listed below (Phase 1 — vertical stacking,
+    /// no graphical relationship lines).
+    RequirementDiagram,
 }
 
 /// Detect the kind of Mermaid diagram described by `input`.
@@ -77,6 +81,7 @@ pub enum DiagramKind {
 /// assert_eq!(detect("gitGraph\ncommit").unwrap(), DiagramKind::GitGraph);
 /// assert_eq!(detect("mindmap\n  root").unwrap(), DiagramKind::Mindmap);
 /// assert_eq!(detect("quadrantChart\nA: [0.5, 0.5]").unwrap(), DiagramKind::QuadrantChart);
+/// assert_eq!(detect("requirementDiagram\n").unwrap(), DiagramKind::RequirementDiagram);
 /// assert!(detect("").is_err());
 /// ```
 pub fn detect(input: &str) -> Result<DiagramKind, Error> {
@@ -104,6 +109,9 @@ pub fn detect(input: &str) -> Result<DiagramKind, Error> {
         "gitgraph" => Ok(DiagramKind::GitGraph),
         "mindmap" => Ok(DiagramKind::Mindmap),
         "quadrantchart" => Ok(DiagramKind::QuadrantChart),
+        // requirementDiagram is camelCase in the Mermaid spec; match
+        // case-insensitively for robustness against formatting tools.
+        "requirementdiagram" => Ok(DiagramKind::RequirementDiagram),
         other => Err(Error::UnsupportedDiagram(other.to_string())),
     }
 }
@@ -243,5 +251,18 @@ mod tests {
         );
         // Case-insensitive.
         assert_eq!(detect("QuadrantChart").unwrap(), DiagramKind::QuadrantChart);
+    }
+
+    #[test]
+    fn detects_requirement_diagram_keyword() {
+        assert_eq!(
+            detect("requirementDiagram\n").unwrap(),
+            DiagramKind::RequirementDiagram
+        );
+        // Case-insensitive.
+        assert_eq!(
+            detect("RequirementDiagram").unwrap(),
+            DiagramKind::RequirementDiagram
+        );
     }
 }

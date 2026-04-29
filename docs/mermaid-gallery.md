@@ -66,6 +66,15 @@ line.
   Phase 1 limitations: custom point styling (colour, radius) and
   background quadrant colours/gradients are not supported; points that
   map to the same terminal cell overlap (last in source order wins).
+- **Requirement diagrams** (`requirementDiagram`) rendered as labeled
+  boxes with a relationship summary. Requirements use straight-cornered
+  boxes (`┌┐└┘`) with a `<<kind>>` stereotype header row and a
+  key-value data table (`id`, `text`, `risk`, `verifymethod`). Elements
+  use rounded-cornered boxes (`╭╮╰╯`) to visually distinguish them from
+  requirements. Relationships are listed as `source --[kind]--> target`
+  lines below all boxes. Phase 1 limitations: layout is purely vertical
+  (no side-by-side arrangement); relationship arcs are a text summary,
+  not graphical lines; custom styling is not supported.
 
 Recent rendering improvements: arrow tips merge into destination box
 borders (`┌─▾─┐` instead of floating `▾` above), edge labels never
@@ -892,6 +901,63 @@ supported; all points render as a `·` marker. Background quadrant colours and
 gradients are not rendered. Points that map to the same terminal cell overlap —
 the last point in source order wins. `accTitle` / `accDescr` lines are silently
 ignored. Point labels near the right edge may be truncated by the canvas width.
+
+---
+
+## Requirement diagrams
+
+A `requirementDiagram` models formal requirements, real-world elements, and
+the relationships between them. Requirements carry an `id`, descriptive `text`,
+and optional `risk` and `verifymethod` fields. Elements represent artefacts
+such as code modules or documents.
+
+**Example 1 — Minimal requirement + element + relationship:**
+
+```
+requirementDiagram
+
+    requirement r1 {
+        id: 1
+        text: the system shall respond within 200ms.
+        risk: high
+        verifymethod: test
+    }
+
+    element backend {
+        type: service
+    }
+
+    backend - satisfies -> r1
+```
+
+Expected rendered output:
+
+```text
+┌────────────────────────────────┐
+│        <<requirement>>         │
+│               r1               │
+├────────────────────────────────┤
+│ id:           1                │
+│ text:         the system shal… │
+│ risk:         high             │
+│ verifymethod: test             │
+└────────────────────────────────┘
+
+╭────────────────────────────────╮
+│            backend             │
+├────────────────────────────────┤
+│ type: service                  │
+╰────────────────────────────────╯
+
+Relationships:
+  backend --[satisfies]--> r1
+```
+
+**Phase 1 limitations.** Layout is purely vertical — boxes are stacked
+top-to-bottom; no side-by-side arrangement is attempted. Relationship arcs are
+rendered as a text summary (`--[kind]-->`) rather than graphical lines between
+boxes. Custom styling/colours are not supported. `accTitle` / `accDescr` lines
+are silently ignored.
 
 ---
 

@@ -5,6 +5,17 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.30] — 2026-04-28
+
+### Added — `requirementDiagram` diagram support (mermaid-text 0.31.0)
+
+Mermaid `requirementDiagram` diagrams are now rendered as a series of
+labeled boxes: requirements use straight-cornered boxes (`┌┐└┘`) with a
+`<<kind>>` stereotype header and data table; elements use rounded-cornered
+boxes (`╭╮╰╯`). Relationships are listed as `source --[kind]--> target` text
+below all boxes. Phase 1 limitations: purely vertical layout, relationship arcs
+as text summary only, no custom styling.
+
 ## [1.34.29] — 2026-04-29
 
 ### Added — `quadrantChart` diagram support (mermaid-text 0.30.1)

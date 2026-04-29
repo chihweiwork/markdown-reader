@@ -131,6 +131,7 @@ mermaid-text --width 80 my_diagram.mmd
 | `gitGraph` (branch/commit lane diagram) | yes (Phase 1) |
 | `mindmap` (hierarchical outline tree) | yes (Phase 1) |
 | `quadrantChart` (2x2 priority matrix with labeled quadrants and data points) | yes (Phase 1) |
+| `requirementDiagram` (formal requirements + elements + relationships) | yes (Phase 1) |
 
 ---
 
