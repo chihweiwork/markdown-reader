@@ -28,7 +28,7 @@
 
 `markdown-reader` is a TUI for reading and editing docs-heavy repositories.
 Open a folder, browse the file tree, fan documents into tabs, and search
-across every markdown file in the project. Mermaid diagrams (10 types),
+across every markdown file in the project. Mermaid diagrams (16 types),
 LaTeX math, fenced code, and tables all render inline — and pressing `i`
 flips into a hybrid mode where the block under your cursor reveals its
 raw markdown source while every other block stays formatted.
@@ -51,7 +51,7 @@ raw markdown source while every other block stays formatted.
 | Feature | markdown-reader | treemd | glow | bat |
 |---|---|---|---|---|
 | Repository browser (tree + tabs) | Yes | No | No | No |
-| Mermaid diagrams (inline Unicode) | Yes (10 types) | No | No | No |
+| Mermaid diagrams (inline Unicode) | Yes (16 types) | No | No | No |
 | Mermaid as terminal images | Yes (Kitty/Sixel/iTerm) | No | No | No |
 | LaTeX math | Yes | No | No | No |
 | Live-preview editing | Yes (block-level reveal) | No (external editor) | No | No |
@@ -631,7 +631,7 @@ brings the image back.
 **Supported diagram types.** Everything `mermaid-rs-renderer` supports
 in image mode (flowcharts, sequence, state, class, ER, Gantt, pie,
 and more). The text-mode fallback ([`mermaid-text`](crates/mermaid-text/),
-also our own crate) covers flowcharts, state diagrams,
+also our own crate) covers 16 diagram types: flowcharts, state diagrams,
 sequence diagrams (with autonumber, notes, activation bars, and block
 statements), pie charts, ER diagrams, class diagrams, user-journey
 diagrams, Gantt charts (Phase 1 — bar chart with date axis; status
@@ -639,9 +639,14 @@ tags and excludes are silently ignored), timeline diagrams
 (Phase 1 — bullet-on-a-wire flow with titled sections and multi-event
 periods), git graph diagrams (Phase 1 — lane-based commit graph
 with `*`/`M`/`C` glyphs for normal/merge/cherry-pick commits, fork and
-merge arcs, and commit ids/tags), and mindmap diagrams (Phase 1 — vertical
+merge arcs, and commit ids/tags), mindmap diagrams (Phase 1 — vertical
 tree with the root in a rounded box and children branching with `├──`/`└──`
-glyphs; all node shapes normalised to text, icons silently ignored).
+glyphs; all node shapes normalised to text, icons silently ignored),
+quadrant charts (four-quadrant scatter with axis labels and titled points),
+requirement diagrams (boxed requirements with id/type/risk and verification
+links between them), `xychart-beta` (bar and line series with shared X/Y
+axes), `sankey-beta` (flow diagrams with source/target/value triples), and
+`block-beta` (grid-of-blocks layouts).
 Fidelity on subgraphs and complex layouts
 depends on each renderer's maturity — when a specific diagram fails,
 the source is shown with a short error in the footer.
@@ -733,6 +738,26 @@ transparently.
 
 To reset a session (for example, if you want a fresh start on a project),
 delete the state file. Configuration is untouched.
+
+### Update notifications
+
+When you quit the TUI, `markdown-reader` checks crates.io (at most once every
+24 hours, in a background thread started at launch) and prints a brief upgrade
+banner to stderr if a newer version is published.  The check never delays the
+exit path — it is a pure cache read at quit time.
+
+To disable, add this to your `config.toml`:
+
+```toml
+[updates]
+check_for_updates = false
+```
+
+The cache is stored at:
+
+- **Linux**: `~/.cache/markdown-tui-explorer/last-version-check.json`
+- **macOS**: `~/Library/Caches/markdown-tui-explorer/last-version-check.json`
+- **Windows**: `%LOCALAPPDATA%\markdown-tui-explorer\last-version-check.json`
 
 ## Markdown rendering
 

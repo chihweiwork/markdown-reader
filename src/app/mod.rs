@@ -1,6 +1,6 @@
 use crate::action::Action;
 use crate::cast::u32_sat;
-use crate::config::{Config, MermaidMode, SearchPreview, TreePosition};
+use crate::config::{Config, MermaidMode, SearchPreview, TreePosition, UpdatesConfig};
 use crate::event::EventHandler;
 use crate::fs::discovery::FileEntry;
 use crate::fs::git_status;
@@ -397,6 +397,8 @@ pub struct App {
     /// When `true`, `i` opens hybrid mode and `I` opens the legacy fullscreen
     /// edtui.  When `false`, the bindings are reversed (pre-1.33.0 behaviour).
     pub use_hybrid_by_default: bool,
+    /// Mirror of [`Config::updates`].
+    pub updates: UpdatesConfig,
     /// Copy-path popup state; `None` when the popup is closed.
     pub copy_menu: Option<CopyMenuState>,
     /// Persisted sessions (loaded once on startup, written on file open and quit).
@@ -529,6 +531,7 @@ impl App {
             mermaid_mode: config.mermaid_mode,
             mermaid_max_height: config.mermaid_max_height,
             use_hybrid_by_default: config.use_hybrid_by_default,
+            updates: config.updates,
             copy_menu: None,
             app_state,
             action_tx: None,
@@ -716,6 +719,7 @@ impl App {
             mermaid_mode: self.mermaid_mode,
             mermaid_max_height: self.mermaid_max_height,
             use_hybrid_by_default: self.use_hybrid_by_default,
+            updates: self.updates.clone(),
         };
         tokio::task::spawn_blocking(move || config.save());
     }

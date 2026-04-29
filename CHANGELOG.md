@@ -5,6 +5,30 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — 1.34.34
+
+### Added — version-check-on-exit
+
+When you quit the TUI, the app prints a brief upgrade banner to stderr if a
+newer version of `markdown-tui-explorer` is published on crates.io.
+
+- A background thread is spawned at TUI startup to fetch the latest version
+  (at most once every 24 hours). Results land in a local JSON cache; the exit
+  path only reads the cache — no network I/O on quit.
+- Cache location: `~/.cache/markdown-tui-explorer/last-version-check.json`
+  (platform-specific; uses `dirs::cache_dir()`).
+- Opt-out via `config.toml`:
+  ```toml
+  [updates]
+  check_for_updates = false
+  ```
+- CLI modes (`--export-html`, `--check-links`, `--section`) do not trigger
+  the check.
+- Banner is printed to stderr so it never interferes with `--export-html >
+  out.html` pipelines.
+- New crates added: `semver 1.0.28` (version comparison), `serde_json 1`
+  (cache serialization; also enables `ureq`'s built-in `json` feature).
+
 ## [1.34.33] — 2026-04-29
 
 ### Added — `sankey-beta` diagram support (mermaid-text 0.35.0)

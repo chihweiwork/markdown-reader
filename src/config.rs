@@ -16,6 +16,37 @@ fn default_mermaid_max_height() -> u32 {
     30
 }
 
+/// Default value for [`UpdatesConfig::check_for_updates`].
+///
+/// Returns `true` so the feature is on by default for new installs.
+/// Users who prefer no network activity can set `check_for_updates = false`
+/// in the `[updates]` section of `config.toml`.
+fn default_check_for_updates() -> bool {
+    true
+}
+
+/// Settings that control the automatic update-notification feature.
+///
+/// Serialised as the `[updates]` TOML table inside `config.toml`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatesConfig {
+    /// When `true` (the default), the app checks crates.io once per 24 hours
+    /// in a background thread.  If a newer version is found, a brief upgrade
+    /// banner is printed to stderr when you quit.
+    ///
+    /// Set to `false` to disable the check entirely (no network activity).
+    #[serde(default = "default_check_for_updates")]
+    pub check_for_updates: bool,
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            check_for_updates: default_check_for_updates(),
+        }
+    }
+}
+
 /// Default value for [`Config::use_hybrid_by_default`].
 ///
 /// Returns `true` so that lowercase `i` opens hybrid live-preview mode for
@@ -105,6 +136,11 @@ pub struct Config {
     /// while regressions are being filed.
     #[serde(default = "default_use_hybrid_by_default")]
     pub use_hybrid_by_default: bool,
+    /// Automatic update-notification settings.
+    ///
+    /// Serialised as `[updates]` in `config.toml`.
+    #[serde(default)]
+    pub updates: UpdatesConfig,
 }
 
 impl Default for Config {
@@ -117,6 +153,7 @@ impl Default for Config {
             mermaid_mode: MermaidMode::default(),
             mermaid_max_height: default_mermaid_max_height(),
             use_hybrid_by_default: default_use_hybrid_by_default(),
+            updates: UpdatesConfig::default(),
         }
     }
 }
@@ -245,5 +282,40 @@ mod tests {
         let toml_str = r#"theme = "default""#;
         let config: Config = toml::from_str(toml_str).expect("deserialization failed");
         assert!(config.use_hybrid_by_default);
+    }
+
+    /// `[updates]` section must round-trip with `check_for_updates = false`.
+    #[test]
+    fn updates_check_for_updates_roundtrip_false() {
+        let config = Config {
+            updates: UpdatesConfig {
+                check_for_updates: false,
+            },
+            ..Config::default()
+        };
+        let serialized = toml::to_string_pretty(&config).expect("serialization failed");
+        let deserialized: Config = toml::from_str(&serialized).expect("deserialization failed");
+        assert!(!deserialized.updates.check_for_updates);
+    }
+
+    /// A TOML file without an `[updates]` section must default to `check_for_updates = true`.
+    #[test]
+    fn updates_missing_section_defaults_to_check_enabled() {
+        let toml_str = r#"theme = "default""#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization failed");
+        assert!(config.updates.check_for_updates);
+    }
+
+    /// An explicit `[updates] check_for_updates = false` must be honoured.
+    #[test]
+    fn updates_explicit_false_is_honoured() {
+        let toml_str = r#"
+theme = "default"
+
+[updates]
+check_for_updates = false
+"#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization failed");
+        assert!(!config.updates.check_for_updates);
     }
 }

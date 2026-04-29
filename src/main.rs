@@ -13,6 +13,7 @@ mod state;
 mod text_layout;
 mod theme;
 mod ui;
+mod version_check;
 
 use anyhow::{Context, Result};
 use app::App;
@@ -319,6 +320,14 @@ async fn main() -> Result<()> {
         }
     };
 
+    // ── Version check ────────────────────────────────────────────────────
+    // Load config here (before the TUI starts) solely to read the
+    // `check_for_updates` flag.  App::new will load config again; the
+    // double-load is a cheap TOML parse and avoids plumbing config through
+    // the pre-App setup.
+    let version_check_enabled = config::Config::load().updates.check_for_updates;
+    version_check::spawn_background_check_if_due(version_check_enabled);
+
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
@@ -353,6 +362,15 @@ async fn main() -> Result<()> {
     // doesn't get unlinked while the App is reading it. Dropping it
     // here removes the temp file on disk.
     drop(stdin_temp);
+
+    // ── Version notice ───────────────────────────────────────────────────
+    // Pure cache read (no network).  The _guard drop above has already
+    // restored the terminal, so stderr is safe to write to.
+    version_check::print_upgrade_notice_if_outdated(
+        env!("CARGO_PKG_VERSION"),
+        version_check_enabled,
+    );
+
     result
 }
 
