@@ -75,6 +75,23 @@ line.
   lines below all boxes. Phase 1 limitations: layout is purely vertical
   (no side-by-side arrangement); relationship arcs are a text summary,
   not graphical lines; custom styling is not supported.
+- **XY charts** (`xychart-beta` / `xychart`) rendered as a Unicode bar/line
+  chart. Bar series use `█` block columns; line series plot `●` point markers
+  connected with `╭─╯╰│` curve glyphs. Both series can coexist (bars drawn
+  first, line overlaid). The y-axis shows right-aligned numeric tick labels;
+  the x-axis shows category labels or range endpoints below a `└─┬─` connector
+  row. Respects `max_width` via proportional column sizing. Phase 1 limitations:
+  only the last `bar` / `line` definition is kept; horizontal orientation is
+  parsed but rendered vertically; no custom colours.
+- **Block diagrams** (`block-beta` / `block`) rendered as a fixed-width grid
+  of Unicode rectangle boxes. `columns N` sets the grid column count; `id:N`
+  spans a block across N columns (the combined column widths and gaps become
+  the box width); `id["text"]` sets the display label (otherwise the id is
+  used). Directed edges (`A --> B`) are listed below the grid as
+  `src ──► target` text lines. Respects `max_width` via iterative
+  column-width reduction. Phase 1 limitations: all block shapes are normalised
+  to plain rectangles; nested `block … end` blocks are silently skipped;
+  vertical spans are not supported; edge labels appear in the text summary only.
 
 Recent rendering improvements: arrow tips merge into destination box
 borders (`┌─▾─┐` instead of floating `▾` above), edge labels never
@@ -961,12 +978,71 @@ are silently ignored.
 
 ---
 
+## XY charts
+
+### Sales revenue (bar + line)
+
+```mermaid
+xychart-beta
+    title "Sales Revenue"
+    x-axis [jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec]
+    y-axis "Revenue (in $)" 4000 --> 11000
+    bar [5000, 6000, 7500, 8200, 9500, 10500, 11000, 10200, 9200, 8500, 7000, 6000]
+    line [5000, 6000, 7500, 8200, 9500, 10500, 11000, 10200, 9200, 8500, 7000, 6000]
+```
+
+**Phase 1 limitations.** Only the last `bar` and the last `line` definition are
+kept (multiple series of the same kind are not supported). Horizontal orientation
+(`xychart-beta horizontal`) is parsed but rendered vertically. Custom point
+styling and colours are not supported. `accTitle` / `accDescr` lines are silently
+ignored.
+
+---
+
+## Block diagrams
+
+A `block-beta` diagram renders a fixed-width grid of rectangular blocks with
+optional directed edges. `columns N` sets the number of grid columns; blocks
+fill left-to-right and wrap to the next row when a row is full. `id:N` makes a
+block span N columns; `id["text"]` sets an explicit display label.
+
+### Simple 3-column grid with arrows
+
+```mermaid
+block-beta
+    columns 3
+    A B C
+    A --> B
+    B --> C
+```
+
+### Labelled spanning blocks
+
+```mermaid
+block-beta
+    columns 3
+    a["A label"] b:2 c
+    d e f
+    g["spans across"]:3
+    a --> d
+    b --> e
+    c --> f
+```
+
+**Phase 1 limitations.** All block shapes (rounded, stadium, cylinder, hexagon)
+are normalised to plain rectangles. Nested `block … end` blocks are silently
+skipped by the parser. Vertical spans (multi-row blocks) are not supported. Edge
+labels (`-->|text|`) are captured but displayed in the text summary below the
+grid only — they are not drawn on the grid itself. Custom block colours and
+`accDescr` / `accTitle` are silently ignored.
+
+---
+
 ## Not yet supported
 
 These Mermaid diagram types fall back to showing source text rather
 than rendering:
 
-- `xychart` — lower priority; may land if a real use case shows up.
 - `rect <colour>` colour-highlight blocks inside sequence diagrams
   (the block grammar itself is supported — only the colour form is
   deferred; Mermaid's grammar is hard to express without bigger

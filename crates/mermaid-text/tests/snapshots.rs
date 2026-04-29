@@ -2179,3 +2179,130 @@ fn requirement_diagram_canonical_example() {
 
     assert_snapshot!("requirement_diagram_canonical_example", out);
 }
+
+// ---------------------------------------------------------------------------
+// sankey-beta — canonical Mermaid energy-flow example.
+//     Regression guard: source node headers, arc arrows, and values must all
+//     render correctly in the grouped-arrow list layout.
+// ---------------------------------------------------------------------------
+#[test]
+fn sankey_beta_canonical_example() {
+    let src = "sankey-beta
+
+%% source,target,value
+Agricultural 'waste',Bio-conversion,124.729
+Bio-conversion,Liquid,0.597
+Bio-conversion,Solid,280.322
+Coal imports,Coal,11.606
+Coal,Solid,75.571";
+
+    let out = mermaid_text::render(src).unwrap();
+
+    // Source nodes that have outgoing arcs must appear as header lines.
+    assert!(
+        out.contains("Bio-conversion"),
+        "Bio-conversion source header missing:\n{out}"
+    );
+    assert!(
+        out.contains("Coal imports"),
+        "Coal imports source header missing:\n{out}"
+    );
+    // Target-only nodes must also appear (as arc targets).
+    assert!(out.contains("Liquid"), "Liquid target missing:\n{out}");
+    assert!(out.contains("Solid"), "Solid target missing:\n{out}");
+    // Arrow glyphs must be present.
+    assert!(
+        out.contains('\u{25BA}'),
+        "arrowhead glyph \u{25BA} missing:\n{out}"
+    );
+    // Spot-check at least one value.
+    assert!(out.contains("124.7"), "value 124.7 missing:\n{out}");
+    assert!(out.contains("280.3"), "value 280.3 missing:\n{out}");
+
+    assert_snapshot!("sankey_beta_canonical_example", out);
+}
+
+// ---------------------------------------------------------------------------
+// xychart-beta — canonical Mermaid sales-revenue example.
+//     Regression guard: title, y-axis label, x-axis labels, bar glyphs, and
+//     axis structure must all render correctly.
+// ---------------------------------------------------------------------------
+#[test]
+fn xychart_beta_canonical_example() {
+    let src = "xychart-beta
+    title \"Sales Revenue\"
+    x-axis [jan, feb, mar, apr, may, jun, jul, aug, sep, oct, nov, dec]
+    y-axis \"Revenue (in $)\" 4000 --> 11000
+    bar [5000, 6000, 7500, 8200, 9500, 10500, 11000, 10200, 9200, 8500, 7000, 6000]
+    line [5000, 6000, 7500, 8200, 9500, 10500, 11000, 10200, 9200, 8500, 7000, 6000]";
+
+    let out = mermaid_text::render(src).unwrap();
+
+    // Title must appear.
+    assert!(
+        out.contains("Sales Revenue"),
+        "title missing from output:\n{out}"
+    );
+    // Y-axis label must appear.
+    assert!(
+        out.contains("Revenue (in $)"),
+        "y-axis label missing from output:\n{out}"
+    );
+    // X-axis category labels must appear.
+    assert!(out.contains("jan"), "jan label missing:\n{out}");
+    assert!(out.contains("jun"), "jun label missing:\n{out}");
+    assert!(out.contains("dec"), "dec label missing:\n{out}");
+    // Bar glyphs must be present.
+    assert!(
+        out.contains('\u{2588}'),
+        "bar glyph missing from output:\n{out}"
+    );
+    // Y-axis ticks must appear.
+    assert!(out.contains("11000"), "y_max tick missing:\n{out}");
+    assert!(out.contains("4000"), "y_min tick missing:\n{out}");
+    // Axis connector glyph must appear.
+    assert!(
+        out.contains('\u{2524}') || out.contains('\u{2514}'),
+        "axis glyph missing:\n{out}"
+    );
+
+    assert_snapshot!("xychart_beta_canonical_example", out);
+}
+
+// ---------------------------------------------------------------------------
+// block-beta — canonical Phase 1 grid + arrows example.
+//     Regression guard: blocks, column spans, and edge summary must all
+//     render correctly in the fixed-width grid layout.
+// ---------------------------------------------------------------------------
+#[test]
+fn block_beta_canonical_example() {
+    let src = "block-beta
+    columns 3
+    a[\"A label\"] b:2 c
+    d e f
+    g[\"spans across\"]:3
+    a --> d
+    b --> e
+    c --> f";
+
+    let out = mermaid_text::render(src).unwrap();
+
+    // All block labels must appear.
+    assert!(out.contains("A label"), "A label missing:\n{out}");
+    assert!(out.contains("spans across"), "spans across missing:\n{out}");
+    for id in &["b", "c", "d", "e", "f"] {
+        assert!(out.contains(id), "block {id} missing from output:\n{out}");
+    }
+    // Box-drawing characters must be present.
+    assert!(out.contains('\u{250C}'), "top-left corner ┌ missing:\n{out}");
+    assert!(out.contains('\u{2518}'), "bottom-right corner ┘ missing:\n{out}");
+    assert!(out.contains('\u{2502}'), "vertical bar │ missing:\n{out}");
+    // Edge summary must appear.
+    assert!(out.contains("Edges:"), "Edges: header missing:\n{out}");
+    assert!(out.contains('\u{25BA}'), "arrowhead glyph ► missing:\n{out}");
+    // Source/target ids must appear in the edge lines.
+    assert!(out.contains("a "), "source 'a' in edges missing:\n{out}");
+    assert!(out.contains(" d"), "target 'd' in edges missing:\n{out}");
+
+    assert_snapshot!("block_beta_canonical_example", out);
+}

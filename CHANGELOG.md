@@ -5,6 +5,47 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.33] — 2026-04-29
+
+### Added — `sankey-beta` diagram support (mermaid-text 0.35.0)
+
+Bumped `mermaid-text` dependency to 0.35.0. Mermaid `sankey-beta` diagrams
+(CSV-format flow models — `source,target,value`) now render as a grouped
+flow listing: each source name with its outgoing flows below as
+`──[value]──► target` lines. Phase 1 limitation: this is a tabular flow
+summary, not a true proportional-width sankey visualization (which would
+require Sugiyama layout). Quoted node names (single or double quotes) and
+`%%` comments are honoured. Cycles and non-positive values produce
+`Error::ParseError`.
+
+## [1.34.32] — 2026-04-29
+
+### Added — `block-beta` diagram support (mermaid-text 0.34.0)
+
+Mermaid `block-beta` and `block` diagrams are now rendered as a fixed-width
+grid of Unicode rectangle boxes with a directed-edge summary below. Blocks are
+assigned to grid rows left-to-right; `columns N` sets the grid column count;
+`id:N` spans a block across N columns (merging the column widths and gaps into
+one wider box). Block labels are centred inside their boxes. Edges are listed
+below the grid as `src ──► target` lines. Respects `max_width` via iterative
+column-width reduction. Phase 1 limitations: rectangles only (all shapes
+normalised); nested blocks and vertical spans are ignored; edge labels appear
+in the text summary only, not drawn on the grid.
+
+## [1.34.31] — 2026-04-29
+
+### Added — `xychart-beta` diagram support (mermaid-text 0.32.0)
+
+Mermaid `xychart-beta` and `xychart` diagrams are now rendered as a Unicode
+bar/line chart. Bar series use `█` block columns sized to the chart body; line
+series plot `●` point markers connected with `╭─╯╰│` curve glyphs. Both
+series can be present simultaneously (bars first, line overlaid). The y-axis
+shows right-aligned numeric tick labels; the x-axis shows category labels or
+numeric range endpoints below a `└─┬─` connector row. Respects `max_width` via
+proportional column sizing. Phase 1 limitations: only the last `bar` and last
+`line` definition are kept; horizontal orientation is parsed but rendered
+vertically; no custom colours.
+
 ## [1.34.30] — 2026-04-28
 
 ### Added — `requirementDiagram` diagram support (mermaid-text 0.31.0)

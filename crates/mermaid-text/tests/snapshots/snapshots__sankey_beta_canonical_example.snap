@@ -1,0 +1,17 @@
+---
+source: crates/mermaid-text/tests/snapshots.rs
+assertion_line: 2222
+expression: out
+---
+Agricultural 'waste'
+  ──[124.7]──► Bio-conversion
+
+Bio-conversion
+  ──[0.6  ]──► Liquid
+  ──[280.3]──► Solid
+
+Coal imports
+  ──[11.6 ]──► Coal
+
+Coal
+  ──[75.6 ]──► Solid

@@ -47,6 +47,20 @@ pub enum DiagramKind {
     /// boxes with relationship arcs listed below (Phase 1 — vertical stacking,
     /// no graphical relationship lines).
     RequirementDiagram,
+    /// `sankey-beta` (and `sankey`) diagrams. Render as a grouped-arrow list
+    /// with source nodes as headers and indented arcs showing flow values
+    /// (Phase 1 — grouped list layout; true proportional sankey with
+    /// Sugiyama band routing is planned for a future phase).
+    Sankey,
+    /// `xychart-beta` (and `xychart`) diagrams. Render as a bar/line chart
+    /// with a categorical or numeric x-axis and a numeric y-axis
+    /// (Phase 1 — last bar and last line series only; horizontal orientation
+    /// is parsed but rendered vertically; no custom colours or point styling).
+    XyChart,
+    /// `block-beta` (or `block`) diagrams. Render as a fixed-width grid of
+    /// rectangle blocks with an edge summary below (Phase 1 — rectangles only,
+    /// no nested blocks, no vertical spanning, no custom colours).
+    BlockDiagram,
 }
 
 /// Detect the kind of Mermaid diagram described by `input`.
@@ -82,6 +96,11 @@ pub enum DiagramKind {
 /// assert_eq!(detect("mindmap\n  root").unwrap(), DiagramKind::Mindmap);
 /// assert_eq!(detect("quadrantChart\nA: [0.5, 0.5]").unwrap(), DiagramKind::QuadrantChart);
 /// assert_eq!(detect("requirementDiagram\n").unwrap(), DiagramKind::RequirementDiagram);
+/// assert_eq!(detect("sankey-beta\nA,B,1.0").unwrap(), DiagramKind::Sankey);
+/// assert_eq!(detect("xychart-beta\nbar [1,2,3]").unwrap(), DiagramKind::XyChart);
+/// assert_eq!(detect("xychart\nbar [1,2,3]").unwrap(), DiagramKind::XyChart);
+/// assert_eq!(detect("block-beta\n    A B").unwrap(), DiagramKind::BlockDiagram);
+/// assert_eq!(detect("block\n    A B").unwrap(), DiagramKind::BlockDiagram);
 /// assert!(detect("").is_err());
 /// ```
 pub fn detect(input: &str) -> Result<DiagramKind, Error> {
@@ -112,6 +131,15 @@ pub fn detect(input: &str) -> Result<DiagramKind, Error> {
         // requirementDiagram is camelCase in the Mermaid spec; match
         // case-insensitively for robustness against formatting tools.
         "requirementdiagram" => Ok(DiagramKind::RequirementDiagram),
+        // `sankey-beta` is the official Mermaid keyword; `sankey` is also
+        // accepted as a relaxed alias for resilience against linters.
+        "sankey-beta" | "sankey" => Ok(DiagramKind::Sankey),
+        // `xychart-beta` is the official Mermaid keyword; `xychart` is also
+        // accepted as a relaxed alias for resilience against linters.
+        "xychart-beta" | "xychart" => Ok(DiagramKind::XyChart),
+        // `block-beta` is the official Mermaid keyword; `block` is accepted
+        // as a relaxed alias for resilience against linters.
+        "block-beta" | "block" => Ok(DiagramKind::BlockDiagram),
         other => Err(Error::UnsupportedDiagram(other.to_string())),
     }
 }
@@ -143,7 +171,7 @@ mod tests {
     fn unknown_type_returns_error() {
         // A truly unsupported type returns UnsupportedDiagram.
         assert!(matches!(
-            detect("xychart title Roadmap"),
+            detect("unknownDiagram title Roadmap"),
             Err(Error::UnsupportedDiagram(_))
         ));
     }
@@ -264,5 +292,65 @@ mod tests {
             detect("RequirementDiagram").unwrap(),
             DiagramKind::RequirementDiagram
         );
+    }
+
+    #[test]
+    fn detects_sankey_beta_keyword() {
+        assert_eq!(
+            detect("sankey-beta\nA,B,1.0").unwrap(),
+            DiagramKind::Sankey
+        );
+        // Relaxed alias.
+        assert_eq!(detect("sankey\nA,B,1.0").unwrap(), DiagramKind::Sankey);
+    }
+
+    #[test]
+    fn detects_sankey_keyword_case_insensitive() {
+        // The keyword contains a hyphen; case-insensitive matching is via
+        // `to_lowercase()` on the split token, so test both.
+        assert_eq!(
+            detect("Sankey-Beta\nA,B,1.0").unwrap(),
+            DiagramKind::Sankey
+        );
+        assert_eq!(detect("Sankey\nA,B,1.0").unwrap(), DiagramKind::Sankey);
+    }
+
+    #[test]
+    fn detects_xychart_beta_keyword() {
+        assert_eq!(
+            detect("xychart-beta\nbar [1,2,3]").unwrap(),
+            DiagramKind::XyChart
+        );
+        // Alias without `-beta`.
+        assert_eq!(detect("xychart\nbar [1]").unwrap(), DiagramKind::XyChart);
+    }
+
+    #[test]
+    fn detects_xychart_keyword_case_insensitive() {
+        // Case-insensitive matching via `to_lowercase()` on the split token.
+        assert_eq!(
+            detect("XyChart-Beta\nbar [1]").unwrap(),
+            DiagramKind::XyChart
+        );
+        assert_eq!(detect("XYCHART\nbar [1]").unwrap(), DiagramKind::XyChart);
+    }
+
+    #[test]
+    fn detects_block_beta_keyword() {
+        assert_eq!(
+            detect("block-beta\n    A B").unwrap(),
+            DiagramKind::BlockDiagram
+        );
+        // Relaxed alias without `-beta`.
+        assert_eq!(detect("block\n    A B").unwrap(), DiagramKind::BlockDiagram);
+    }
+
+    #[test]
+    fn detects_block_beta_keyword_case_insensitive() {
+        assert_eq!(
+            detect("Block-Beta\n    A").unwrap(),
+            DiagramKind::BlockDiagram
+        );
+        assert_eq!(detect("BLOCK\n    A").unwrap(), DiagramKind::BlockDiagram);
     }
 }

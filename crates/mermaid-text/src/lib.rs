@@ -79,6 +79,9 @@
 //! | `mindmap` (hierarchical outline tree) | yes (Phase 1 — vertical tree with root box; all shapes normalised to text; icons silently ignored) |
 //! | `quadrantChart` (2x2 priority matrix) | yes (Phase 1 — cross-axis chart with quadrant labels and proportionally-placed data points; no custom point styling or background colours) |
 //! | `requirementDiagram` (formal requirements + elements + relationships) | yes (Phase 1 — vertical box list with relationship summary; no graphical connection lines) |
+//! | `sankey-beta` / `sankey` (directed flow between named nodes) | yes (Phase 1 — grouped-arrow list layout; proportional band routing planned for Phase 2) |
+//! | `xychart-beta` / `xychart` (bar/line chart with categorical or numeric axes) | yes (Phase 1 — last bar/line series; horizontal orientation rendered vertically; no custom colours) |
+//! | `block-beta` / `block` (fixed-width block grid with directed edges) | yes (Phase 1 — rectangle blocks only; nested blocks and vertical spans ignored; edge summary as text below grid) |
 //!
 //! ## Limitations
 //!
@@ -104,6 +107,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod block_diagram;
 pub mod class;
 pub mod detect;
 pub mod er;
@@ -117,10 +121,13 @@ pub mod pie;
 pub mod quadrant_chart;
 pub mod render;
 pub mod requirement_diagram;
+pub mod sankey;
 pub mod sequence;
 pub mod timeline;
 pub mod types;
+pub mod xy_chart;
 
+pub use block_diagram::{Block, BlockDiagram, BlockEdge};
 pub use class::{
     Attribute as ClassAttribute, Class, ClassDiagram, Member, Method, RelKind, Relation,
     Stereotype, Visibility,
@@ -136,7 +143,9 @@ pub use requirement_diagram::{
     Element as RequirementElement, RelationshipKind, Requirement, RequirementDiagram,
     RequirementKind, RequirementRelationship, Risk, VerifyMethod,
 };
+pub use sankey::{Sankey, SankeyFlow};
 pub use sequence::{Message, MessageStyle, Participant, SequenceDiagram};
+pub use xy_chart::{XAxis, XyChart, XyOrientation, YAxis};
 pub use timeline::{Timeline, TimelineEntry, TimelineSection};
 pub use types::{Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape};
 
@@ -322,6 +331,26 @@ pub fn render_with_width(input: &str, max_width: Option<usize>) -> Result<String
             // the optional width budget for content truncation.
             let diag = parser::requirement_diagram::parse(input)?;
             return Ok(render::requirement_diagram::render(&diag, max_width));
+        }
+        DiagramKind::Sankey => {
+            // Sankey diagrams render as a grouped-arrow list with source
+            // nodes as headers and indented arcs — fixed layout, honours the
+            // optional width budget for line truncation.
+            let diag = parser::sankey::parse(input)?;
+            return Ok(render::sankey::render(&diag, max_width));
+        }
+        DiagramKind::XyChart => {
+            // XY chart diagrams render as a bar/line chart — fixed layout,
+            // honours the optional width budget for column scaling.
+            let diag = parser::xy_chart::parse(input)?;
+            return Ok(render::xy_chart::render(&diag, max_width));
+        }
+        DiagramKind::BlockDiagram => {
+            // Block diagrams render as a fixed-width grid of rectangle blocks
+            // with an edge summary below — fixed layout, honours the optional
+            // width budget for grid column scaling.
+            let diag = parser::block_diagram::parse(input)?;
+            return Ok(render::block_diagram::render(&diag, max_width));
         }
         DiagramKind::Flowchart => parser::parse(input)?,
         DiagramKind::State => {
@@ -605,6 +634,24 @@ pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, 
             // summary. Color opts are not applicable in Phase 1.
             let diag = parser::requirement_diagram::parse(input)?;
             render::requirement_diagram::render(&diag, opts.max_width)
+        }
+        DiagramKind::Sankey => {
+            // Sankey diagrams render as a grouped-arrow list.
+            // Color opts are not applicable in Phase 1.
+            let diag = parser::sankey::parse(input)?;
+            render::sankey::render(&diag, opts.max_width)
+        }
+        DiagramKind::XyChart => {
+            // XY chart diagrams render as a bar/line chart.
+            // Color opts are not applicable in Phase 1.
+            let diag = parser::xy_chart::parse(input)?;
+            render::xy_chart::render(&diag, opts.max_width)
+        }
+        DiagramKind::BlockDiagram => {
+            // Block diagrams render as a fixed-width grid of rectangle blocks.
+            // Color opts are not applicable in Phase 1.
+            let diag = parser::block_diagram::parse(input)?;
+            render::block_diagram::render(&diag, opts.max_width)
         }
         DiagramKind::Flowchart => {
             let graph = parser::parse(input)?;
@@ -1125,7 +1172,7 @@ mod tests {
     #[test]
     fn unknown_diagram_type_returns_error() {
         // An actually unsupported diagram type returns UnsupportedDiagram.
-        let err = render("xychart-beta\n  line [1, 2, 3]").unwrap_err();
+        let err = render("notADiagramType\n  foo bar").unwrap_err();
         assert!(
             matches!(err, Error::UnsupportedDiagram(_)),
             "expected UnsupportedDiagram, got {err:?}"

@@ -3,6 +3,179 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.35.0 — 2026-04-29 — Phase 14: `sankey-beta` support
+
+### Added
+
+- **`sankey-beta` diagram type** (Phase 1). Parses Mermaid `sankey-beta`
+  and `sankey` source (CSV format) and renders it as a grouped-arrow list
+  with source nodes as headers and indented arcs showing flow values.
+
+- **`src/sankey.rs`** — public types:
+  - `Sankey { flows }` — top-level diagram.
+  - `SankeyFlow { source, target, value }` — a single directed flow arc.
+  - `Sankey::total_volume() -> f64` — sum of all flow values.
+  - `Sankey::unique_node_names() -> Vec<String>` — all distinct node names
+    in first-seen order (sources then targets, deduped).
+
+- **`src/parser/sankey.rs`** — hand-rolled CSV-like parser:
+  - Accepts `sankey-beta` (canonical) and `sankey` (relaxed alias) headers.
+  - Parses each data line as `source,target,value` with optional
+    single- or double-quote wrapping on source/target fields.
+  - Rejects zero, negative, and non-finite values with `Error::ParseError`.
+  - Rejects malformed lines (wrong field count, empty source/target).
+  - Strips `%%` comment lines and `accTitle`/`accDescr` lines silently.
+
+- **`src/render/sankey.rs`** — grouped-arrow list renderer:
+  - Source nodes rendered as header lines in first-seen order.
+  - Each outgoing arc rendered as `  ──[value]──► target` with
+    value right-padded so arrowheads align across all arcs of a source group.
+  - Blank line between source groups for readability.
+  - Respects `max_width` via `unicode-width`-aware truncation with `…`.
+  - Empty diagram renders a `(empty sankey diagram)` placeholder.
+
+- **Wiring** — `DiagramKind::Sankey` variant in `detect.rs`; `pub mod sankey`
+  in `lib.rs`, `parser/mod.rs`, and `render/mod.rs`; dispatch arms in
+  `render_with_width` and `render_with_options`.
+
+- **Tests** — 20 new unit tests: `sankey.rs` (5), `parser/sankey.rs` (14
+  including 4 CSV internals), `render/sankey.rs` (6), plus 1 integration
+  snapshot (`tests/snapshots__sankey_beta_canonical_example.snap`).
+
+### Phase 1 limitations
+
+- True proportional sankey rendering (node heights scaled to flow volume,
+  curvilinear bands between nodes) requires Sugiyama layout with sankey-
+  specific band routing. This is planned for Phase 2.
+- Custom node ordering is not supported; nodes are listed in first-seen
+  source order from the flow list.
+- Colour / theming directives are silently ignored.
+- `accDescr` / `accTitle` accessibility metadata is silently ignored.
+- Cyclic flows (A -> B -> A) are accepted by the parser; the renderer
+  handles them gracefully by listing each arc once.
+
+## 0.34.0 — 2026-04-29 — Phase 15: `block-beta` support
+
+### Added
+
+- **`block-beta` diagram type** (Phase 1). Parses Mermaid `block-beta` /
+  `block` source and renders it as a fixed-width grid of Unicode rectangle
+  boxes with a directed-edge summary below.
+
+- **`src/block_diagram.rs`** — public types:
+  - `BlockDiagram { columns, blocks, edges }` — top-level diagram.
+  - `Block { id, text, col_span }` — a single grid block with optional
+    display text (falling back to `id`) and column span.
+  - `Block::display_text()` — returns `text` when non-empty, `id` otherwise.
+  - `BlockDiagram::find_block(id)` — look up a block by identifier.
+  - `BlockEdge { source, target, label }` — a directed edge with optional
+    label.
+
+- **`src/parser/block_diagram.rs`** — line-by-line parser:
+  - Recognises `block-beta` and `block` (relaxed alias) header keywords.
+  - Parses `columns N` directive (must be ≥ 1; defaults to 1 when absent).
+  - Parses block spec lines with tokens `id`, `id["text"]`, `id:N`, and
+    `id["text"]:N` in a single character-scan pass.
+  - Parses `source --> target` and `source -->|label| target` edge lines.
+  - Detects and skips nested `block … end` blocks (depth-tracked).
+  - `%%` comment lines, blank lines, and `accTitle`/`accDescr` are silently
+    skipped.
+  - Unknown top-level lines are silently ignored for forward compatibility.
+
+- **`src/render/block_diagram.rs`** — fixed-width grid renderer:
+  - Assigns blocks to grid rows/columns via a left-to-right wrap algorithm
+    respecting declared column count and per-block col_span.
+  - Column widths are derived from the widest label in each column; spanning
+    blocks absorb inter-column gaps (COL_GAP + 2 border chars per merged gap).
+  - Each block renders as a Unicode box (`┌─┐│└─┘`) with the display label
+    centred in the available inner width.
+  - Blank lines separate grid rows for readability.
+  - Edge summary appended below the grid as `Edges:\n  src ──► tgt` lines
+    (with optional `[label]`).
+  - `max_width` triggers iterative column-width reduction (floor:
+    `MIN_CELL_INNER = 1`) to stay within budget.
+
+- **Wiring** — `DiagramKind::BlockDiagram` variant in `detect.rs`; `pub mod
+  block_diagram` in `lib.rs`, `parser/mod.rs`, and `render/mod.rs`; match
+  arms in `render_with_width` and `render_with_options`. Detection accepts
+  `"block-beta"` and `"block"` case-insensitively.
+
+- **Tests** — 33 new tests:
+  - `src/block_diagram.rs` — 5 unit tests (default/empty, display_text
+    fallback, find_block, equality, optional label).
+  - `src/parser/block_diagram.rs` — 17 unit tests (header variants, columns
+    directive, bare/text/span/combined block parsing, multiple rows, edges,
+    labelled edges, comments, full canonical example).
+  - `src/render/block_diagram.rs` — 8 unit tests (single block, text labels,
+    edge summary, empty diagram, max_width truncation, spanning box, labelled
+    edge in summary, multi-row blank-line separator).
+  - `src/detect.rs` — 2 unit tests (block-beta and block keywords,
+    case-insensitive matching).
+  - `tests/snapshots.rs` — 1 snapshot test (`block_beta_canonical_example`).
+
+### Phase 1 limitations
+
+- Only rectangle-shaped blocks are rendered; all shape variants (rounded,
+  stadium, cylinder, hexagon) are normalised to plain rectangular boxes with
+  the inner text as-is.
+- Nested blocks (`block … end`) are silently skipped by the parser.
+- Vertical spanning (multi-row blocks) is not supported.
+- Edge labels are captured but rendered only in the text summary below the
+  grid — no inline label decoration on arrows between boxes.
+- `accDescr` / `accTitle` accessibility metadata is silently ignored.
+- Custom block colours are not supported.
+
+## 0.32.0 — 2026-04-29 — Phase 13: `xychart-beta` support
+
+### Added
+
+- **`xychart-beta` diagram type** (Phase 1). Parses Mermaid `xychart-beta` /
+  `xychart` source and renders it as a Unicode bar/line chart with a labeled
+  y-axis and categorical or numeric x-axis tick marks.
+
+- **`src/xy_chart.rs`** — public types:
+  - `XyChart { title, orientation, x_axis, y_axis, bar_series, line_series }` — top-level diagram.
+  - `XyOrientation` — enum: `Vertical` (default), `Horizontal`.
+  - `XAxis` — enum: `Categorical { labels }` or `Numeric { label, min, max }`.
+  - `YAxis { label, min, max }` — numeric y-axis.
+  - `XyChart::data_count()` returns the effective number of data points.
+
+- **`src/parser/xy_chart.rs`** — line-oriented parser:
+  - Accepts `xychart-beta` and `xychart` as header keywords.
+  - Parses `horizontal` orientation modifier (renders vertically in Phase 1).
+  - Parses quoted and unquoted `title` lines.
+  - Parses categorical `x-axis [a, b, c, ...]` and numeric `x-axis "label" min --> max`.
+  - Parses `y-axis "label" min --> max` (label optional).
+  - Parses `bar [v1, v2, ...]` and `line [v1, v2, ...]` series; last definition wins.
+  - Uses `parser::common::strip_inline_comment` for `%%` comment stripping.
+  - Validates series length against categorical x-axis label count.
+  - `accTitle` / `accDescr` lines are silently ignored.
+  - Unknown lines are silently ignored (forward-compatibility).
+
+- **`src/render/xy_chart.rs`** — canvas-based renderer:
+  - Bar series renders `█` block columns sized to fill the chart body.
+  - Line series renders `●` point markers connected with `╭─╯╰│` curve glyphs.
+  - Both series can overlap: bars first, line overlaid.
+  - Y-axis with right-aligned numeric tick labels at evenly-spaced rows.
+  - Bottom `└─┬─` connector row followed by x-axis category labels.
+  - Respects `max_width` via proportional column sizing (minimum 2 chars/column).
+
+- **Wiring** — `DiagramKind::XyChart` variant in `detect.rs`; `pub mod xy_chart` in
+  `lib.rs`, `parser/mod.rs`, and `render/mod.rs`; match arms in `render_with_width`
+  and `render_with_options`; doc table row added.
+
+- **Tests** — 36 new tests across `xy_chart.rs` (7), `parser/xy_chart.rs` (20),
+  `render/xy_chart.rs` (8), and `tests/snapshots.rs` (1 canonical snapshot).
+
+### Phase 1 limitations
+
+- Multiple overlapping series of the same kind are not supported; only the last
+  `bar` and the last `line` definition are kept.
+- Horizontal orientation (`xychart-beta horizontal`) is parsed but rendered
+  vertically. This is a known limitation for Phase 1.
+- Custom point styling and colours are not supported.
+- `accDescr` / `accTitle` accessibility metadata is silently ignored.
+
 ## 0.31.0 — 2026-04-28 — Phase 12: `requirementDiagram` support
 
 ### Added

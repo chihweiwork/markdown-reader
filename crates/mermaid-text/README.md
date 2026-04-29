@@ -132,6 +132,9 @@ mermaid-text --width 80 my_diagram.mmd
 | `mindmap` (hierarchical outline tree) | yes (Phase 1) |
 | `quadrantChart` (2x2 priority matrix with labeled quadrants and data points) | yes (Phase 1) |
 | `requirementDiagram` (formal requirements + elements + relationships) | yes (Phase 1) |
+| `sankey-beta` / `sankey` (directed flow between named nodes) | yes (Phase 1 — grouped-arrow list layout; proportional bands planned for Phase 2) |
+| `xychart-beta` / `xychart` (bar/line chart with categorical or numeric axes) | yes (Phase 1) |
+| `block-beta` / `block` (fixed-width block grid with directed edges) | yes (Phase 1) |
 
 ---
 
