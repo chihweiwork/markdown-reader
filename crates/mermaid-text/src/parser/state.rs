@@ -162,13 +162,20 @@ struct Walker {
     composite_children: HashMap<String, Vec<String>>,
     /// Per-composite direction override.
     composite_directions: HashMap<String, Direction>,
-    /// State ids that received a `<<fork>>` or `<<join>>` modifier.
-    /// Stored separately from `shapes` because the visual `Bar`
-    /// orientation depends on the graph's flow direction, which we
-    /// resolve at materialise time. Both fork and join collapse to the
-    /// same `NodeShape::Bar` — they're visually identical and only the
-    /// semantic role differs.
-    pending_bar_kinds: HashSet<String>,
+    /// State ids that received a `<<fork>>` or `<<join>>` modifier, mapped to
+    /// the composite path at the point of declaration.
+    ///
+    /// Stored separately from `shapes` because the visual `Bar` orientation
+    /// depends on the *nearest enclosing composite's* flow direction (or the
+    /// top-level direction when no enclosing composite has its own `direction`
+    /// keyword), which we resolve at materialise time. Both fork and join
+    /// collapse to the same `NodeShape::Bar` — they're visually identical and
+    /// only the semantic role differs.
+    ///
+    /// The path snapshot lets `resolve_pending_bars` walk outward from the
+    /// innermost composite to find the first direction override, matching
+    /// Mermaid's per-composite `direction` semantics.
+    pending_bar_kinds: HashMap<String, Vec<String>>,
     /// Maps a composite-path scope key (empty string = top level,
     /// otherwise the path joined with `PATH_SEP`) to the single
     /// synthesised anonymous-choice id active in that scope.
@@ -236,7 +243,7 @@ impl Default for Walker {
             composite_members: HashMap::new(),
             composite_children: HashMap::new(),
             composite_directions: HashMap::new(),
-            pending_bar_kinds: HashSet::new(),
+            pending_bar_kinds: HashMap::new(),
             anon_choice_by_scope: HashMap::new(),
             pending_classes: Vec::new(),
             // Direction will be overwritten in materialise; the
@@ -598,8 +605,10 @@ impl Walker {
                     self.shapes.insert(id, NodeShape::Diamond);
                 }
                 ShapeKind::ForkOrJoin => {
-                    // Defer to materialise-time so we know self.direction.
-                    self.pending_bar_kinds.insert(id);
+                    // Defer to materialise-time: record the composite path so
+                    // resolve_pending_bars can use the nearest enclosing
+                    // composite's direction instead of only the top-level one.
+                    self.pending_bar_kinds.insert(id, path.to_vec());
                 }
             }
         }
@@ -735,19 +744,31 @@ impl Walker {
         self.edges = rewritten;
     }
 
-    /// Resolve `<<fork>>` / `<<join>>` modifiers to concrete `Bar`
-    /// shapes now that the graph's flow direction is known. Bars are
-    /// drawn perpendicular to flow (matching UML / Mermaid convention),
-    /// so the orientation is derived from `self.direction`.
+    /// Resolve `<<fork>>` / `<<join>>` modifiers to concrete `Bar` shapes now
+    /// that the graph's flow direction is known. Bars are drawn perpendicular
+    /// to flow (matching UML / Mermaid convention).
+    ///
+    /// For each pending bar we walk the recorded composite path from innermost
+    /// to outermost, returning the first composite that has its own `direction`
+    /// override. If none exists we fall back to the top-level direction. This
+    /// implements per-composite fork/join orientation: a `<<fork>>` inside a
+    /// `state Container { direction TB }` block gets a horizontal bar even when
+    /// the outer diagram is LR.
     fn resolve_pending_bars(&mut self) {
         if self.pending_bar_kinds.is_empty() {
             return;
         }
-        let orientation = match self.direction {
-            Direction::LeftToRight | Direction::RightToLeft => BarOrientation::Vertical,
-            Direction::TopToBottom | Direction::BottomToTop => BarOrientation::Horizontal,
-        };
-        for id in self.pending_bar_kinds.drain() {
+        let pending: Vec<(String, Vec<String>)> = self.pending_bar_kinds.drain().collect();
+        for (id, path) in pending {
+            let effective_dir = path
+                .iter()
+                .rev()
+                .find_map(|composite_id| self.composite_directions.get(composite_id).copied())
+                .unwrap_or(self.direction);
+            let orientation = match effective_dir {
+                Direction::LeftToRight | Direction::RightToLeft => BarOrientation::Vertical,
+                Direction::TopToBottom | Direction::BottomToTop => BarOrientation::Horizontal,
+            };
             self.shapes.insert(id, NodeShape::Bar(orientation));
         }
     }
@@ -1174,6 +1195,50 @@ mod tests {
         assert_eq!(
             g.node("J").unwrap().shape,
             NodeShape::Bar(BarOrientation::Vertical)
+        );
+    }
+
+    #[test]
+    fn fork_inside_tb_composite_in_lr_diagram_uses_horizontal_bar() {
+        // Regression for per-composite fork/join orientation (0.30.0).
+        //
+        // The outer diagram is LR (default), so without the fix both
+        // Decide and Merge would get BarOrientation::Vertical. With the
+        // fix, the enclosing composite's `direction TB` is consulted
+        // first and yields BarOrientation::Horizontal.
+        let src = "stateDiagram-v2
+direction LR
+state Container {
+    direction TB
+    state Decide <<fork>>
+    Decide --> A
+    Decide --> B
+    state Merge <<join>>
+    A --> Merge
+    B --> Merge
+}";
+        let g = parse(src).unwrap();
+        assert_eq!(
+            g.node("Decide").unwrap().shape,
+            NodeShape::Bar(BarOrientation::Horizontal),
+            "Decide (inside TB composite) should have horizontal bar"
+        );
+        assert_eq!(
+            g.node("Merge").unwrap().shape,
+            NodeShape::Bar(BarOrientation::Horizontal),
+            "Merge (inside TB composite) should have horizontal bar"
+        );
+    }
+
+    #[test]
+    fn fork_at_top_level_lr_diagram_keeps_vertical_bar() {
+        // When a fork/join is at the top level (no composite direction
+        // override), the top-level LR direction governs -> vertical bar.
+        let g = parse("stateDiagram-v2\ndirection LR\nstate F <<fork>>\n[*] --> F").unwrap();
+        assert_eq!(
+            g.node("F").unwrap().shape,
+            NodeShape::Bar(BarOrientation::Vertical),
+            "top-level LR fork should still produce vertical bar"
         );
     }
 

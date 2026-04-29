@@ -77,6 +77,7 @@
 //! | `timeline` (vertical time-period bullet list) | yes (Phase 1 — title, sections, multi-event periods; no custom themes) |
 //! | `gitGraph` (branch/commit lane diagram) | yes (Phase 1 — normal/merge/cherry-pick commits; no custom themes or orientation) |
 //! | `mindmap` (hierarchical outline tree) | yes (Phase 1 — vertical tree with root box; all shapes normalised to text; icons silently ignored) |
+//! | `quadrantChart` (2x2 priority matrix) | yes (Phase 1 — cross-axis chart with quadrant labels and proportionally-placed data points; no custom point styling or background colours) |
 //!
 //! ## Limitations
 //!
@@ -112,6 +113,7 @@ pub mod layout;
 pub mod mindmap;
 pub mod parser;
 pub mod pie;
+pub mod quadrant_chart;
 pub mod render;
 pub mod sequence;
 pub mod timeline;
@@ -127,6 +129,7 @@ pub use git_graph::{Branch, Commit, CommitKind, Event as GitEvent, GitGraph};
 pub use journey::{JourneyDiagram, Section, Task};
 pub use mindmap::{Mindmap, MindmapNode};
 pub use pie::{PieChart, PieSlice};
+pub use quadrant_chart::{AxisLabels, QuadrantChart, QuadrantLabels, QuadrantPoint};
 pub use sequence::{Message, MessageStyle, Participant, SequenceDiagram};
 pub use timeline::{Timeline, TimelineEntry, TimelineSection};
 pub use types::{Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape};
@@ -299,6 +302,13 @@ pub fn render_with_width(input: &str, max_width: Option<usize>) -> Result<String
             // the optional width budget for text truncation.
             let diag = parser::mindmap::parse(input)?;
             return Ok(render::mindmap::render(&diag, max_width));
+        }
+        DiagramKind::QuadrantChart => {
+            // Quadrant chart diagrams render as a 2x2 priority matrix with
+            // labeled quadrants and proportionally-placed data points —
+            // fixed layout, honours the optional width budget.
+            let diag = parser::quadrant_chart::parse(input)?;
+            return Ok(render::quadrant_chart::render(&diag, max_width));
         }
         DiagramKind::Flowchart => parser::parse(input)?,
         DiagramKind::State => {
@@ -570,6 +580,12 @@ pub fn render_with_options(input: &str, opts: &RenderOptions) -> Result<String, 
             // Color opts are not applicable in Phase 1.
             let diag = parser::mindmap::parse(input)?;
             render::mindmap::render(&diag, opts.max_width)
+        }
+        DiagramKind::QuadrantChart => {
+            // Quadrant chart diagrams render as a 2x2 priority matrix.
+            // Color opts are not applicable in Phase 1.
+            let diag = parser::quadrant_chart::parse(input)?;
+            render::quadrant_chart::render(&diag, opts.max_width)
         }
         DiagramKind::Flowchart => {
             let graph = parser::parse(input)?;

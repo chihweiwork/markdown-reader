@@ -125,7 +125,12 @@ mermaid-text --width 80 my_diagram.mmd
 | `pie` (with optional `showData`, `title`) | yes (renders as horizontal bar chart) |
 | `erDiagram` (entities + attributes + cardinality) | yes (attribute tables, 1/?/+/* glyphs, identifying vs non-identifying) |
 | `classDiagram` (class boxes + members + relationships) | yes (see below) |
-| `gantt`, `journey`, etc. | not supported |
+| `gantt` (project schedule bar chart) | yes (Phase 1) |
+| `journey` (user-journey, section/task tree with score bars) | yes |
+| `timeline` (vertical time-period bullet list) | yes (Phase 1) |
+| `gitGraph` (branch/commit lane diagram) | yes (Phase 1) |
+| `mindmap` (hierarchical outline tree) | yes (Phase 1) |
+| `quadrantChart` (2x2 priority matrix with labeled quadrants and data points) | yes (Phase 1) |
 
 ---
 

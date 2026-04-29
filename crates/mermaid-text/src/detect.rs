@@ -39,6 +39,10 @@ pub enum DiagramKind {
     /// rounded box at the top and children branching below with `├──` / `└──`
     /// connectors (Phase 1 — no shape variants or icons).
     Mindmap,
+    /// `quadrantChart` diagrams. Render as a 2x2 priority matrix with labeled
+    /// quadrants and proportionally-placed data points (Phase 1 — no custom
+    /// point styling or background colours).
+    QuadrantChart,
 }
 
 /// Detect the kind of Mermaid diagram described by `input`.
@@ -72,6 +76,7 @@ pub enum DiagramKind {
 /// assert_eq!(detect("timeline\n2002 : LinkedIn").unwrap(), DiagramKind::Timeline);
 /// assert_eq!(detect("gitGraph\ncommit").unwrap(), DiagramKind::GitGraph);
 /// assert_eq!(detect("mindmap\n  root").unwrap(), DiagramKind::Mindmap);
+/// assert_eq!(detect("quadrantChart\nA: [0.5, 0.5]").unwrap(), DiagramKind::QuadrantChart);
 /// assert!(detect("").is_err());
 /// ```
 pub fn detect(input: &str) -> Result<DiagramKind, Error> {
@@ -98,6 +103,7 @@ pub fn detect(input: &str) -> Result<DiagramKind, Error> {
         // resilience against linters/formatters that normalise the keyword.
         "gitgraph" => Ok(DiagramKind::GitGraph),
         "mindmap" => Ok(DiagramKind::Mindmap),
+        "quadrantchart" => Ok(DiagramKind::QuadrantChart),
         other => Err(Error::UnsupportedDiagram(other.to_string())),
     }
 }
@@ -227,5 +233,15 @@ mod tests {
         );
         // Case-insensitive.
         assert_eq!(detect("Mindmap").unwrap(), DiagramKind::Mindmap);
+    }
+
+    #[test]
+    fn detects_quadrant_chart_keyword() {
+        assert_eq!(
+            detect("quadrantChart\nA: [0.5, 0.5]").unwrap(),
+            DiagramKind::QuadrantChart
+        );
+        // Case-insensitive.
+        assert_eq!(detect("QuadrantChart").unwrap(), DiagramKind::QuadrantChart);
     }
 }

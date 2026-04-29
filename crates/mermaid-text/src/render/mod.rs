@@ -8,6 +8,7 @@ pub mod git_graph;
 pub mod journey;
 pub mod mindmap;
 pub mod pie;
+pub mod quadrant_chart;
 pub mod sequence;
 pub mod timeline;
 pub mod unicode;

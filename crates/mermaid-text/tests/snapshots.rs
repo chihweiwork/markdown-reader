@@ -2042,3 +2042,52 @@ fn mindmap_canonical_example() {
     assert!(out.contains('\u{251C}') || out.contains('\u{2514}'), "no branch glyphs");
     assert_snapshot!("mindmap_canonical_example", out);
 }
+
+// ---------------------------------------------------------------------------
+// QuadrantChart — canonical Mermaid docs example
+//     Regression guard: title, axis labels, quadrant labels, and plotted
+//     data points must all render correctly.
+// ---------------------------------------------------------------------------
+#[test]
+fn quadrant_chart_canonical_example() {
+    let src = "quadrantChart
+    title Reach and engagement of campaigns
+    x-axis Low Reach --> High Reach
+    y-axis Low Engagement --> High Engagement
+    quadrant-1 We should expand
+    quadrant-2 Need to promote
+    quadrant-3 Re-evaluate
+    quadrant-4 May be improved
+    Campaign A: [0.3, 0.6]
+    Campaign B: [0.45, 0.23]
+    Campaign C: [0.57, 0.69]
+    Campaign D: [0.78, 0.34]
+    Campaign E: [0.40, 0.34]
+    Campaign F: [0.35, 0.78]";
+
+    let out = mermaid_text::render(src).unwrap();
+
+    // Title must be present.
+    assert!(
+        out.contains("Reach and engagement of campaigns"),
+        "title missing"
+    );
+    // All quadrant labels must appear.
+    assert!(out.contains("We should expand"), "Q1 label missing");
+    assert!(out.contains("Need to promote"), "Q2 label missing");
+    assert!(out.contains("Re-evaluate"), "Q3 label missing");
+    assert!(out.contains("May be improved"), "Q4 label missing");
+    // All campaign points must appear.
+    for name in &["Campaign A", "Campaign B", "Campaign C", "Campaign D", "Campaign E", "Campaign F"] {
+        assert!(out.contains(name), "{name} missing");
+    }
+    // Axis labels must appear.
+    assert!(out.contains("Low Reach"), "Low Reach missing");
+    assert!(out.contains("High Reach"), "High Reach missing");
+    assert!(out.contains("Low Engagement"), "Low Engagement missing");
+    assert!(out.contains("High Engagement"), "High Engagement missing");
+    // The cross glyph must be present.
+    assert!(out.contains('\u{253C}'), "cross glyph ┼ missing");
+
+    assert_snapshot!("quadrant_chart_canonical_example", out);
+}

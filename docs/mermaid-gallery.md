@@ -56,6 +56,16 @@ line.
   Mermaid node shapes (default, rounded, circle, bang, cloud, hexagon)
   are normalised to plain text; `::icon(...)` directives are silently
   ignored; custom colour themes have no effect.
+- **Quadrant chart diagrams** (`quadrantChart`) rendered as a 2x2
+  priority matrix. A horizontal axis (drawn with `─` and `┼`) and a
+  vertical axis (drawn with `│`, `^`, `v`) divide the canvas into four
+  quadrants. Quadrant labels appear in the four corners (Q1 top-right,
+  Q2 top-left, Q3 bottom-left, Q4 bottom-right). Data points are placed
+  proportionally using `·` markers followed by the point name and
+  coordinates. Axis edge labels sit on the outermost ends of each axis.
+  Phase 1 limitations: custom point styling (colour, radius) and
+  background quadrant colours/gradients are not supported; points that
+  map to the same terminal cell overlap (last in source order wins).
 
 Recent rendering improvements: arrow tips merge into destination box
 borders (`┌─▾─┐` instead of floating `▾` above), edge labels never
@@ -799,6 +809,89 @@ Expected rendered output:
 `{{hexagon}}`, `))bang((`, `)cloud(`, `[rectangle]`) are stripped to their inner
 text — the rendered tree does not visually distinguish shapes. `::icon(...)` icon
 directives are silently ignored. Custom colour themes have no effect.
+
+---
+
+## Quadrant chart diagrams
+
+A `quadrantChart` diagram plots named data points on a 2x2 priority matrix.
+Axis labels describe the low and high ends of each dimension. Quadrant labels
+appear in each corner, numbered Q1 (top-right) through Q4 (bottom-right)
+counter-clockwise.
+
+**Example 1 — Canonical Mermaid example: campaign reach and engagement:**
+
+```
+quadrantChart
+    title Reach and engagement of campaigns
+    x-axis Low Reach --> High Reach
+    y-axis Low Engagement --> High Engagement
+    quadrant-1 We should expand
+    quadrant-2 Need to promote
+    quadrant-3 Re-evaluate
+    quadrant-4 May be improved
+    Campaign A: [0.3, 0.6]
+    Campaign B: [0.45, 0.23]
+    Campaign C: [0.57, 0.69]
+    Campaign D: [0.78, 0.34]
+    Campaign E: [0.40, 0.34]
+    Campaign F: [0.35, 0.78]
+```
+
+Expected rendered output (approximate; exact column positions depend on width):
+
+```text
+                   Reach and engagement of campaigns
+
+                            High Engagement
+                                   ^
+                  Need to promote  │ We should expand
+                                   │
+                       · Campaign F (0.35,0.78)
+                    · Campaign A (0.30,0.60)  │  · Campaign C (0.57,0.69)
+                                   │
+Low Reach──────────────────────────┼────────────────────────High Reach
+                                   │
+                           · Campaign E (0.40,0.34)  · Campaign D (0.78,0.34)
+                              · Campaign B (0.45,0.23)
+                      Re-evaluate  │ May be improved
+                                   v
+                            Low Engagement
+```
+
+**Example 2 — Minimal chart with just two quadrant labels and one point:**
+
+```
+quadrantChart
+    x-axis Low Priority --> High Priority
+    y-axis Low Impact --> High Impact
+    quadrant-1 Quick wins
+    quadrant-3 Avoid
+    Task A: [0.7, 0.8]
+```
+
+Expected rendered output (approximate):
+
+```text
+                            High Impact
+                                   ^
+                                   │  Quick wins
+                                   │
+                                   │     · Task A (0.70,0.80)
+                                   │
+Low Priority───────────────────────┼────────────────────────High Priority
+                                   │
+                  Avoid            │
+                                   │
+                                   v
+                             Low Impact
+```
+
+**Phase 1 limitations.** Custom point styling (colour, radius, shape) is not
+supported; all points render as a `·` marker. Background quadrant colours and
+gradients are not rendered. Points that map to the same terminal cell overlap —
+the last point in source order wins. `accTitle` / `accDescr` lines are silently
+ignored. Point labels near the right edge may be truncated by the canvas width.
 
 ---
 

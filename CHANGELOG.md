@@ -5,6 +5,29 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.29] — 2026-04-29
+
+### Added — `quadrantChart` diagram support (mermaid-text 0.30.1)
+
+Mermaid `quadrantChart` diagrams are now rendered as a 2x2 priority matrix
+with labeled quadrants and proportionally-placed data points. A horizontal
+axis (`─`, `┼`) and vertical axis (`│`, `^`, `v`) divide the canvas into four
+quadrants; quadrant labels appear in the correct corners (Q1 top-right, Q2
+top-left, Q3 bottom-left, Q4 bottom-right); data points are marked with `·`
+and their names and coordinates. Phase 1 limitations: no custom point styling,
+no background colours, close-together points may overlap.
+
+## [1.34.28] — 2026-04-29
+
+### Fixed — Per-composite fork/join orientation (mermaid-text 0.30.0)
+
+`<<fork>>` and `<<join>>` shapes inside a state-diagram composite with its own
+`direction` keyword now derive bar orientation from that composite's direction
+instead of always inheriting the top-level diagram direction. A `<<fork>>`
+inside `state Container { direction TB }` in an LR diagram now renders as a
+horizontal bar (perpendicular to TB flow) rather than a vertical bar
+(perpendicular to the outer LR flow).
+
 ## [1.34.27] — 2026-04-29
 
 ### Added — `mindmap` diagram support (mermaid-text 0.29.0)

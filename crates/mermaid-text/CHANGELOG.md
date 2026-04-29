@@ -3,6 +3,89 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.30.1 — 2026-04-29 — Phase 11: `quadrantChart` support
+
+### Added
+
+- **`quadrantChart` diagram type** (Phase 1). Parses Mermaid `quadrantChart`
+  source and renders it as a 2x2 priority matrix with labeled quadrants and
+  proportionally-placed data points.
+
+- **`src/quadrant_chart.rs`** — public types:
+  - `QuadrantChart { title, x_axis, y_axis, quadrants, points }` — the top-level diagram.
+  - `AxisLabels { low: String, high: String }` — axis label pair.
+  - `QuadrantLabels { q1, q2, q3, q4: Option<String> }` — corner labels.
+  - `QuadrantPoint { name: String, x: f64, y: f64 }` — a data point.
+  - All derive `Debug`, `Clone`, `PartialEq`; `Default` on chart and label types.
+  - `QuadrantChart::point_count()` returns the number of data points.
+
+- **`src/parser/quadrant_chart.rs`** — line-by-line parser:
+  - Recognises `title`, `x-axis`, `y-axis`, `quadrant-1` through `quadrant-4`,
+    and `<name>: [x, y]` data-point lines.
+  - Uses `parser::common::strip_inline_comment` for `%%` comment stripping.
+  - Rejects point coordinates outside [0, 1] with `Error::ParseError`.
+  - Rejects malformed `[x, y]` syntax with `Error::ParseError`.
+  - `accTitle` / `accDescr` lines are silently ignored.
+  - Unrecognised lines are silently ignored (forward-compatibility).
+
+- **`src/render/quadrant_chart.rs`** — canvas-based renderer:
+  - A 20-row x `canvas_width`-column character grid is filled with axes,
+    labels, and data points, then emitted as trimmed lines.
+  - Horizontal axis (`─`) runs across the middle row; vertical axis (`│`) runs
+    down the centre column; cross (`┼`) at intersection; `^`/`v` arrow tips.
+  - Quadrant labels: Q1 top-right, Q2 top-left, Q3 bottom-left, Q4 bottom-right.
+  - Data points placed proportionally with `·` marker and `Name (x,y)` label.
+  - x-axis edge labels sit on the axis row at far left and far right.
+  - y-axis edge labels appear above (`high`) and below (`low`) the chart body.
+  - Default canvas width is 70 columns; `max_width` clamps to the given budget.
+
+- **Detection** — `"quadrantChart"` keyword wired into `detect::detect` →
+  `DiagramKind::QuadrantChart` (case-insensitive).
+
+- **Wire-in** — `DiagramKind::QuadrantChart` arms added to `render_with_width`
+  and `render_with_options`.
+
+- **Snapshot** — `quadrant_chart_canonical_example` snapshot test added to
+  `tests/snapshots.rs`.
+
+### Phase 1 limitations
+
+- Custom point styling (colour, radius, shape) is not supported; all points
+  render as a `·` marker.
+- Background quadrant colours and gradients are not rendered.
+- Points that map to the same terminal cell overlap — the last point in source
+  order wins.
+- Point labels near the right canvas edge may be truncated.
+
+## 0.30.0 — 2026-04-29 — Per-composite fork/join orientation
+
+### Fixed
+
+- **Per-composite fork/join bar orientation** (`parser/state.rs`). `<<fork>>`
+  and `<<join>>` shapes inside a `state Composite { direction TB }` block now
+  derive their bar orientation from the *nearest enclosing composite's*
+  direction keyword instead of always using the top-level diagram direction.
+
+  Before this fix, a `<<fork>>` inside a TB composite within an LR top-level
+  diagram rendered as a vertical bar (LR's choice). It now correctly renders as
+  a horizontal bar (TB's choice), matching Mermaid's reference behaviour: bars
+  are drawn perpendicular to the composite's own layout axis.
+
+  The implementation records the composite path at parse time in
+  `pending_bar_kinds` (changed from `HashSet<String>` to
+  `HashMap<String, Vec<String>>`). At materialise time, `resolve_pending_bars`
+  walks the path from innermost composite outward to find the first
+  `direction` override, falling back to the top-level direction when none
+  exists. Existing diagrams without per-composite `direction` are unaffected.
+
+### Tests
+
+- `fork_inside_tb_composite_in_lr_diagram_uses_horizontal_bar` — verifies the
+  fix for the canonical repro case.
+- `fork_at_top_level_lr_diagram_keeps_vertical_bar` — confirms the fallback
+  to top-level direction when no composite override is present.
+
+
 ## 0.29.0 — 2026-04-28 — Phase 10: `mindmap` support
 
 ### Added
