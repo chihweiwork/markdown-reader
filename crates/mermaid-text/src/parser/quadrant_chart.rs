@@ -183,16 +183,14 @@ fn try_parse_point(line: &str) -> Result<Option<QuadrantPoint>, Error> {
         )));
     };
 
-    let x = x_str.trim().parse::<f64>().map_err(|_| {
-        Error::ParseError(format!(
-            "invalid x coordinate {x_str:?} in {line:?}"
-        ))
-    })?;
-    let y = y_str.trim().parse::<f64>().map_err(|_| {
-        Error::ParseError(format!(
-            "invalid y coordinate {y_str:?} in {line:?}"
-        ))
-    })?;
+    let x = x_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| Error::ParseError(format!("invalid x coordinate {x_str:?} in {line:?}")))?;
+    let y = y_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| Error::ParseError(format!("invalid y coordinate {y_str:?} in {line:?}")))?;
 
     if !(0.0..=1.0).contains(&x) {
         return Err(Error::ParseError(format!(
@@ -237,9 +235,8 @@ mod tests {
 
     #[test]
     fn parses_axis_labels() {
-        let src = format!(
-            "{HEADER}    x-axis Low Reach --> High Reach\n    y-axis Low Eng --> High Eng"
-        );
+        let src =
+            format!("{HEADER}    x-axis Low Reach --> High Reach\n    y-axis Low Eng --> High Eng");
         let chart = parse(&src).unwrap();
         let x = chart.x_axis.as_ref().unwrap();
         assert_eq!(x.low, "Low Reach");

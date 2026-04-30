@@ -291,6 +291,9 @@ mod tests {
             let w = UnicodeWidthStr::width(line);
             assert!(w <= 40, "line exceeds max_width=40 ({w} cells): {line:?}");
         }
-        assert!(out.contains('\u{2026}'), "ellipsis must appear on truncated text");
+        assert!(
+            out.contains('\u{2026}'),
+            "ellipsis must appear on truncated text"
+        );
     }
 }

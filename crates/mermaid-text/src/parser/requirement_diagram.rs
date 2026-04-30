@@ -106,8 +106,7 @@ pub fn parse(src: &str) -> Result<RequirementDiagram, Error> {
                 in_block = false;
                 match block_kind {
                     BlockKind::Requirement(kind) => {
-                        let req =
-                            parse_requirement_block(kind, &block_name, &block_lines)?;
+                        let req = parse_requirement_block(kind, &block_name, &block_lines)?;
                         diag.requirements.push(req);
                     }
                     BlockKind::Element => {
@@ -405,9 +404,8 @@ mod tests {
     // 4. Element with type + docref
     #[test]
     fn parses_element_with_type_and_docref() {
-        let src = format!(
-            "{HEADER}element e2 {{\n    type: word doc\n    docref: reqs/test_entity\n}}"
-        );
+        let src =
+            format!("{HEADER}element e2 {{\n    type: word doc\n    docref: reqs/test_entity\n}}");
         let diag = parse(&src).unwrap();
         assert_eq!(diag.elements.len(), 1);
         assert_eq!(diag.elements[0].kind, "word doc");

@@ -63,9 +63,7 @@ const BAR_GLYPH: char = '\u{2588}'; // █
 ///
 /// A multi-line string ready for printing.
 pub fn render(diag: &XyChart, max_width: Option<usize>) -> String {
-    let canvas_width = max_width
-        .map(|w| w.max(MIN_WIDTH))
-        .unwrap_or(DEFAULT_WIDTH);
+    let canvas_width = max_width.map(|w| w.max(MIN_WIDTH)).unwrap_or(DEFAULT_WIDTH);
 
     let mut out = String::new();
 
@@ -119,12 +117,26 @@ pub fn render(diag: &XyChart, max_width: Option<usize>) -> String {
 
     // Draw bar series first.
     if !diag.bar_series.is_empty() {
-        draw_bars(&mut canvas, &diag.bar_series, y_min, y_max, col_width, chart_rows);
+        draw_bars(
+            &mut canvas,
+            &diag.bar_series,
+            y_min,
+            y_max,
+            col_width,
+            chart_rows,
+        );
     }
 
     // Draw line series on top.
     if !diag.line_series.is_empty() {
-        draw_line(&mut canvas, &diag.line_series, y_min, y_max, col_width, chart_rows);
+        draw_line(
+            &mut canvas,
+            &diag.line_series,
+            y_min,
+            y_max,
+            col_width,
+            chart_rows,
+        );
     }
 
     // ---- Emit chart rows with y-axis ticks ---------------------------------
@@ -152,7 +164,11 @@ pub fn render(diag: &XyChart, max_width: Option<usize>) -> String {
             " ".repeat(y_label_width)
         } else {
             let w = tick_label.len();
-            format!("{}{}", " ".repeat(y_label_width.saturating_sub(w)), tick_label)
+            format!(
+                "{}{}",
+                " ".repeat(y_label_width.saturating_sub(w)),
+                tick_label
+            )
         };
 
         // All rows in the chart body use `┤`.
@@ -344,7 +360,14 @@ fn draw_line(
         if i + 1 < n {
             let next_row = rows[i + 1];
             let next_center_col = (i + 1) * col_width + col_width / 2;
-            draw_segment(canvas, row, center_col, next_row, next_center_col, chart_rows);
+            draw_segment(
+                canvas,
+                row,
+                center_col,
+                next_row,
+                next_center_col,
+                chart_rows,
+            );
         }
     }
 }
@@ -402,11 +425,7 @@ fn draw_segment(
         }
 
         // Vertical bar between rows.
-        for row in canvas
-            .iter_mut()
-            .take(bottom_row)
-            .skip(top_row + 1)
-        {
+        for row in canvas.iter_mut().take(bottom_row).skip(top_row + 1) {
             if vert_col < row.len() && row[vert_col] == ' ' {
                 row[vert_col] = '\u{2502}'; // │
             }
@@ -577,8 +596,7 @@ mod tests {
             );
 
             if positions.len() >= 3 {
-                let gaps: Vec<usize> =
-                    positions.windows(2).map(|w| w[1] - w[0]).collect();
+                let gaps: Vec<usize> = positions.windows(2).map(|w| w[1] - w[0]).collect();
                 let first = gaps[0];
                 assert!(
                     gaps.iter().all(|g| *g == first),

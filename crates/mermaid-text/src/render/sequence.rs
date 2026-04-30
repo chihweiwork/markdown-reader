@@ -794,21 +794,20 @@ pub fn render(diag: &SequenceDiagram) -> String {
     // Helper closure: render any notes whose `after_message` matches
     // `at`, advancing `arrow_row` by each note's height. Uses the
     // pre-computed wrapped text so drawing and height accounting agree.
-    let render_notes_at =
-        |canvas: &mut Canvas, arrow_row: &mut usize, at: usize| {
-            for (note, wrapped) in diag
-                .notes
-                .iter()
-                .zip(note_wrapped.iter())
-                .filter(|(n, _)| n.after_message == at)
-            {
-                let text_w = max_line_width(wrapped);
-                if let Some((l, r)) = note_columns(&note.anchor, &layouts, diag, text_w) {
-                    draw_note_box(canvas, l, r, *arrow_row, wrapped);
-                    *arrow_row += wrapped.lines().count().max(1) + 3;
-                }
+    let render_notes_at = |canvas: &mut Canvas, arrow_row: &mut usize, at: usize| {
+        for (note, wrapped) in diag
+            .notes
+            .iter()
+            .zip(note_wrapped.iter())
+            .filter(|(n, _)| n.after_message == at)
+        {
+            let text_w = max_line_width(wrapped);
+            if let Some((l, r)) = note_columns(&note.anchor, &layouts, diag, text_w) {
+                draw_note_box(canvas, l, r, *arrow_row, wrapped);
+                *arrow_row += wrapped.lines().count().max(1) + 3;
             }
-        };
+        }
+    };
 
     // Notes positioned BEFORE any message (after_message == 0) land
     // at the top of the body, before the first message label.

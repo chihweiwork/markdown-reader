@@ -83,11 +83,7 @@ pub fn render(diag: &BlockDiagram, max_width: Option<usize>) -> String {
     let col_inner_widths = apply_max_width(col_inner_widths, max_width, cols);
 
     // Determine how many rows the grid has.
-    let row_count = grid_placements
-        .iter()
-        .map(|p| p.row + 1)
-        .max()
-        .unwrap_or(0);
+    let row_count = grid_placements.iter().map(|p| p.row + 1).max().unwrap_or(0);
 
     let mut out = String::new();
 
@@ -97,7 +93,14 @@ pub fn render(diag: &BlockDiagram, max_width: Option<usize>) -> String {
         let mut row_blocks: Vec<(usize, usize, usize, &Block)> = grid_placements
             .iter()
             .filter(|p| p.row == row)
-            .map(|p| (p.col_start, p.col_end, p.block_idx, &diag.blocks[p.block_idx]))
+            .map(|p| {
+                (
+                    p.col_start,
+                    p.col_end,
+                    p.block_idx,
+                    &diag.blocks[p.block_idx],
+                )
+            })
             .collect();
         row_blocks.sort_by_key(|&(col_start, _, _, _)| col_start);
 
@@ -259,11 +262,7 @@ fn compute_placements(blocks: &[Block], cols: usize) -> Vec<Placement> {
 /// For a block spanning multiple columns the label width is distributed evenly
 /// across its columns (with any remainder in the last column). Single-column
 /// blocks set the minimum width for that column directly.
-fn compute_col_widths(
-    blocks: &[Block],
-    placements: &[Placement],
-    cols: usize,
-) -> Vec<usize> {
+fn compute_col_widths(blocks: &[Block], placements: &[Placement], cols: usize) -> Vec<usize> {
     let mut col_widths = vec![MIN_CELL_INNER; cols];
 
     for p in placements {
@@ -282,11 +281,7 @@ fn compute_col_widths(
             let gap_absorbed = (span - 1) * (COL_GAP + 2);
             let needed_per_col = lw.saturating_sub(gap_absorbed).div_ceil(span);
             let needed_per_col = needed_per_col.max(MIN_CELL_INNER);
-            for col_w in col_widths
-                .iter_mut()
-                .take(p.col_end)
-                .skip(p.col_start)
-            {
+            for col_w in col_widths.iter_mut().take(p.col_end).skip(p.col_start) {
                 *col_w = (*col_w).max(needed_per_col);
             }
         }
@@ -301,7 +296,11 @@ fn compute_col_widths(
 ///   sum(inner_w + 2) for each col + (cols - 1) * COL_GAP
 ///
 /// We reduce column widths proportionally, with a floor of `MIN_CELL_INNER`.
-fn apply_max_width(mut col_widths: Vec<usize>, max_width: Option<usize>, cols: usize) -> Vec<usize> {
+fn apply_max_width(
+    mut col_widths: Vec<usize>,
+    max_width: Option<usize>,
+    cols: usize,
+) -> Vec<usize> {
     let Some(budget) = max_width else {
         return col_widths;
     };
@@ -446,9 +445,18 @@ mod tests {
     fn renders_single_block() {
         let diag = parsed("block-beta\n    A");
         let out = render(&diag, None);
-        assert!(out.contains('A'), "block label 'A' must appear in output:\n{out}");
-        assert!(out.contains('\u{250C}'), "top-left corner ┌ must appear:\n{out}");
-        assert!(out.contains('\u{2518}'), "bottom-right corner ┘ must appear:\n{out}");
+        assert!(
+            out.contains('A'),
+            "block label 'A' must appear in output:\n{out}"
+        );
+        assert!(
+            out.contains('\u{250C}'),
+            "top-left corner ┌ must appear:\n{out}"
+        );
+        assert!(
+            out.contains('\u{2518}'),
+            "bottom-right corner ┘ must appear:\n{out}"
+        );
     }
 
     #[test]
@@ -463,11 +471,11 @@ mod tests {
     fn renders_edge_summary() {
         let diag = parsed("block-beta\n    A\n    B\n    A --> B");
         let out = render(&diag, None);
+        assert!(out.contains("Edges:"), "Edges: header missing:\n{out}");
         assert!(
-            out.contains("Edges:"),
-            "Edges: header missing:\n{out}"
+            out.contains('A') && out.contains('B'),
+            "edge endpoints missing:\n{out}"
         );
-        assert!(out.contains('A') && out.contains('B'), "edge endpoints missing:\n{out}");
         assert!(out.contains('\u{25BA}'), "arrow glyph ► missing:\n{out}");
     }
 
@@ -476,7 +484,10 @@ mod tests {
         let diag = BlockDiagram::default();
         let out = render(&diag, None);
         // An empty diagram has no blocks; output is either empty or edge-only.
-        assert!(!out.contains('\u{250C}'), "no box should be drawn for empty diagram");
+        assert!(
+            !out.contains('\u{250C}'),
+            "no box should be drawn for empty diagram"
+        );
     }
 
     #[test]
@@ -519,7 +530,10 @@ mod tests {
         // We verify this by checking that the content line contains a `│` that
         // spans across more cells — checking the b label is present is sufficient
         // since the renderer only places it in a wide-enough box.
-        assert!(out.contains("b "), "b label with trailing space missing:\n{out}");
+        assert!(
+            out.contains("b "),
+            "b label with trailing space missing:\n{out}"
+        );
     }
 
     #[test]

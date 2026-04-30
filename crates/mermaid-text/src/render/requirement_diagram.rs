@@ -48,7 +48,9 @@
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::requirement_diagram::{Element, Requirement, RequirementDiagram, RequirementRelationship};
+use crate::requirement_diagram::{
+    Element, Requirement, RequirementDiagram, RequirementRelationship,
+};
 
 /// Minimum useful box width (inner content columns).
 const MIN_INNER_WIDTH: usize = 20;
@@ -231,7 +233,10 @@ fn build_req_data_rows(req: &Requirement) -> Vec<(String, String)> {
         rows.push(("risk:".to_string(), risk_label(risk).to_string()));
     }
     if let Some(vm) = req.verify_method {
-        rows.push(("verifymethod:".to_string(), verify_method_label(vm).to_string()));
+        rows.push((
+            "verifymethod:".to_string(),
+            verify_method_label(vm).to_string(),
+        ));
     }
     rows
 }
@@ -459,10 +464,16 @@ mod tests {
         let diag = parse(src).unwrap();
         let out = render(&diag, None);
 
-        assert!(out.contains("satisfies"), "relationship kind missing:\n{out}");
+        assert!(
+            out.contains("satisfies"),
+            "relationship kind missing:\n{out}"
+        );
         assert!(out.contains("e1"), "source missing:\n{out}");
         assert!(out.contains("r1"), "target missing:\n{out}");
-        assert!(out.contains("traces"), "second relationship missing:\n{out}");
+        assert!(
+            out.contains("traces"),
+            "second relationship missing:\n{out}"
+        );
         assert!(
             out.contains("Relationships:"),
             "relationships section header missing:\n{out}"
@@ -486,7 +497,10 @@ mod tests {
         assert!(out.contains("id:"), "id field missing:\n{out}");
         assert!(out.contains("text:"), "text field missing:\n{out}");
         assert!(out.contains("risk:"), "risk field missing:\n{out}");
-        assert!(out.contains("verifymethod:"), "verifymethod field missing:\n{out}");
+        assert!(
+            out.contains("verifymethod:"),
+            "verifymethod field missing:\n{out}"
+        );
         assert!(out.contains("high"), "risk value missing:\n{out}");
         assert!(out.contains("test"), "verifymethod value missing:\n{out}");
     }

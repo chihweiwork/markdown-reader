@@ -136,7 +136,7 @@ mermaid-text --width 80 my_diagram.mmd
 | `xychart-beta` / `xychart` (bar/line chart with categorical or numeric axes) | yes (Phase 1) |
 | `block-beta` / `block` (fixed-width block grid with directed edges) | yes (Phase 1) |
 | `packet-beta` / `packet` (network packet header bit-range diagram) | yes (Phase 1 — fixed 32-bit row width; no custom colours) |
-| `architecture-beta` / `architecture` (system architecture with groups, services, and edges) | yes (Phase 1) |
+| `architecture-beta` / `architecture` (system architecture with groups, services, and edges) | yes (Path A — groups as subgraph containers, services as nodes, edges spatially routed via Sugiyama; port specifiers stored but deferred to Path B) |
 
 ---
 

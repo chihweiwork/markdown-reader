@@ -63,8 +63,7 @@ pub fn parse(src: &str) -> Result<Packet, Error> {
                 continue;
             }
             let keyword = trimmed.split_whitespace().next().unwrap_or("");
-            if keyword.eq_ignore_ascii_case("packet-beta")
-                || keyword.eq_ignore_ascii_case("packet")
+            if keyword.eq_ignore_ascii_case("packet-beta") || keyword.eq_ignore_ascii_case("packet")
             {
                 header_seen = true;
                 continue;
@@ -193,9 +192,10 @@ fn parse_bit_range(s: &str) -> Result<(u32, u32), Error> {
         })?;
         Ok((start, end))
     } else {
-        let bit = s.trim().parse::<u32>().map_err(|_| {
-            Error::ParseError(format!("invalid bit index {s:?}"))
-        })?;
+        let bit = s
+            .trim()
+            .parse::<u32>()
+            .map_err(|_| Error::ParseError(format!("invalid bit index {s:?}")))?;
         Ok((bit, bit))
     }
 }
@@ -259,10 +259,7 @@ mod tests {
 
     #[test]
     fn missing_header_returns_error() {
-        assert!(
-            parse("0-7: \"Type\"").is_err(),
-            "no header should fail"
-        );
+        assert!(parse("0-7: \"Type\"").is_err(), "no header should fail");
         assert!(parse("").is_err(), "empty input should fail");
     }
 

@@ -1123,7 +1123,11 @@ colours and `accDescr` / `accTitle` are silently ignored.
 An `architecture-beta` diagram describes system components — services grouped
 into named clusters — and the connections between them. Services may declare
 an icon name (e.g. `cloud`, `database`, `disk`, `server`) which is recorded
-but not yet rendered in Phase 1.
+but not yet rendered.
+
+Groups map to subgraph containers and services map to nodes in the flowchart
+Sugiyama layout engine, so edges are spatially routed with box-drawing lines
+around the service boxes rather than listed as a text summary.
 
 **Example 1 — Cloud API cluster:**
 
@@ -1139,19 +1143,9 @@ architecture-beta
     disk1:T -- B:server
 ```
 
-Expected output:
-
-```
-┌─ API (cloud) ──────────────────────────────────────────────┐
-│  ┌────────────┐  ┌────────────┐  ┌────────────┐            │
-│  │  Database  │  │  Storage   │  │   Server   │            │
-│  └────────────┘  └────────────┘  └────────────┘            │
-└────────────────────────────────────────────────────────────┘
-
-Connections:
-  db:L ─── R:server
-  disk1:T ─── B:server
-```
+The renderer translates this into the flowchart Sugiyama pipeline: the `api`
+group becomes a subgraph container, each service becomes a rectangle node, and
+the edges are routed spatially with Unicode line characters.
 
 **Example 2 — Mixed top-level and grouped services:**
 
@@ -1167,29 +1161,16 @@ architecture-beta
     api:R -- L:store
 ```
 
-Expected output:
+Top-level services (not in any group) are rendered as ungrouped nodes outside
+the subgraph containers.
 
-```
-┌────────────┐
-│  Gateway   │
-└────────────┘
-┌─ Backend (cloud) ──────────────────────────┐
-│  ┌────────────┐  ┌────────────┐            │
-│  │    API     │  │   Store    │            │
-│  └────────────┘  └────────────┘            │
-└────────────────────────────────────────────┘
+**Current limitations.**
 
-Connections:
-  gateway ─── api
-  api:R ─── L:store
-```
-
-**Phase 1 limitations.** Icon names (`cloud`, `database`, etc.) are parsed and
-stored but not rendered as graphical glyphs — they appear parenthetically in
-group headers only. Junction nodes (`junction(id)`) are silently skipped. True
-spatial edge routing is not implemented; edges appear as a textual connections
-summary below the box layout. All services in a group are placed in a single
-horizontal row; very wide groups may exceed `max_width` even after truncation.
+- Icon names (`cloud`, `database`, etc.) are parsed and stored but not rendered
+  as graphical glyphs — they appear parenthetically in group headers only.
+- Junction nodes (`junction(id)`) are silently skipped.
+- Port specifiers (`L`/`R`/`T`/`B` on edges) are stored but ignored during
+  routing — spatial port-aware attachment is deferred to Path B.
 
 ---
 

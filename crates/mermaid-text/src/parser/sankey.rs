@@ -36,8 +36,8 @@
 //! assert!((diag.flows[0].value - 0.597).abs() < 1e-9);
 //! ```
 
-use crate::sankey::{Sankey, SankeyFlow};
 use crate::Error;
+use crate::sankey::{Sankey, SankeyFlow};
 
 /// Parse a `sankey-beta` source string into a [`Sankey`].
 ///
@@ -62,8 +62,7 @@ pub fn parse(src: &str) -> Result<Sankey, Error> {
         if !header_seen {
             // First content line must be the header keyword.
             let keyword = trimmed.split_whitespace().next().unwrap_or(trimmed);
-            if keyword.eq_ignore_ascii_case("sankey-beta")
-                || keyword.eq_ignore_ascii_case("sankey")
+            if keyword.eq_ignore_ascii_case("sankey-beta") || keyword.eq_ignore_ascii_case("sankey")
             {
                 header_seen = true;
                 continue;
@@ -124,9 +123,7 @@ fn parse_flow_line(line: &str) -> Result<SankeyFlow, Error> {
     }
 
     let value = value_str.parse::<f64>().map_err(|_| {
-        Error::ParseError(format!(
-            "invalid numeric value {value_str:?} in {line:?}"
-        ))
+        Error::ParseError(format!("invalid numeric value {value_str:?} in {line:?}"))
     })?;
 
     if !value.is_finite() {
@@ -308,7 +305,10 @@ mod tests {
         // The outer quotes around 'waste' make: Agricultural 'waste'
         // Since the entire field is Agricultural 'waste' — the leading chars
         // are not a quote — only exact full-field quoting is stripped.
-        assert!(source.contains("waste"), "source should contain waste: {source}");
+        assert!(
+            source.contains("waste"),
+            "source should contain waste: {source}"
+        );
     }
 
     #[test]

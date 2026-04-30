@@ -83,7 +83,7 @@
 //! | `xychart-beta` / `xychart` (bar/line chart with categorical or numeric axes) | yes (Phase 1 — last bar/line series; horizontal orientation rendered vertically; no custom colours) |
 //! | `block-beta` / `block` (fixed-width block grid with directed edges) | yes (Phase 1 — rectangle blocks only; nested blocks and vertical spans ignored; edge summary as text below grid) |
 //! | `packet-beta` / `packet` (network packet header bit-range diagram) | yes (Phase 1 — fixed 32-bit row width; no custom colours) |
-//! | `architecture-beta` / `architecture` (system architecture with groups, services, and edges) | yes (Phase 1 — labeled group boxes with service boxes; connection summary as text; no icon rendering or spatial edge routing) |
+//! | `architecture-beta` / `architecture` (system architecture with groups, services, and edges) | yes (Path A — groups as subgraph containers, services as nodes, edges spatially routed via Sugiyama; port specifiers stored but deferred to Path B) |
 //!
 //! ## Limitations
 //!
@@ -151,9 +151,9 @@ pub use requirement_diagram::{
 };
 pub use sankey::{Sankey, SankeyFlow};
 pub use sequence::{Message, MessageStyle, Participant, SequenceDiagram};
-pub use xy_chart::{XAxis, XyChart, XyOrientation, YAxis};
 pub use timeline::{Timeline, TimelineEntry, TimelineSection};
 pub use types::{Direction, Edge, EdgeEndpoint, EdgeStyle, Graph, Node, NodeShape};
+pub use xy_chart::{XAxis, XyChart, XyOrientation, YAxis};
 
 use detect::DiagramKind;
 use layout::layered::{LayoutBackend, LayoutConfig};

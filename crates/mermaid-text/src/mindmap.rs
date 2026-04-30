@@ -52,7 +52,11 @@ impl MindmapNode {
 
     /// Total number of nodes in this subtree, including `self`.
     pub fn node_count(&self) -> usize {
-        1 + self.children.iter().map(MindmapNode::node_count).sum::<usize>()
+        1 + self
+            .children
+            .iter()
+            .map(MindmapNode::node_count)
+            .sum::<usize>()
     }
 }
 

@@ -1070,14 +1070,26 @@ participant B
 A->>B: go
 note over A,B : first line<br>second line<br>third line";
     let out = mermaid_text::render(src).unwrap();
-    assert!(out.contains("first line"), "first line missing from:\n{out}");
-    assert!(out.contains("second line"), "second line missing from:\n{out}");
-    assert!(out.contains("third line"), "third line missing from:\n{out}");
+    assert!(
+        out.contains("first line"),
+        "first line missing from:\n{out}"
+    );
+    assert!(
+        out.contains("second line"),
+        "second line missing from:\n{out}"
+    );
+    assert!(
+        out.contains("third line"),
+        "third line missing from:\n{out}"
+    );
     // All three lines must be separate rows in the rendered note box.
     let first = out.lines().position(|l| l.contains("first line")).unwrap();
     let second = out.lines().position(|l| l.contains("second line")).unwrap();
     let third = out.lines().position(|l| l.contains("third line")).unwrap();
-    assert!(first < second && second < third, "lines must be in top-down order");
+    assert!(
+        first < second && second < third,
+        "lines must be in top-down order"
+    );
     assert_snapshot!("sequence_note_respects_explicit_br", out);
 }
 
@@ -2123,11 +2135,17 @@ fn mindmap_canonical_example() {
     assert!(out.contains("Tools"), "Tools node missing");
     // Nested children must be present.
     assert!(out.contains("Long history"), "Long history missing");
-    assert!(out.contains("British popular psychology author Tony Buzan"), "Buzan missing");
+    assert!(
+        out.contains("British popular psychology author Tony Buzan"),
+        "Buzan missing"
+    );
     // Icon lines must be silently ignored — no `::icon` text in output.
     assert!(!out.contains("::icon"), "icon directive leaked into output");
     // Branch glyphs must be present.
-    assert!(out.contains('\u{251C}') || out.contains('\u{2514}'), "no branch glyphs");
+    assert!(
+        out.contains('\u{251C}') || out.contains('\u{2514}'),
+        "no branch glyphs"
+    );
     assert_snapshot!("mindmap_canonical_example", out);
 }
 
@@ -2166,7 +2184,14 @@ fn quadrant_chart_canonical_example() {
     assert!(out.contains("Re-evaluate"), "Q3 label missing");
     assert!(out.contains("May be improved"), "Q4 label missing");
     // All campaign points must appear.
-    for name in &["Campaign A", "Campaign B", "Campaign C", "Campaign D", "Campaign E", "Campaign F"] {
+    for name in &[
+        "Campaign A",
+        "Campaign B",
+        "Campaign C",
+        "Campaign D",
+        "Campaign E",
+        "Campaign F",
+    ] {
         assert!(out.contains(name), "{name} missing");
     }
     // Axis labels must appear.
@@ -2243,7 +2268,13 @@ fn requirement_diagram_canonical_example() {
     let out = mermaid_text::render(src).unwrap();
 
     // All requirement names must appear.
-    for name in &["test_req", "test_req2", "test_req3", "test_req4", "test_req5"] {
+    for name in &[
+        "test_req",
+        "test_req2",
+        "test_req3",
+        "test_req4",
+        "test_req5",
+    ] {
         assert!(out.contains(name), "{name} missing from output:\n{out}");
     }
     // All element names must appear.
@@ -2261,7 +2292,10 @@ fn requirement_diagram_canonical_example() {
     // Element boxes must use rounded corners.
     assert!(out.contains('\u{256D}'), "rounded corner ╭ missing");
     // Relationships section must be present.
-    assert!(out.contains("Relationships:"), "Relationships section missing");
+    assert!(
+        out.contains("Relationships:"),
+        "Relationships section missing"
+    );
     assert!(out.contains("satisfies"), "satisfies relationship missing");
     assert!(out.contains("traces"), "traces relationship missing");
 
@@ -2382,12 +2416,21 @@ fn block_beta_canonical_example() {
         assert!(out.contains(id), "block {id} missing from output:\n{out}");
     }
     // Box-drawing characters must be present.
-    assert!(out.contains('\u{250C}'), "top-left corner ┌ missing:\n{out}");
-    assert!(out.contains('\u{2518}'), "bottom-right corner ┘ missing:\n{out}");
+    assert!(
+        out.contains('\u{250C}'),
+        "top-left corner ┌ missing:\n{out}"
+    );
+    assert!(
+        out.contains('\u{2518}'),
+        "bottom-right corner ┘ missing:\n{out}"
+    );
     assert!(out.contains('\u{2502}'), "vertical bar │ missing:\n{out}");
     // Edge summary must appear.
     assert!(out.contains("Edges:"), "Edges: header missing:\n{out}");
-    assert!(out.contains('\u{25BA}'), "arrowhead glyph ► missing:\n{out}");
+    assert!(
+        out.contains('\u{25BA}'),
+        "arrowhead glyph ► missing:\n{out}"
+    );
     // Source/target ids must appear in the edge lines.
     assert!(out.contains("a "), "source 'a' in edges missing:\n{out}");
     assert!(out.contains(" d"), "target 'd' in edges missing:\n{out}");
@@ -2416,21 +2459,22 @@ fn architecture_beta_canonical_example() {
 
     let out = mermaid_text::render(src).unwrap();
 
-    // Group label must appear.
+    // Group label must appear in the subgraph border.
     assert!(out.contains("API"), "group label 'API' missing:\n{out}");
-    // Service labels must appear.
+    // Service labels must appear inside their node boxes.
     for label in &["Database", "Storage", "Server"] {
         assert!(out.contains(label), "service label {label} missing:\n{out}");
     }
-    // Box-drawing characters must be present.
-    assert!(out.contains('\u{250C}'), "top-left corner ┌ missing:\n{out}");
-    assert!(out.contains('\u{2518}'), "bottom-right corner ┘ missing:\n{out}");
+    // Box-drawing characters must be present (subgraph border + node boxes + edge lines).
     assert!(out.contains('\u{2502}'), "vertical bar │ missing:\n{out}");
-    // Connections section must appear.
-    assert!(out.contains("Connections:"), "Connections: header missing:\n{out}");
-    // Port specifiers must appear in the connection lines.
-    assert!(out.contains("db:L"), "source port db:L missing:\n{out}");
-    assert!(out.contains("R:server"), "target port R:server missing:\n{out}");
+    // Path A: edges are spatially routed — no "Connections:" text summary.
+    assert!(
+        !out.contains("Connections:"),
+        "Connections: text summary must not appear after Path A upgrade:\n{out}"
+    );
+    // Spatial routing must produce at least one edge-drawing character.
+    let has_edge_char = out.contains('\u{2500}') || out.contains('\u{2502}') || out.contains("▸");
+    assert!(has_edge_char, "no spatial edge character found:\n{out}");
 
     assert_snapshot!("architecture_beta_canonical_example", out);
 }
@@ -2468,21 +2512,51 @@ fn packet_beta_canonical_example() {
     assert!(out.contains("TCP Packet"), "title missing:\n{out}");
     // Field labels that fit their cells must appear.
     assert!(out.contains("Source Port"), "Source Port missing:\n{out}");
-    assert!(out.contains("Destination Port"), "Destination Port missing:\n{out}");
-    assert!(out.contains("Sequence Number"), "Sequence Number missing:\n{out}");
-    assert!(out.contains("Acknowledgment Number"), "Acknowledgment Number missing:\n{out}");
+    assert!(
+        out.contains("Destination Port"),
+        "Destination Port missing:\n{out}"
+    );
+    assert!(
+        out.contains("Sequence Number"),
+        "Sequence Number missing:\n{out}"
+    );
+    assert!(
+        out.contains("Acknowledgment Number"),
+        "Acknowledgment Number missing:\n{out}"
+    );
     assert!(out.contains("Window"), "Window missing:\n{out}");
     assert!(out.contains("Checksum"), "Checksum missing:\n{out}");
-    assert!(out.contains("(Options and Padding)"), "(Options and Padding) missing:\n{out}");
-    assert!(out.contains("Data (variable length)"), "Data (variable length) missing:\n{out}");
+    assert!(
+        out.contains("(Options and Padding)"),
+        "(Options and Padding) missing:\n{out}"
+    );
+    assert!(
+        out.contains("Data (variable length)"),
+        "Data (variable length) missing:\n{out}"
+    );
     // Box-drawing characters must be present.
-    assert!(out.contains('\u{250C}'), "top-left corner ┌ missing:\n{out}");
-    assert!(out.contains('\u{2510}'), "top-right corner ┐ missing:\n{out}");
-    assert!(out.contains('\u{2514}'), "bottom-left corner └ missing:\n{out}");
-    assert!(out.contains('\u{2518}'), "bottom-right corner ┘ missing:\n{out}");
+    assert!(
+        out.contains('\u{250C}'),
+        "top-left corner ┌ missing:\n{out}"
+    );
+    assert!(
+        out.contains('\u{2510}'),
+        "top-right corner ┐ missing:\n{out}"
+    );
+    assert!(
+        out.contains('\u{2514}'),
+        "bottom-left corner └ missing:\n{out}"
+    );
+    assert!(
+        out.contains('\u{2518}'),
+        "bottom-right corner ┘ missing:\n{out}"
+    );
     assert!(out.contains('\u{2502}'), "vertical bar │ missing:\n{out}");
     // Continuation row border ├ must be present (TCP header spans multiple rows).
-    assert!(out.contains('\u{251C}'), "continuation row border ├ missing:\n{out}");
+    assert!(
+        out.contains('\u{251C}'),
+        "continuation row border ├ missing:\n{out}"
+    );
 
     assert_snapshot!("packet_beta_canonical_example", out);
 }

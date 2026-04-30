@@ -363,8 +363,7 @@ mod tests {
 
     #[test]
     fn accessibility_metadata_is_silently_ignored() {
-        let src =
-            "mindmap\n  accTitle: My title\n  accDescr: A description\n  root\n    child";
+        let src = "mindmap\n  accTitle: My title\n  accDescr: A description\n  root\n    child";
         let diag = parse(src).unwrap();
         // The accTitle/accDescr lines must not appear as nodes.
         assert_eq!(diag.root.text, "root");

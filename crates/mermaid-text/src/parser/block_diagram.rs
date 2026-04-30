@@ -301,11 +301,7 @@ fn parse_block_row(line: &str) -> Result<Vec<Block>, Error> {
             1
         };
 
-        blocks.push(Block {
-            id,
-            text,
-            col_span,
-        });
+        blocks.push(Block { id, text, col_span });
     }
 
     Ok(blocks)

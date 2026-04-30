@@ -180,9 +180,9 @@ fn parse_y_axis(s: &str) -> Result<YAxis, Error> {
 fn parse_numeric_axis(s: &str) -> Result<(Option<String>, f64, f64), Error> {
     let (label, remainder) = if let Some(after_open) = s.strip_prefix('"') {
         // Consume up to the closing quote.
-        let close = after_open.find('"').ok_or_else(|| {
-            Error::ParseError(format!("unclosed quote in axis definition {s:?}"))
-        })?;
+        let close = after_open
+            .find('"')
+            .ok_or_else(|| Error::ParseError(format!("unclosed quote in axis definition {s:?}")))?;
         let lbl = after_open[..close].to_string();
         (Some(lbl), after_open[close + 1..].trim())
     } else {
@@ -196,12 +196,14 @@ fn parse_numeric_axis(s: &str) -> Result<(Option<String>, f64, f64), Error> {
         )));
     };
 
-    let min = min_str.trim().parse::<f64>().map_err(|_| {
-        Error::ParseError(format!("invalid axis min value {min_str:?}"))
-    })?;
-    let max = max_str.trim().parse::<f64>().map_err(|_| {
-        Error::ParseError(format!("invalid axis max value {max_str:?}"))
-    })?;
+    let min = min_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| Error::ParseError(format!("invalid axis min value {min_str:?}")))?;
+    let max = max_str
+        .trim()
+        .parse::<f64>()
+        .map_err(|_| Error::ParseError(format!("invalid axis max value {max_str:?}")))?;
 
     if min >= max {
         return Err(Error::ParseError(format!(
@@ -247,16 +249,14 @@ fn parse_value_list(s: &str) -> Result<Vec<f64>, Error> {
 
 /// Extract the body between the first `[` and the last `]`.
 fn extract_bracket_body(s: &str) -> Result<&str, Error> {
-    let open = s.find('[').ok_or_else(|| {
-        Error::ParseError(format!("expected `[` in list {s:?}"))
-    })?;
-    let close = s.rfind(']').ok_or_else(|| {
-        Error::ParseError(format!("expected `]` in list {s:?}"))
-    })?;
+    let open = s
+        .find('[')
+        .ok_or_else(|| Error::ParseError(format!("expected `[` in list {s:?}")))?;
+    let close = s
+        .rfind(']')
+        .ok_or_else(|| Error::ParseError(format!("expected `]` in list {s:?}")))?;
     if close <= open {
-        return Err(Error::ParseError(format!(
-            "malformed bracket list {s:?}"
-        )));
+        return Err(Error::ParseError(format!("malformed bracket list {s:?}")));
     }
     Ok(&s[open + 1..close])
 }
@@ -414,7 +414,10 @@ mod tests {
     #[test]
     fn invalid_numeric_value_returns_error() {
         let src = format!("{HEADER}    bar [1, abc, 3]");
-        assert!(parse(&src).is_err(), "non-numeric value in bar list should fail");
+        assert!(
+            parse(&src).is_err(),
+            "non-numeric value in bar list should fail"
+        );
     }
 
     #[test]

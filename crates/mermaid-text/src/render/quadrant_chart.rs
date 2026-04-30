@@ -74,9 +74,7 @@ const CANVAS_ROWS: usize = 20;
 /// with the x-axis running horizontally across the middle row and the y-axis
 /// running vertically through the centre column.
 pub fn render(diag: &QuadrantChart, max_width: Option<usize>) -> String {
-    let canvas_width = max_width
-        .map(|w| w.max(MIN_WIDTH))
-        .unwrap_or(DEFAULT_WIDTH);
+    let canvas_width = max_width.map(|w| w.max(MIN_WIDTH)).unwrap_or(DEFAULT_WIDTH);
 
     // The canvas is split left / right at the y-axis column.
     // Centre column holds the `│` / `┼` / `^` / `v` glyphs.
@@ -131,7 +129,11 @@ pub fn render(diag: &QuadrantChart, max_width: Option<usize>) -> String {
     // The actual body rows are grid[1..=rows]; mid_row is a 0-based index into
     // those body rows, so the grid row is mid_row + 1.
     let x_axis_grid_row = mid_row + 1;
-    for (c, cell) in grid[x_axis_grid_row].iter_mut().enumerate().take(canvas_width) {
+    for (c, cell) in grid[x_axis_grid_row]
+        .iter_mut()
+        .enumerate()
+        .take(canvas_width)
+    {
         if c != center_col {
             *cell = '\u{2500}'; // ─
         }
@@ -181,14 +183,7 @@ pub fn render(diag: &QuadrantChart, max_width: Option<usize>) -> String {
 
     for pt in &diag.points {
         let (col, grid_row) = point_to_grid(
-            pt,
-            center_col,
-            left_cols,
-            right_cols,
-            mid_row,
-            top_rows,
-            bot_rows,
-            rows,
+            pt, center_col, left_cols, right_cols, mid_row, top_rows, bot_rows, rows,
         );
 
         // Clamp to canvas bounds; skip if the point can't be placed.
@@ -216,7 +211,13 @@ pub fn render(diag: &QuadrantChart, max_width: Option<usize>) -> String {
         if !x_ax.high.is_empty() {
             let hw = UnicodeWidthStr::width(x_ax.high.as_str());
             let start_col = canvas_width.saturating_sub(hw);
-            place_text(&mut grid, x_axis_grid_row, start_col, &x_ax.high, canvas_width);
+            place_text(
+                &mut grid,
+                x_axis_grid_row,
+                start_col,
+                &x_ax.high,
+                canvas_width,
+            );
         }
     }
 
@@ -388,22 +389,13 @@ mod tests {
         let out = render(&chart, None);
 
         // Q1 = top-right
-        assert!(
-            out.contains("We should expand"),
-            "Q1 label missing:\n{out}"
-        );
+        assert!(out.contains("We should expand"), "Q1 label missing:\n{out}");
         // Q2 = top-left
-        assert!(
-            out.contains("Need to promote"),
-            "Q2 label missing:\n{out}"
-        );
+        assert!(out.contains("Need to promote"), "Q2 label missing:\n{out}");
         // Q3 = bottom-left
         assert!(out.contains("Re-evaluate"), "Q3 label missing:\n{out}");
         // Q4 = bottom-right
-        assert!(
-            out.contains("May be improved"),
-            "Q4 label missing:\n{out}"
-        );
+        assert!(out.contains("May be improved"), "Q4 label missing:\n{out}");
 
         // Verify Q1 appears on the same line as Q2 (both are on the top quadrant label row).
         let q1_line = out
@@ -438,10 +430,7 @@ mod tests {
             .lines()
             .position(|l| l.contains("We should expand"))
             .unwrap();
-        let q3_line_no = out
-            .lines()
-            .position(|l| l.contains("Re-evaluate"))
-            .unwrap();
+        let q3_line_no = out.lines().position(|l| l.contains("Re-evaluate")).unwrap();
         assert!(
             q1_line_no < q3_line_no,
             "top quadrant labels ({q1_line_no}) must precede bottom ({q3_line_no})"

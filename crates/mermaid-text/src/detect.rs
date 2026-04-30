@@ -281,10 +281,7 @@ mod tests {
 
     #[test]
     fn detects_mindmap_keyword() {
-        assert_eq!(
-            detect("mindmap\n  root").unwrap(),
-            DiagramKind::Mindmap
-        );
+        assert_eq!(detect("mindmap\n  root").unwrap(), DiagramKind::Mindmap);
         // Case-insensitive.
         assert_eq!(detect("Mindmap").unwrap(), DiagramKind::Mindmap);
     }
@@ -314,10 +311,7 @@ mod tests {
 
     #[test]
     fn detects_sankey_beta_keyword() {
-        assert_eq!(
-            detect("sankey-beta\nA,B,1.0").unwrap(),
-            DiagramKind::Sankey
-        );
+        assert_eq!(detect("sankey-beta\nA,B,1.0").unwrap(), DiagramKind::Sankey);
         // Relaxed alias.
         assert_eq!(detect("sankey\nA,B,1.0").unwrap(), DiagramKind::Sankey);
     }
@@ -326,10 +320,7 @@ mod tests {
     fn detects_sankey_keyword_case_insensitive() {
         // The keyword contains a hyphen; case-insensitive matching is via
         // `to_lowercase()` on the split token, so test both.
-        assert_eq!(
-            detect("Sankey-Beta\nA,B,1.0").unwrap(),
-            DiagramKind::Sankey
-        );
+        assert_eq!(detect("Sankey-Beta\nA,B,1.0").unwrap(), DiagramKind::Sankey);
         assert_eq!(detect("Sankey\nA,B,1.0").unwrap(), DiagramKind::Sankey);
     }
 

@@ -104,6 +104,16 @@ the historical source of truth.
 
 ## Deferred / parked
 
+- **architecture-beta Path B — port-aware edge attachment** — `ArchEdge`
+  carries `source_port` and `target_port` (`L`/`R`/`T`/`B`) that indicate
+  which side of the service box each edge must attach to. Path A (mermaid-text
+  0.40.0) stores these but ignores them, letting the Sugiyama router choose
+  attach points freely. Path B would add a constrained attach-point mode to
+  the A\* router so that e.g. `db:L -- R:server` reliably exits the left face
+  of `db` and enters the right face of `server`. This requires non-trivial
+  changes to `layout/router.rs` and `layout/grid.rs`; deferred until a
+  real-world architecture diagram visibly suffers from unconstrained routing.
+
 - **Brandes-Köpf compact coordinate assignment** — Phase A.2 of the
   layered-layout improvements series. Deferred because on the current
   gallery, our existing positioning (Sugiyama default since 0.17.0,

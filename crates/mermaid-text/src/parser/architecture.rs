@@ -140,11 +140,7 @@ fn parse_group(rest: &str) -> Result<ArchGroup, Error> {
     let (icon, after_icon) = parse_optional_paren(after_id);
     let (label, _after_label) = parse_optional_bracket(after_icon);
 
-    Ok(ArchGroup {
-        id,
-        icon,
-        label,
-    })
+    Ok(ArchGroup { id, icon, label })
 }
 
 // ---------------------------------------------------------------------------
@@ -231,14 +227,12 @@ fn parse_port_edge(line: &str) -> Result<ArchEdge, Error> {
     let right = right.trim();
 
     // Left side: `src:PORT` or just `src`.
-    let (source, source_port) = parse_side_with_port(left).map_err(|e| {
-        Error::ParseError(format!("malformed source in port edge {line:?}: {e}"))
-    })?;
+    let (source, source_port) = parse_side_with_port(left)
+        .map_err(|e| Error::ParseError(format!("malformed source in port edge {line:?}: {e}")))?;
 
     // Right side: `PORT:tgt` or just `tgt`.
-    let (target_port, target) = parse_target_side(right).map_err(|e| {
-        Error::ParseError(format!("malformed target in port edge {line:?}: {e}"))
-    })?;
+    let (target_port, target) = parse_target_side(right)
+        .map_err(|e| Error::ParseError(format!("malformed target in port edge {line:?}: {e}")))?;
 
     if source.is_empty() {
         return Err(Error::ParseError(format!(
@@ -297,9 +291,7 @@ fn parse_port_char(c: &str) -> Result<Port, String> {
         "R" => Ok(Port::Right),
         "T" => Ok(Port::Top),
         "B" => Ok(Port::Bottom),
-        other => Err(format!(
-            "unknown port {other:?}: must be L, R, T, or B"
-        )),
+        other => Err(format!("unknown port {other:?}: must be L, R, T, or B")),
     }
 }
 
@@ -347,9 +339,7 @@ fn parse_id_token(s: &str) -> Result<(String, &str), Error> {
         .unwrap_or(s.len());
     let id = s[..end].trim().to_string();
     if id.is_empty() {
-        return Err(Error::ParseError(format!(
-            "missing identifier in: {s:?}"
-        )));
+        return Err(Error::ParseError(format!("missing identifier in: {s:?}")));
     }
     Ok((id, &s[end..]))
 }
@@ -365,7 +355,11 @@ fn parse_optional_paren(s: &str) -> (Option<String>, &str) {
     {
         let content = s[1..close].trim().to_string();
         let rest = &s[close + 1..];
-        let val = if content.is_empty() { None } else { Some(content) };
+        let val = if content.is_empty() {
+            None
+        } else {
+            Some(content)
+        };
         return (val, rest);
     }
     (None, s)
@@ -382,7 +376,11 @@ fn parse_optional_bracket(s: &str) -> (Option<String>, &str) {
     {
         let content = s[1..close].trim().to_string();
         let rest = &s[close + 1..];
-        let val = if content.is_empty() { None } else { Some(content) };
+        let val = if content.is_empty() {
+            None
+        } else {
+            Some(content)
+        };
         return (val, rest);
     }
     (None, s)

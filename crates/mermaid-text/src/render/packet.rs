@@ -301,11 +301,7 @@ fn render_bottom_border(segments: &[Segment], cell_w: usize) -> String {
 }
 
 /// Render the content line: `│ label │ label │ …`.
-fn render_content_line(
-    segments: &[Segment],
-    fields: &[PacketField],
-    cell_w: usize,
-) -> String {
+fn render_content_line(segments: &[Segment], fields: &[PacketField], cell_w: usize) -> String {
     let mut line = String::new();
     line.push('\u{2502}'); // │
 
@@ -398,20 +394,29 @@ mod tests {
         let out = render(&diag, None);
 
         // Both labels must appear.
-        assert!(
-            out.contains("Source Port"),
-            "Source Port missing:\n{out}"
-        );
+        assert!(out.contains("Source Port"), "Source Port missing:\n{out}");
         assert!(
             out.contains("Destination Port"),
             "Destination Port missing:\n{out}"
         );
 
         // Box-drawing corners must be present.
-        assert!(out.contains('\u{250C}'), "top-left corner ┌ missing:\n{out}");
-        assert!(out.contains('\u{2510}'), "top-right corner ┐ missing:\n{out}");
-        assert!(out.contains('\u{2514}'), "bottom-left corner └ missing:\n{out}");
-        assert!(out.contains('\u{2518}'), "bottom-right corner ┘ missing:\n{out}");
+        assert!(
+            out.contains('\u{250C}'),
+            "top-left corner ┌ missing:\n{out}"
+        );
+        assert!(
+            out.contains('\u{2510}'),
+            "top-right corner ┐ missing:\n{out}"
+        );
+        assert!(
+            out.contains('\u{2514}'),
+            "bottom-left corner └ missing:\n{out}"
+        );
+        assert!(
+            out.contains('\u{2518}'),
+            "bottom-right corner ┘ missing:\n{out}"
+        );
 
         // A mid-row divider ┬ must be present (between the two fields).
         assert!(out.contains('\u{252C}'), "top divider ┬ missing:\n{out}");
@@ -423,10 +428,7 @@ mod tests {
         let diag = parsed("packet-beta\n    0-63: \"Sequence Number\"");
         let out = render(&diag, None);
 
-        assert!(
-            out.contains("Sequence Number"),
-            "label must appear:\n{out}"
-        );
+        assert!(out.contains("Sequence Number"), "label must appear:\n{out}");
 
         // Count occurrences of "Sequence Number" — should be exactly 1.
         let occurrences = out.matches("Sequence Number").count();
@@ -436,7 +438,10 @@ mod tests {
         );
 
         // Two rows means the bottom-left └ comes after a mid-row ├ border.
-        assert!(out.contains('\u{251C}'), "row continuation ├ missing:\n{out}");
+        assert!(
+            out.contains('\u{251C}'),
+            "row continuation ├ missing:\n{out}"
+        );
     }
 
     #[test]

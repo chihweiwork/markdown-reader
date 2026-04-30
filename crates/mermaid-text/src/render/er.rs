@@ -780,9 +780,9 @@ fn draw_cross_row_relationship(
         let chosen_row = (0..ROW_GAP)
             .map(|offset| first_gap_row + offset)
             .find(|row| {
-                used_label_ranges
-                    .get(row)
-                    .is_none_or(|ranges| !ranges.iter().any(|&(s, e)| s < label_end && label_col < e))
+                used_label_ranges.get(row).is_none_or(|ranges| {
+                    !ranges.iter().any(|&(s, e)| s < label_end && label_col < e)
+                })
             })
             .unwrap_or(first_gap_row);
         used_label_ranges

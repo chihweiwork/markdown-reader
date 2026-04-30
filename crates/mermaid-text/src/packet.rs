@@ -64,11 +64,7 @@ impl Packet {
     ///
     /// Returns `highest_end_bit + 1`, or `0` when there are no fields.
     pub fn total_bits(&self) -> u32 {
-        self.fields
-            .iter()
-            .map(|f| f.end_bit + 1)
-            .max()
-            .unwrap_or(0)
+        self.fields.iter().map(|f| f.end_bit + 1).max().unwrap_or(0)
     }
 }
 

@@ -24,14 +24,14 @@
 //! Constructed by [`crate::parser::architecture::parse`] and consumed by
 //! [`crate::render::architecture::render`].
 //!
-//! ## Phase 1 limitations
+//! ## Current limitations
 //!
-//! - Icon names are parsed but not rendered (Phase 1 records them for
-//!   future icon-library integration).
+//! - Icon names are parsed but not rendered (records them for future
+//!   icon-library integration).
 //! - Junction nodes (`junction(jid)`) are silently skipped.
 //! - `accDescr` / `accTitle` are silently skipped.
-//! - Edge routing is a text summary below the group boxes — true spatial
-//!   routing is planned for Phase 2.
+//! - Port specifiers (`L`/`R`/`T`/`B`) on edges are stored but ignored by the
+//!   renderer — spatial port-aware attachment is deferred to Path B.
 
 /// Which side of a service box an edge attaches to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -170,10 +170,7 @@ impl Architecture {
 
     /// Return top-level services that do not belong to any group.
     pub fn top_level_services(&self) -> Vec<&ArchService> {
-        self.services
-            .iter()
-            .filter(|s| s.group.is_none())
-            .collect()
+        self.services.iter().filter(|s| s.group.is_none()).collect()
     }
 }
 

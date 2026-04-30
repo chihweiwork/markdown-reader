@@ -5,6 +5,16 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.44] — 2026-04-30
+
+### Changed — architecture-beta spatial edge routing (mermaid-text 0.40.0)
+
+The `architecture-beta` renderer now translates groups/services/edges into the
+flowchart Sugiyama pipeline (Path A). Edges are spatially routed with
+box-drawing lines rather than listed in a "Connections:" text block. Port
+specifiers (`L`/`R`/`T`/`B`) are stored but not yet used for routing (deferred
+to Path B).
+
 ## [1.34.43] — 2026-04-30
 
 ### Fixed — ER cross-row labels no longer overlap (mermaid-text 0.39.3)

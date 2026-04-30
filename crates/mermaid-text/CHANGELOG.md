@@ -3,6 +3,38 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.40.0 — 2026-04-30 — architecture-beta spatial edge routing (Path A)
+
+### Changed
+
+- **`architecture-beta` renderer upgraded to spatial edge routing (Path A).**
+  Groups (`ArchGroup`) are translated to flowchart `Subgraph` containers,
+  services (`ArchService`) to `Node` rectangles, and edges (`ArchEdge`) to
+  flowchart `Edge` values. The resulting `Graph` is passed through the existing
+  Sugiyama layout + A\* router pipeline — the same engine used by all flowchart
+  diagrams. Edges now appear as spatially-routed box-drawing lines around the
+  service boxes rather than as a textual "Connections:" summary below the layout.
+
+- The translator is exposed as `architecture_to_flowchart_graph` in
+  `render::architecture`. All unidirectional (`--`) edges produce a
+  `None`→`None` (undirected) edge; directed (`-->`) edges produce the standard
+  `None`→`Arrow` endpoint pair. The flowchart direction defaults to `TopToBottom`
+  so groups containing multiple services render with a natural vertical stack.
+
+### Deferred (Path B)
+
+- **Port specifiers (`L`/`R`/`T`/`B`)** — stored on `ArchEdge.source_port` /
+  `target_port` but ignored by the translator. Spatial port-aware attachment
+  (constraining each edge to the declared side of its service box) requires
+  custom attach-point logic in the router and is deferred to Path B.
+
+### Preserved (no change)
+
+- Icon names are parsed but not rendered (group headers show `Label (icon)` text).
+- Junction nodes (`junction(id)`) are silently skipped.
+
+---
+
 ## 0.39.3 — 2026-04-30 — ER cross-row labels stagger to avoid collision
 
 ### Fixed

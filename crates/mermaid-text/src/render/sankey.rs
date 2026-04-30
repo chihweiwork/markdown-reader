@@ -68,9 +68,7 @@ const ARROW_HEAD: &str = "\u{25BA}"; // ►
 ///
 /// A multi-line string ready for printing. Trailing newlines are stripped.
 pub fn render(diag: &Sankey, max_width: Option<usize>) -> String {
-    let width = max_width
-        .map(|w| w.max(MIN_WIDTH))
-        .unwrap_or(DEFAULT_WIDTH);
+    let width = max_width.map(|w| w.max(MIN_WIDTH)).unwrap_or(DEFAULT_WIDTH);
 
     let mut out = String::new();
 
@@ -242,10 +240,7 @@ Coal,Solid,75.571"
         let out = render(&diag, None);
 
         // Arrow head glyph must appear on arc lines.
-        assert!(
-            out.contains(ARROW_HEAD),
-            "arrowhead glyph missing:\n{out}"
-        );
+        assert!(out.contains(ARROW_HEAD), "arrowhead glyph missing:\n{out}");
         // Shaft glyph must be present.
         assert!(out.contains(SHAFT), "shaft glyph missing:\n{out}");
     }
@@ -273,10 +268,7 @@ Coal,Solid,75.571"
             out.contains("124.7"),
             "124.7 value missing from output:\n{out}"
         );
-        assert!(
-            out.contains("0.6"),
-            "0.6 value missing from output:\n{out}"
-        );
+        assert!(out.contains("0.6"), "0.6 value missing from output:\n{out}");
         assert!(
             out.contains("280.3"),
             "280.3 value missing from output:\n{out}"
@@ -287,10 +279,7 @@ Coal,Solid,75.571"
     fn empty_sankey_renders_placeholder() {
         let diag = Sankey::default();
         let out = render(&diag, None);
-        assert!(
-            out.contains("empty"),
-            "empty placeholder missing:\n{out}"
-        );
+        assert!(out.contains("empty"), "empty placeholder missing:\n{out}");
     }
 
     #[test]
@@ -301,10 +290,7 @@ Coal,Solid,75.571"
 
         for line in out.lines() {
             let w = UnicodeWidthStr::width(line);
-            assert!(
-                w <= 40,
-                "line exceeds max_width=40 (w={w}): {line:?}"
-            );
+            assert!(w <= 40, "line exceeds max_width=40 (w={w}): {line:?}");
         }
     }
 
