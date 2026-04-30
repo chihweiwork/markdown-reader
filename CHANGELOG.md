@@ -5,6 +5,15 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.45] — 2026-04-30
+
+### Changed — sankey-beta proportional bars (mermaid-text 0.41.0)
+
+`sankey-beta` flow lines now include proportional Unicode bars using full-block
+and sub-cell eighth glyphs so relative magnitudes are immediately visible. A
+single global scale factor keeps bars mutually comparable across the whole
+diagram. Source header lines show a `(total: N.N)` annotation.
+
 ## [1.34.44] — 2026-04-30
 
 ### Changed — architecture-beta spatial edge routing (mermaid-text 0.40.0)

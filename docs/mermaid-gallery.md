@@ -98,6 +98,12 @@ line.
   centred in their cells; labels that are too wide are truncated with `…`.
   Phase 1 limitations: row width is fixed at 32 bits; no custom colours;
   `accTitle`/`accDescr` silently ignored.
+- **Sankey diagrams** (`sankey-beta` / `sankey`) rendered as a grouped-flow
+  list. Each source node is a header; outgoing flows appear below with a
+  proportional Unicode bar (`█` full-block + `▏▎▍▌▋▊▉` sub-cell eighths) so
+  magnitudes are visually comparable. A single global scale factor spans all
+  flows in the diagram. Phase 1 limitations: no curvilinear bands or Sugiyama
+  layout; colours deferred; node heights are not scaled.
 - **Architecture diagrams** (`architecture-beta` / `architecture`) rendered
   as labeled group border boxes containing horizontal rows of service boxes.
   Top-level services appear as standalone boxes above the group section.
@@ -1171,6 +1177,49 @@ the subgraph containers.
 - Junction nodes (`junction(id)`) are silently skipped.
 - Port specifiers (`L`/`R`/`T`/`B` on edges) are stored but ignored during
   routing — spatial port-aware attachment is deferred to Path B.
+
+---
+
+## Sankey diagrams
+
+A `sankey-beta` diagram renders directed flow between named nodes. Each source
+node appears as a header; its outgoing flows are listed below with a proportional
+Unicode bar so you can compare magnitudes at a glance.
+
+### Energy flow (canonical)
+
+```mermaid
+sankey-beta
+
+%% source,target,value
+Agricultural 'waste',Bio-conversion,124.729
+Bio-conversion,Liquid,0.597
+Bio-conversion,Solid,280.322
+Coal imports,Coal,11.606
+Coal,Solid,75.571
+```
+
+Terminal output (0.41.0 proportional-bar format):
+
+```text
+Agricultural 'waste'  (total: 124.7)
+  ████████████████████████████████▌ [124.7] ► Bio-conversion
+
+Bio-conversion  (total: 280.9)
+  ▏                                 [  0.6] ► Liquid
+  █████████████████████████████████ [280.3] ► Solid
+
+Coal imports  (total: 11.6)
+  █                                 [ 11.6] ► Coal
+
+Coal  (total: 75.6)
+  █████████                         [ 75.6] ► Solid
+```
+
+Bars use full-block `█` glyphs plus sub-cell eighths (`▏▎▍▌▋▊▉`) for
+sub-cell precision. A single global scale factor across all flows keeps bars
+mutually comparable. Phase 1 limitations: no true Sugiyama-layout curvilinear
+bands; colours deferred; node heights not scaled.
 
 ---
 

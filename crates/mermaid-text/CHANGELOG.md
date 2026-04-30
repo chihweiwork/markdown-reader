@@ -3,6 +3,47 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.41.0 — 2026-04-30 — sankey-beta proportional bars
+
+### Changed
+
+- **`sankey-beta` renderer upgraded with proportional Unicode bars.**
+  Each flow line now shows a horizontal bar beside its value so relative
+  magnitudes are immediately visible. Bars use full-block `█` (U+2588) glyphs
+  with sub-cell precision via the eighths block (`▏▎▍▌▋▊▉`, U+258F–U+2589).
+  A single global scale factor is computed once across all flows in the
+  diagram so bars are mutually comparable — a flow that is twice as large will
+  always have a bar roughly twice as wide.
+
+  New output shape:
+
+  ```text
+  SourceA  (total: 150.0)
+    ████████████████████▏ [100.0] ► TargetX
+    ██████████▏           [ 50.0] ► TargetY
+  ```
+
+  Value columns are right-aligned and padded to a uniform bracket width;
+  the bar column is padded to a uniform width (the longest bar) so `[value] ►
+  target` columns align across all flows in the diagram.
+
+- Source header lines now include a `(total: N.N)` annotation summarising the
+  total outgoing flow from that node.
+
+- Introduces two focused helpers:
+  - `proportional_bar(value, max_value, max_cells) -> String` — converts a
+    flow value into a bar string of at most `max_cells` cells using
+    full-block and sub-cell glyphs.
+  - `bar_eighths(value, max_value, max_cells) -> usize` — maps a value to a
+    count of 1/8-cell units; the core rounding unit used by
+    `proportional_bar`.
+
+### Deferred
+
+- True Sugiyama-layout curvilinear bands and node-height scaling are
+  deferred to a future phase.
+- Bar colours are deferred.
+
 ## 0.40.0 — 2026-04-30 — architecture-beta spatial edge routing (Path A)
 
 ### Changed
