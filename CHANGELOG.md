@@ -5,6 +5,15 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.38] — 2026-04-30
+
+### Fixed — `xychart-beta` x-axis label alignment (mermaid-text 0.39.1)
+
+Bumped `mermaid-text` to 0.39.1. X-axis labels in `xychart-beta` charts no
+longer drift left as you move right — each label slot now occupies exactly
+the column width, so 12-month sales charts and similar layouts align their
+labels under the bars again.
+
 ## [1.34.37] — 2026-04-29
 
 ### Added — Sequence-diagram note word-wrap + canvas widening (mermaid-text 0.39.0)

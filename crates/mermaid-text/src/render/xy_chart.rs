@@ -193,15 +193,10 @@ pub fn render(diag: &XyChart, max_width: Option<usize>) -> String {
         let label_pad = " ".repeat(y_label_width + 2); // align under axis body
         out.push_str(&label_pad);
         for (i, label) in x_labels.iter().enumerate() {
-            // Each label centred in col_width.
             let lw = UnicodeWidthStr::width(label.as_str());
-            let total = col_width;
-            let left_pad = total.saturating_sub(lw) / 2;
-            let right_pad = total.saturating_sub(lw).saturating_sub(left_pad);
-            // First label gets no leading space (it's already at the right position).
-            if i == 0 {
-                out.push_str(&" ".repeat(left_pad));
-            }
+            let left_pad = col_width.saturating_sub(lw) / 2;
+            let right_pad = col_width.saturating_sub(lw).saturating_sub(left_pad);
+            out.push_str(&" ".repeat(left_pad));
             out.push_str(label);
             if i + 1 < x_labels.len() {
                 out.push_str(&" ".repeat(right_pad));
@@ -542,8 +537,54 @@ mod tests {
         let src = "xychart-beta\n    y-axis 0 --> 100\n    bar [50, 80, 30]";
         let chart = parse(src).unwrap();
         let out = render(&chart, None);
-        // min and max tick labels must appear.
         assert!(out.contains("100"), "y_max tick missing:\n{out}");
         assert!(out.contains("0"), "y_min tick missing:\n{out}");
+    }
+
+    #[test]
+    fn x_axis_same_width_labels_have_uniform_spacing() {
+        // Regression: same-width labels (e.g. 3-letter month names) used to drift
+        // left as you moved right because the loop only emitted left_pad on i==0.
+        for &(n, label_len) in &[(3usize, 3), (5, 3), (8, 3), (12, 3), (15, 1)] {
+            let labels: Vec<String> = (0..n)
+                .map(|i| {
+                    let base = (b'a' + (i % 26) as u8) as char;
+                    std::iter::repeat(base).take(label_len).collect()
+                })
+                .collect();
+            let series: Vec<String> = (0..n).map(|i| ((i + 1) * 10).to_string()).collect();
+            let src = format!(
+                "xychart-beta\n    x-axis [{}]\n    y-axis 0 --> 200\n    bar [{}]",
+                labels.join(", "),
+                series.join(", "),
+            );
+            let chart = parse(&src).unwrap();
+            let out = render(&chart, None);
+            let label_line = out.lines().last().expect("last line should be labels");
+
+            let positions: Vec<usize> = labels
+                .iter()
+                .scan(0usize, |start, label| {
+                    let pos = label_line[*start..].find(label.as_str())? + *start;
+                    *start = pos + label.len();
+                    Some(pos)
+                })
+                .collect();
+            assert_eq!(
+                positions.len(),
+                n,
+                "missing labels for n={n} label_len={label_len}:\n{out}"
+            );
+
+            if positions.len() >= 3 {
+                let gaps: Vec<usize> =
+                    positions.windows(2).map(|w| w[1] - w[0]).collect();
+                let first = gaps[0];
+                assert!(
+                    gaps.iter().all(|g| *g == first),
+                    "label gaps drift for n={n} label_len={label_len}: {gaps:?}\n{out}"
+                );
+            }
+        }
     }
 }

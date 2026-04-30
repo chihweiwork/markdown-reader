@@ -3,6 +3,30 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.39.1 — 2026-04-30 — `xychart-beta` x-axis label alignment fix
+
+### Fixed
+
+- **`xychart-beta` x-axis labels drifted left** by one cell per category because
+  the label-emit loop only inserted `left_pad` for `i == 0`. After ~12 same-width
+  labels (e.g. month names), the rightmost labels were several cells out of
+  alignment with their bars and tick marks. The fix emits `left_pad` for every
+  label so each slot occupies exactly `col_width` cells.
+
+- **New regression test** `x_axis_same_width_labels_have_uniform_spacing` —
+  asserts that for charts with same-width labels (the common case: 3-letter
+  month names, single-letter categories), the gap between consecutive label
+  start positions is constant across the row.
+
+### Known limitation (deferred)
+
+- **Mixed-width labels still drift the label characters** (not the slots) —
+  e.g. `c0..c14` where `c0..c9` are 2 chars and `c10..c14` are 3 chars. The
+  underlying column slots remain aligned, but the label characters within
+  the slots shift because integer-division centering can't perfectly center
+  odd-width labels in even-width slots. Tracked in `ROADMAP.md` for a future
+  half-cell-aware centering pass.
+
 ## 0.39.0 — 2026-04-29 — Sequence note width-aware widening + word-wrap
 
 ### Added

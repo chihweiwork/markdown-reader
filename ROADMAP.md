@@ -78,6 +78,13 @@ the historical source of truth.
   - **`rect <colour>` background highlight blocks** — Mermaid's grammar
     can't express hex colours easily, and ANSI bg-tinting fights the
     layered colour system; defer until a clear request comes in.
+- **`xychart-beta` mixed-width label centering** — when a chart mixes
+  short and longer labels (e.g. `c0..c9` then `c10..c14`), label slots
+  remain aligned but the label characters within the slots drift by
+  ±1 cell because integer-division centering can't perfectly centre
+  odd-width labels in even-width slots. Fix would need half-cell-aware
+  centering or padded-to-uniform-width labels. Same-width labels (the
+  common case) are unaffected.
 
 ---
 
