@@ -2271,3 +2271,42 @@ fn pressing_o_opens_outline_picker() {
     assert_eq!(picker.entries[0].level, 1, "first entry must be H1");
     assert_eq!(picker.entries[1].level, 2, "second entry must be H2");
 }
+
+#[test]
+fn mouse_scroll_does_not_pass_through_open_config_popup() {
+    let mut app = make_app_with_view(100, 30);
+    if let Some(tab) = app.tabs.active_tab_mut() {
+        tab.view.cursor_line = 0;
+        tab.view.scroll_offset = 0;
+    }
+    app.viewer_area_rect = Some(ratatui::layout::Rect {
+        x: 0,
+        y: 0,
+        width: 80,
+        height: 30,
+    });
+    app.config_popup = Some(ConfigPopupState::default());
+    app.focus = Focus::Config;
+
+    let cursor_before = app.tabs.active_tab().unwrap().view.cursor_line;
+    let scroll_before = app.tabs.active_tab().unwrap().view.scroll_offset;
+
+    let m = MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: 40,
+        row: 15,
+        modifiers: KeyModifiers::empty(),
+    };
+    app.handle_mouse(m);
+
+    let cursor_after = app.tabs.active_tab().unwrap().view.cursor_line;
+    let scroll_after = app.tabs.active_tab().unwrap().view.scroll_offset;
+    assert_eq!(
+        cursor_after, cursor_before,
+        "viewer cursor must not move while config popup is open"
+    );
+    assert_eq!(
+        scroll_after, scroll_before,
+        "viewer scroll must not move while config popup is open"
+    );
+}

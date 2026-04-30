@@ -5,6 +5,18 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.39] — 2026-04-30
+
+### Fixed — config popup no longer leaks mouse-scroll to viewer
+
+Mouse-wheel scroll events now stop at the config popup instead of passing
+through to the viewer/tree underneath. Previously, opening the config popup
+(`c` key) and scrolling caused the document or file tree behind it to scroll
+along — the dispatcher only blocked mouse events for the table and mermaid
+modals, missing the config-popup case. Adds a regression test that opens the
+popup and asserts the viewer's cursor + scroll offset are untouched after a
+ScrollDown event.
+
 ## [1.34.38] — 2026-04-30
 
 ### Fixed — `xychart-beta` x-axis label alignment (mermaid-text 0.39.1)

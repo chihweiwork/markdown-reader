@@ -549,7 +549,7 @@ mod tests {
             let labels: Vec<String> = (0..n)
                 .map(|i| {
                     let base = (b'a' + (i % 26) as u8) as char;
-                    std::iter::repeat(base).take(label_len).collect()
+                    std::iter::repeat_n(base, label_len).collect()
                 })
                 .collect();
             let series: Vec<String> = (0..n).map(|i| ((i + 1) * 10).to_string()).collect();

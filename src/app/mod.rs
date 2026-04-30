@@ -996,6 +996,9 @@ impl App {
             self.handle_mermaid_modal_mouse(m);
             return;
         }
+        if self.config_popup.is_some() {
+            return;
+        }
 
         // While the editor or hybrid mode is active, mouse events are ignored
         // entirely.  The user must `:q` first to exit before interacting with
