@@ -2272,6 +2272,58 @@ fn pressing_o_opens_outline_picker() {
     assert_eq!(picker.entries[1].level, 2, "second entry must be H2");
 }
 
+#[tokio::test]
+async fn applying_theme_preserves_viewer_cursor_and_scroll() {
+    // User-reported scenario: open config (`c`), select a theme, press
+    // Enter — the apply path goes through `rerender_all_tabs` →
+    // `tab.view.load` which previously reset cursor_line to 0. The viewer
+    // appeared to "scroll" because the cursor jumped to the top.
+    use crate::theme::{Palette, Theme};
+    let mut app = App::new(PathBuf::from("."), None, None);
+    let path = PathBuf::from("/fake/nav_test.md");
+    app.tabs.open_or_focus(&path, true);
+    let content: String = {
+        use std::fmt::Write as _;
+        let mut s = String::new();
+        for i in 0..60usize {
+            let _ = write!(s, "paragraph {i}\n\n");
+        }
+        s
+    };
+    let palette = Palette::from_theme(Theme::Default);
+    if let Some(tab) = app.tabs.active_tab_mut() {
+        tab.view.load(
+            path.clone(),
+            "nav_test.md".to_string(),
+            content,
+            &palette,
+            Theme::Default,
+        );
+        tab.view.cursor_line = 50;
+        tab.view.scroll_offset = 35;
+    }
+    app.focus = Focus::Viewer;
+    app.tabs.view_height = 30;
+
+    let cursor_before = app.tabs.active_tab().unwrap().view.cursor_line;
+    let scroll_before = app.tabs.active_tab().unwrap().view.scroll_offset;
+
+    app.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
+    app.handle_key(KeyCode::Down, KeyModifiers::NONE);
+    app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+
+    let cursor_after = app.tabs.active_tab().unwrap().view.cursor_line;
+    let scroll_after = app.tabs.active_tab().unwrap().view.scroll_offset;
+    assert_eq!(
+        cursor_after, cursor_before,
+        "applying a theme must preserve viewer cursor_line (was {cursor_before}, became {cursor_after})"
+    );
+    assert_eq!(
+        scroll_after, scroll_before,
+        "applying a theme must preserve viewer scroll_offset (was {scroll_before}, became {scroll_after})"
+    );
+}
+
 #[test]
 fn mouse_scroll_does_not_pass_through_open_config_popup() {
     let mut app = make_app_with_view(100, 30);

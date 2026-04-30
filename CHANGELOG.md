@@ -5,6 +5,21 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.40] — 2026-04-30
+
+### Fixed — applying a theme no longer resets the viewer cursor
+
+Selecting a theme in the config popup (`c` then Enter) used to reset the
+viewer's `cursor_line` to 0 because `tabs.rerender_all` only restored
+`scroll_offset` after calling `tab.view.load`. The cursor jumping to the
+top of the document looked like the background was scrolling. Now
+`rerender_all` saves and restores both `cursor_line` and `cursor_col`
+across the rerender (clamped to the new `total_lines`).
+
+The `v1.34.39` mouse-scroll guard from earlier today addressed an
+adjacent (but real) bug; this is the actual fix for the user-reported
+"background scrolls when I press Enter on a theme" symptom.
+
 ## [1.34.39] — 2026-04-30
 
 ### Fixed — config popup no longer leaks mouse-scroll to viewer

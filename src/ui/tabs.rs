@@ -271,8 +271,13 @@ impl Tabs {
                 let content = tab.view.content.clone();
                 let name = tab.view.file_name.clone();
                 let scroll = tab.view.scroll_offset;
+                let cursor_line = tab.view.cursor_line;
+                let cursor_col = tab.view.cursor_col;
                 tab.view.load(path, name, content, palette, theme);
-                tab.view.scroll_offset = scroll.min(tab.view.total_lines.saturating_sub(1));
+                let max_line = tab.view.total_lines.saturating_sub(1);
+                tab.view.scroll_offset = scroll.min(max_line);
+                tab.view.cursor_line = cursor_line.min(max_line);
+                tab.view.cursor_col = cursor_col;
             }
         }
     }
