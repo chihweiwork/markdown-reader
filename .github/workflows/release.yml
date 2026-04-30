@@ -88,6 +88,14 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # Resolve the tag once at workflow level so every job uses the same value
+  # regardless of trigger. Under `push` of a tag, github.ref_name is the
+  # tag (e.g. "v1.34.38"). Under workflow_dispatch (manual back-fill),
+  # github.ref_name is the branch ("master"), so we honour the user-supplied
+  # `inputs.tag` instead. Without this, GITHUB_REF_NAME under workflow_dispatch
+  # leaks "master" into VERSION extraction and the gh-release action dies
+  # with `##[error]⚠️ GitHub Releases requires a tag`.
+  RESOLVED_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build-linux:
@@ -102,6 +110,8 @@ jobs:
           - x86_64-unknown-linux-musl
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RESOLVED_TAG }}
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -139,7 +149,7 @@ jobs:
 
       - name: Package tarball
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${RESOLVED_TAG#v}
           STAGING="markdown-reader-${VERSION}-${{ matrix.target }}"
           mkdir -p "$STAGING"
           cp target/${{ matrix.target }}/release/markdown-reader "$STAGING/"
@@ -172,6 +182,8 @@ jobs:
           - aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RESOLVED_TAG }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -189,7 +201,7 @@ jobs:
 
       - name: Package tarball
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${RESOLVED_TAG#v}
           STAGING="markdown-reader-${VERSION}-${{ matrix.target }}"
           mkdir -p "$STAGING"
           cp target/${{ matrix.target }}/release/markdown-reader "$STAGING/"
@@ -210,6 +222,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RESOLVED_TAG }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -225,7 +239,7 @@ jobs:
       - name: Package zip
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME -replace '^v',''
+          $version = $env:RESOLVED_TAG -replace '^v',''
           $staging = "markdown-reader-${version}-x86_64-pc-windows-msvc"
           New-Item -ItemType Directory -Path $staging | Out-Null
           Copy-Item "target\x86_64-pc-windows-msvc\release\markdown-reader.exe" $staging\
@@ -251,6 +265,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ env.RESOLVED_TAG }}
           fetch-depth: 0
 
       - name: Download all artifacts
@@ -266,18 +281,19 @@ jobs:
       - name: Extract changelog section
         id: changelog
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${RESOLVED_TAG#v}
           if [ -f CHANGELOG.md ]; then
             # Extract the block between ## [version] and the next ## [
             BODY=$(awk "/^## \[${VERSION}\]/{found=1; next} found && /^## \[/{exit} found{print}" CHANGELOG.md)
           else
-            BODY="Release ${GITHUB_REF_NAME}"
+            BODY="Release ${RESOLVED_TAG}"
           fi
           printf '%s' "$BODY" > release_notes.md
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.RESOLVED_TAG }}
           body_path: release_notes.md
           files: |
             artifacts/*.tar.gz
@@ -294,6 +310,8 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.publish_crate == true)
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RESOLVED_TAG }}
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -325,6 +343,8 @@ jobs:
       - name: Checkout source repo
         if: env.HAS_TOKEN == 'true'
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RESOLVED_TAG }}
 
       - name: Download release checksums
         if: env.HAS_TOKEN == 'true'
@@ -335,7 +355,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p artifacts
-          gh release download "$GITHUB_REF_NAME" \
+          gh release download "$RESOLVED_TAG" \
             -R "$GITHUB_REPOSITORY" \
             -p SHA256SUMS \
             -D artifacts
@@ -351,7 +371,7 @@ jobs:
       - name: Render formula
         if: env.HAS_TOKEN == 'true'
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${RESOLVED_TAG#v}
           mkdir -p homebrew-tap/Formula
           ./scripts/render-homebrew-formula.sh "$VERSION" artifacts/SHA256SUMS \
             > homebrew-tap/Formula/markdown-reader.rb
@@ -360,7 +380,7 @@ jobs:
         if: env.HAS_TOKEN == 'true'
         working-directory: homebrew-tap
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${RESOLVED_TAG#v}
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           # Stage first, then check the index. Plain `git diff --quiet`
@@ -393,6 +413,8 @@ jobs:
       - name: Checkout source repo
         if: env.HAS_KEY == 'true'
         uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RESOLVED_TAG }}
 
       - name: Download release checksums
         if: env.HAS_KEY == 'true'
@@ -400,7 +422,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p artifacts
-          gh release download "$GITHUB_REF_NAME" \
+          gh release download "$RESOLVED_TAG" \
             -R "$GITHUB_REPOSITORY" \
             -p SHA256SUMS \
             -D artifacts
@@ -437,14 +459,14 @@ jobs:
       - name: Render PKGBUILD + .SRCINFO
         if: env.HAS_KEY == 'true'
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${RESOLVED_TAG#v}
           ./scripts/render-aur-pkgbuild.sh "$VERSION" artifacts/SHA256SUMS aur-pkg
 
       - name: Commit and push
         if: env.HAS_KEY == 'true'
         working-directory: aur-pkg
         run: |
-          VERSION=${GITHUB_REF_NAME#v}
+          VERSION=${RESOLVED_TAG#v}
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add PKGBUILD .SRCINFO
