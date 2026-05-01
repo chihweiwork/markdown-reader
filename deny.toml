@@ -50,6 +50,11 @@ allow = [
     "Zlib",
     "CC0-1.0",
     "MPL-2.0",
+    # webpki-roots 1.0+ ships Mozilla's CA cert bundle as DATA (not code),
+    # so the maintainers re-licensed it under CDLA-Permissive-2.0 — the
+    # Community Data License Agreement, a widely-used permissive licence
+    # for OSS data assets. Pulled in transitively via ureq's TLS support.
+    "CDLA-Permissive-2.0",
 ]
 # Require at least 80% confidence when SPDX-matching a license file.
 confidence-threshold = 0.8

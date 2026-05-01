@@ -43,7 +43,7 @@ const BAR_MAX_CELLS: usize = 33;
 /// Index 0 is never used (0 eighths = nothing). Index 1..=7 map to
 /// 1/8 through 7/8 of a cell.
 const EIGHTH_GLYPHS: [char; 8] = [
-    ' ',   // 0/8 — placeholder; callers skip index 0
+    ' ',        // 0/8 — placeholder; callers skip index 0
     '\u{258F}', // 1/8 ▏
     '\u{258E}', // 2/8 ▎
     '\u{258D}', // 3/8 ▍
@@ -97,11 +97,7 @@ pub fn render(diag: &Sankey, max_width: Option<usize>) -> String {
     }
 
     // Single global scale factor: the largest individual flow value.
-    let global_max = diag
-        .flows
-        .iter()
-        .map(|f| f.value)
-        .fold(0.0_f64, f64::max);
+    let global_max = diag.flows.iter().map(|f| f.value).fold(0.0_f64, f64::max);
 
     // Determine the maximum formatted value width (for bracket alignment).
     let max_val_len = diag
@@ -132,8 +128,14 @@ pub fn render(diag: &Sankey, max_width: Option<usize>) -> String {
 
         let arcs = outgoing.get(source).map(Vec::as_slice).unwrap_or(&[]);
         for (target, value) in arcs {
-            let arc_line =
-                format_arc(target, *value, max_val_len, global_max, BAR_MAX_CELLS, width);
+            let arc_line = format_arc(
+                target,
+                *value,
+                max_val_len,
+                global_max,
+                BAR_MAX_CELLS,
+                width,
+            );
             out.push_str(&arc_line);
             out.push('\n');
         }
@@ -302,10 +304,7 @@ Coal,Solid,75.571"
         let diag = parse(canonical_src()).unwrap();
         let out = render(&diag, None);
 
-        assert!(
-            out.contains(ARROW_HEAD),
-            "arrowhead glyph missing:\n{out}"
-        );
+        assert!(out.contains(ARROW_HEAD), "arrowhead glyph missing:\n{out}");
     }
 
     #[test]
@@ -378,7 +377,11 @@ Coal,Solid,75.571"
     /// 80 assertions simultaneously.
     #[test]
     fn bar_eighths_boundary_values() {
-        assert_eq!(bar_eighths(0.0, 100.0, 10), 0, "zero value must map to 0 eighths");
+        assert_eq!(
+            bar_eighths(0.0, 100.0, 10),
+            0,
+            "zero value must map to 0 eighths"
+        );
         assert_eq!(
             bar_eighths(100.0, 100.0, 10),
             80,
@@ -403,10 +406,16 @@ Coal,Solid,75.571"
     fn proportional_bar_full_fill_at_max() {
         let bar = proportional_bar(100.0, 100.0, 10);
         let full_cells: usize = bar.chars().filter(|&c| c == '█').count();
-        assert_eq!(full_cells, 10, "max-value bar must be exactly 10 full-block glyphs: {bar:?}");
+        assert_eq!(
+            full_cells, 10,
+            "max-value bar must be exactly 10 full-block glyphs: {bar:?}"
+        );
         // No partial-fill glyph should appear at full fill.
         let partial_count: usize = bar.chars().filter(|&c| "▏▎▍▌▋▊▉".contains(c)).count();
-        assert_eq!(partial_count, 0, "max-value bar must have no partial glyph: {bar:?}");
+        assert_eq!(
+            partial_count, 0,
+            "max-value bar must have no partial glyph: {bar:?}"
+        );
     }
 
     /// A zero-value flow produces an empty bar (no block glyphs at all).
@@ -414,7 +423,10 @@ Coal,Solid,75.571"
     fn proportional_bar_zero_is_empty() {
         let bar = proportional_bar(0.0, 100.0, 10);
         let any_block: usize = bar.chars().filter(|&c| "█▏▎▍▌▋▊▉".contains(c)).count();
-        assert_eq!(any_block, 0, "zero-value bar must contain no block glyphs: {bar:?}");
+        assert_eq!(
+            any_block, 0,
+            "zero-value bar must contain no block glyphs: {bar:?}"
+        );
     }
 
     /// Core proportionality regression: flow A ≥ 2× flow B → bar A has ≥ 1.8×

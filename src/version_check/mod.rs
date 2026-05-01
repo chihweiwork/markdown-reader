@@ -26,8 +26,7 @@ use serde::{Deserialize, Serialize};
 // Used inside the #[cfg(not(test))] print block; dead in test builds.
 #[allow(dead_code)]
 const CRATE_NAME: &str = "markdown-tui-explorer";
-const CRATES_IO_URL: &str =
-    "https://crates.io/api/v1/crates/markdown-tui-explorer";
+const CRATES_IO_URL: &str = "https://crates.io/api/v1/crates/markdown-tui-explorer";
 const USER_AGENT: &str = concat!(
     "markdown-tui-explorer/",
     env!("CARGO_PKG_VERSION"),
@@ -292,7 +291,10 @@ mod tests {
         // Here we verify the path explicitly: passing an unreachably new
         // version to is_newer with a missing cache returns false.
         let result = is_newer("99.99.99", "1.0.0");
-        assert!(result, "is_newer should return true for obviously newer version");
+        assert!(
+            result,
+            "is_newer should return true for obviously newer version"
+        );
 
         // And that the overall function doesn't panic when cache is absent.
         // (We can't inject a custom cache path without refactoring, so we just

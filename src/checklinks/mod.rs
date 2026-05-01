@@ -157,7 +157,10 @@ pub fn check_dir(root: &Path, opts: &CheckOpts) -> CheckReport {
                 Err(_) => continue,
             };
             for raw in extract_links(&content) {
-                if matches!(classify_url(&raw.url, abs_path.parent().unwrap_or(Path::new("."))), LinkKind::External) {
+                if matches!(
+                    classify_url(&raw.url, abs_path.parent().unwrap_or(Path::new("."))),
+                    LinkKind::External
+                ) {
                     external_map
                         .entry(raw.url)
                         .or_default()
@@ -177,11 +180,12 @@ pub fn check_dir(root: &Path, opts: &CheckOpts) -> CheckReport {
 
     // ── Phase 3: perform external HEAD requests ───────────────────────────────
     // Results: url → Option<String> (None = OK, Some(msg) = broken reason).
-    let external_results: HashMap<String, Option<String>> = if opts.check_external && !external_map.is_empty() {
-        check_external_links(external_map.keys().cloned().collect(), opts)
-    } else {
-        HashMap::new()
-    };
+    let external_results: HashMap<String, Option<String>> =
+        if opts.check_external && !external_map.is_empty() {
+            check_external_links(external_map.keys().cloned().collect(), opts)
+        } else {
+            HashMap::new()
+        };
 
     // ── Phase 4: validate links in every file ─────────────────────────────────
     let mut file_reports: Vec<FileReport> = Vec::new();
@@ -200,9 +204,7 @@ pub fn check_dir(root: &Path, opts: &CheckOpts) -> CheckReport {
         // Append external-link results for this file.
         if opts.check_external {
             for (url, occurrences) in &external_map {
-                let broken_reason = external_results
-                    .get(url)
-                    .and_then(|r| r.as_ref());
+                let broken_reason = external_results.get(url).and_then(|r| r.as_ref());
 
                 if let Some(reason) = broken_reason {
                     for (path, line) in occurrences {
@@ -265,10 +267,7 @@ enum ExternalOutcome {
 /// avoids unbounded thread creation.
 ///
 /// Returns a map from URL → `None` (OK) or `Some(reason)` (broken).
-fn check_external_links(
-    urls: Vec<String>,
-    opts: &CheckOpts,
-) -> HashMap<String, Option<String>> {
+fn check_external_links(urls: Vec<String>, opts: &CheckOpts) -> HashMap<String, Option<String>> {
     const MAX_WORKERS: usize = 10;
     const MAX_REDIRECTS: u32 = 5;
 
@@ -350,15 +349,11 @@ fn head_request(url: &str, timeout: Duration, max_redirects: u32) -> ExternalOut
             let reason = http_status_reason(code);
             ExternalOutcome::Broken(reason)
         }
-        Err(ureq::Error::Timeout(_)) => {
-            ExternalOutcome::Broken("connection timeout".to_string())
-        }
+        Err(ureq::Error::Timeout(_)) => ExternalOutcome::Broken("connection timeout".to_string()),
         Err(ureq::Error::HostNotFound) => {
             ExternalOutcome::Broken("host not found (DNS failure)".to_string())
         }
-        Err(ureq::Error::Io(e)) => {
-            ExternalOutcome::Broken(format!("connection error: {}", e))
-        }
+        Err(ureq::Error::Io(e)) => ExternalOutcome::Broken(format!("connection error: {}", e)),
         Err(e) => ExternalOutcome::Broken(format!("request error: {}", e)),
     }
 }
@@ -680,8 +675,8 @@ fn normalize_path(path: &Path) -> PathBuf {
 mod tests {
     use super::*;
     use std::fs;
-    use std::net::TcpListener;
     use std::io::{Read, Write};
+    use std::net::TcpListener;
     use tempfile::TempDir;
 
     /// Helper: write files into a temp directory and return (TempDir, PathBuf
@@ -835,10 +830,7 @@ mod tests {
         serve_once(listener, "HTTP/1.1 200 OK");
 
         let outcome = head_request(&base_url, Duration::from_secs(5), 5);
-        assert!(
-            matches!(outcome, ExternalOutcome::Ok),
-            "200 OK should pass"
-        );
+        assert!(matches!(outcome, ExternalOutcome::Ok), "200 OK should pass");
     }
 
     #[test]

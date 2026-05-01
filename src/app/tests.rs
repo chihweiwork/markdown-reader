@@ -2419,7 +2419,10 @@ async fn applying_theme_preserves_position_across_draw_cycle() {
         let mut s = String::new();
         // Long lines that wrap when content_width is small.
         for i in 0..30usize {
-            let _ = write!(s, "paragraph {i} with some words that will wrap nicely under a narrow viewer column when it is rendered to the user\n\n");
+            let _ = write!(
+                s,
+                "paragraph {i} with some words that will wrap nicely under a narrow viewer column when it is rendered to the user\n\n"
+            );
         }
         s
     };
@@ -2433,11 +2436,7 @@ async fn applying_theme_preserves_position_across_draw_cycle() {
             &palette,
             Theme::Default,
         );
-        update_text_layouts(
-            &tab.view.rendered,
-            &mut tab.view.text_layouts,
-            layout_width,
-        );
+        update_text_layouts(&tab.view.rendered, &mut tab.view.text_layouts, layout_width);
         tab.view.layout_width = layout_width;
         tab.view.total_lines = tab
             .view
@@ -2460,11 +2459,7 @@ async fn applying_theme_preserves_position_across_draw_cycle() {
     app.handle_key(KeyCode::Enter, KeyModifiers::NONE);
 
     if let Some(tab) = app.tabs.active_tab_mut() {
-        update_text_layouts(
-            &tab.view.rendered,
-            &mut tab.view.text_layouts,
-            layout_width,
-        );
+        update_text_layouts(&tab.view.rendered, &mut tab.view.text_layouts, layout_width);
         tab.view.layout_width = layout_width;
         tab.view.total_lines = tab
             .view

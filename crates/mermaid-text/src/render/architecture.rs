@@ -321,7 +321,25 @@ mod tests {
         let no_edge_out = render(&parsed(no_edge_src), None);
         let connector_count = |s: &str| -> usize {
             s.chars()
-                .filter(|c| matches!(*c, '─' | '│' | '┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' | '▸' | '▴' | '▾' | '◂'))
+                .filter(|c| {
+                    matches!(
+                        *c,
+                        '─' | '│'
+                            | '┌'
+                            | '┐'
+                            | '└'
+                            | '┘'
+                            | '├'
+                            | '┤'
+                            | '┬'
+                            | '┴'
+                            | '┼'
+                            | '▸'
+                            | '▴'
+                            | '▾'
+                            | '◂'
+                    )
+                })
                 .count()
         };
         let with_edge = connector_count(&out);

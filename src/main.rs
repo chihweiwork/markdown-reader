@@ -100,7 +100,12 @@ struct Cli {
     /// Timeout (in seconds) for each external HTTP HEAD request (default: 10).
     ///
     /// Only relevant when `--check-external` is also passed.
-    #[arg(long, value_name = "SECS", default_value_t = 10, requires = "check_links")]
+    #[arg(
+        long,
+        value_name = "SECS",
+        default_value_t = 10,
+        requires = "check_links"
+    )]
     external_timeout_secs: u64,
 
     /// Extract a named heading section and print it to stdout, then exit.

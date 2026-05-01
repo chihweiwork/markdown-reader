@@ -89,15 +89,21 @@ pub fn render(diag: &BlockDiagram, max_width: Option<usize>) -> String {
         out.push_str(&build_top_line(&row_slots, &col_inner_widths));
         out.push('\n');
 
-        let h_arrows = collect_horizontal_arrows(diag, &block_pos_map, &row_slots, &col_inner_widths, row);
-        out.push_str(&build_content_line(&row_slots, &col_inner_widths, &h_arrows));
+        let h_arrows =
+            collect_horizontal_arrows(diag, &block_pos_map, &row_slots, &col_inner_widths, row);
+        out.push_str(&build_content_line(
+            &row_slots,
+            &col_inner_widths,
+            &h_arrows,
+        ));
         out.push('\n');
 
         out.push_str(&build_bottom_line(&row_slots, &col_inner_widths));
         out.push('\n');
 
         if row + 1 < row_count {
-            let v_arrows = collect_vertical_arrows(diag, &block_pos_map, &row_slots, &col_inner_widths, row);
+            let v_arrows =
+                collect_vertical_arrows(diag, &block_pos_map, &row_slots, &col_inner_widths, row);
             let gap = build_gap_line(&v_arrows);
             out.push_str(&gap);
             out.push('\n');
@@ -139,7 +145,12 @@ fn compute_placements(blocks: &[Block], cols: usize) -> Vec<Placement> {
             row += 1;
             col = 0;
         }
-        placements.push(Placement { block_idx: idx, row, col_start: col, col_end: col + span });
+        placements.push(Placement {
+            block_idx: idx,
+            row,
+            col_start: col,
+            col_end: col + span,
+        });
         col += span;
         if col >= cols {
             row += 1;
@@ -163,7 +174,10 @@ fn compute_col_widths(blocks: &[Block], placements: &[Placement], cols: usize) -
             col_widths[p.col_start] = col_widths[p.col_start].max(lw);
         } else {
             let gap_absorbed = (span - 1) * (COL_GAP + 2);
-            let needed = lw.saturating_sub(gap_absorbed).div_ceil(span).max(MIN_CELL_INNER);
+            let needed = lw
+                .saturating_sub(gap_absorbed)
+                .div_ceil(span)
+                .max(MIN_CELL_INNER);
             for w in col_widths.iter_mut().take(p.col_end).skip(p.col_start) {
                 *w = (*w).max(needed);
             }
@@ -172,8 +186,14 @@ fn compute_col_widths(blocks: &[Block], placements: &[Placement], cols: usize) -
     col_widths
 }
 
-fn apply_max_width(mut col_widths: Vec<usize>, max_width: Option<usize>, cols: usize) -> Vec<usize> {
-    let Some(budget) = max_width else { return col_widths; };
+fn apply_max_width(
+    mut col_widths: Vec<usize>,
+    max_width: Option<usize>,
+    cols: usize,
+) -> Vec<usize> {
+    let Some(budget) = max_width else {
+        return col_widths;
+    };
     if grid_natural_width(&col_widths, cols) <= budget {
         return col_widths;
     }
@@ -196,7 +216,9 @@ fn apply_max_width(mut col_widths: Vec<usize>, max_width: Option<usize>, cols: u
 }
 
 fn grid_natural_width(col_widths: &[usize], cols: usize) -> usize {
-    if cols == 0 { return 0; }
+    if cols == 0 {
+        return 0;
+    }
     col_widths.iter().take(cols).sum::<usize>() + cols * 2 + (cols - 1) * COL_GAP
 }
 
@@ -204,19 +226,31 @@ fn grid_natural_width(col_widths: &[usize], cols: usize) -> usize {
 /// gap and wall characters between its columns.
 fn spanned_inner_width(col_widths: &[usize], col_start: usize, col_end: usize) -> usize {
     let span = col_end - col_start;
-    let base: usize = col_widths[col_start..col_end.min(col_widths.len())].iter().sum();
-    if span <= 1 { base } else { base + (span - 1) * (COL_GAP + 2) }
+    let base: usize = col_widths[col_start..col_end.min(col_widths.len())]
+        .iter()
+        .sum();
+    if span <= 1 {
+        base
+    } else {
+        base + (span - 1) * (COL_GAP + 2)
+    }
 }
 
 fn truncate_to_width(s: &str, max_w: usize) -> String {
-    if max_w == 0 { return String::new(); }
-    if UnicodeWidthStr::width(s) <= max_w { return s.to_string(); }
+    if max_w == 0 {
+        return String::new();
+    }
+    if UnicodeWidthStr::width(s) <= max_w {
+        return s.to_string();
+    }
     let target = max_w.saturating_sub(1);
     let mut result = String::new();
     let mut used = 0usize;
     for ch in s.chars() {
         let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1);
-        if used + cw > target { break; }
+        if used + cw > target {
+            break;
+        }
         result.push(ch);
         used += cw;
     }
@@ -235,11 +269,19 @@ struct RowSlot<'d> {
     block: &'d Block,
 }
 
-fn collect_row_slots<'d>(placements: &[Placement], blocks: &'d [Block], row: usize) -> Vec<RowSlot<'d>> {
+fn collect_row_slots<'d>(
+    placements: &[Placement],
+    blocks: &'d [Block],
+    row: usize,
+) -> Vec<RowSlot<'d>> {
     let mut slots: Vec<RowSlot<'d>> = placements
         .iter()
         .filter(|p| p.row == row)
-        .map(|p| RowSlot { col_start: p.col_start, col_end: p.col_end, block: &blocks[p.block_idx] })
+        .map(|p| RowSlot {
+            col_start: p.col_start,
+            col_end: p.col_end,
+            block: &blocks[p.block_idx],
+        })
         .collect();
     slots.sort_by_key(|s| s.col_start);
     slots
@@ -256,12 +298,22 @@ struct BlockGridPos {
     col_end: usize,
 }
 
-fn build_block_pos_map(diag: &BlockDiagram, placements: &[Placement]) -> HashMap<String, BlockGridPos> {
+fn build_block_pos_map(
+    diag: &BlockDiagram,
+    placements: &[Placement],
+) -> HashMap<String, BlockGridPos> {
     placements
         .iter()
         .map(|p| {
             let id = diag.blocks[p.block_idx].id.clone();
-            (id, BlockGridPos { row: p.row, col_start: p.col_start, col_end: p.col_end })
+            (
+                id,
+                BlockGridPos {
+                    row: p.row,
+                    col_start: p.col_start,
+                    col_end: p.col_end,
+                },
+            )
         })
         .collect()
 }
@@ -281,14 +333,22 @@ enum Adjacency {
 
 fn detect_adjacency(src: BlockGridPos, tgt: BlockGridPos) -> Adjacency {
     if src.row == tgt.row {
-        if src.col_end == tgt.col_start { return Adjacency::HorizontalForward; }
-        if tgt.col_end == src.col_start { return Adjacency::HorizontalReverse; }
+        if src.col_end == tgt.col_start {
+            return Adjacency::HorizontalForward;
+        }
+        if tgt.col_end == src.col_start {
+            return Adjacency::HorizontalReverse;
+        }
     }
     // Vertical adjacency: blocks must share at least one column in their spans.
     let cols_overlap = src.col_start < tgt.col_end && tgt.col_start < src.col_end;
     if cols_overlap {
-        if src.row + 1 == tgt.row { return Adjacency::VerticalForward; }
-        if tgt.row + 1 == src.row { return Adjacency::VerticalReverse; }
+        if src.row + 1 == tgt.row {
+            return Adjacency::VerticalForward;
+        }
+        if tgt.row + 1 == src.row {
+            return Adjacency::VerticalReverse;
+        }
     }
     Adjacency::NotAdjacent
 }
@@ -318,18 +378,30 @@ fn collect_horizontal_arrows(
 
     let mut arrows = Vec::new();
     for edge in &diag.edges {
-        let Some(src) = block_pos_map.get(&edge.source) else { continue; };
-        let Some(tgt) = block_pos_map.get(&edge.target) else { continue; };
-        if src.row != row || tgt.row != row { continue; }
+        let Some(src) = block_pos_map.get(&edge.source) else {
+            continue;
+        };
+        let Some(tgt) = block_pos_map.get(&edge.target) else {
+            continue;
+        };
+        if src.row != row || tgt.row != row {
+            continue;
+        }
         match detect_adjacency(*src, *tgt) {
             Adjacency::HorizontalForward => {
                 if let Some(idx) = gap_map.get(&(src.col_end, tgt.col_start)) {
-                    arrows.push(HorizontalArrow { gap_char_idx: *idx, glyph: '\u{25BA}' }); // ►
+                    arrows.push(HorizontalArrow {
+                        gap_char_idx: *idx,
+                        glyph: '\u{25BA}',
+                    }); // ►
                 }
             }
             Adjacency::HorizontalReverse => {
                 if let Some(idx) = gap_map.get(&(tgt.col_end, src.col_start)) {
-                    arrows.push(HorizontalArrow { gap_char_idx: *idx, glyph: '\u{25C4}' }); // ◄
+                    arrows.push(HorizontalArrow {
+                        gap_char_idx: *idx,
+                        glyph: '\u{25C4}',
+                    }); // ◄
                 }
             }
             _ => {}
@@ -382,16 +454,25 @@ fn collect_vertical_arrows(
 
     let mut arrows = Vec::new();
     for edge in &diag.edges {
-        let Some(src) = block_pos_map.get(&edge.source) else { continue; };
-        let Some(tgt) = block_pos_map.get(&edge.target) else { continue; };
+        let Some(src) = block_pos_map.get(&edge.source) else {
+            continue;
+        };
+        let Some(tgt) = block_pos_map.get(&edge.target) else {
+            continue;
+        };
         let (above, glyph) = match detect_adjacency(*src, *tgt) {
-            Adjacency::VerticalForward  => (*src, '\u{25BC}'), // ▼
-            Adjacency::VerticalReverse  => (*tgt, '\u{25B2}'), // ▲
+            Adjacency::VerticalForward => (*src, '\u{25BC}'), // ▼
+            Adjacency::VerticalReverse => (*tgt, '\u{25B2}'), // ▲
             _ => continue,
         };
-        if above.row != upper_row { continue; }
+        if above.row != upper_row {
+            continue;
+        }
         if let Some(centre_x) = centre_map.get(&(above.col_start, above.col_end)) {
-            arrows.push(VerticalArrow { centre_x: *centre_x, glyph });
+            arrows.push(VerticalArrow {
+                centre_x: *centre_x,
+                glyph,
+            });
         }
     }
     arrows
@@ -425,14 +506,20 @@ fn build_top_line(row_slots: &[RowSlot<'_>], col_inner_widths: &[usize]) -> Stri
     for slot in row_slots {
         if slot.col_start > col_cursor {
             let gap = (slot.col_start - col_cursor) * (MIN_CELL_INNER + 2 + COL_GAP);
-            for _ in 0..gap { line.push(' '); }
+            for _ in 0..gap {
+                line.push(' ');
+            }
         }
         let inner_w = spanned_inner_width(col_inner_widths, slot.col_start, slot.col_end);
         line.push('\u{250C}'); // ┌
-        for _ in 0..inner_w + 2 { line.push('\u{2500}'); } // ─
+        for _ in 0..inner_w + 2 {
+            line.push('\u{2500}');
+        } // ─
         line.push('\u{2510}'); // ┐
         col_cursor = slot.col_end;
-        for _ in 0..COL_GAP { line.push(' '); }
+        for _ in 0..COL_GAP {
+            line.push(' ');
+        }
     }
     line.trim_end().to_string()
 }
@@ -443,14 +530,20 @@ fn build_bottom_line(row_slots: &[RowSlot<'_>], col_inner_widths: &[usize]) -> S
     for slot in row_slots {
         if slot.col_start > col_cursor {
             let gap = (slot.col_start - col_cursor) * (MIN_CELL_INNER + 2 + COL_GAP);
-            for _ in 0..gap { line.push(' '); }
+            for _ in 0..gap {
+                line.push(' ');
+            }
         }
         let inner_w = spanned_inner_width(col_inner_widths, slot.col_start, slot.col_end);
         line.push('\u{2514}'); // └
-        for _ in 0..inner_w + 2 { line.push('\u{2500}'); } // ─
+        for _ in 0..inner_w + 2 {
+            line.push('\u{2500}');
+        } // ─
         line.push('\u{2518}'); // ┘
         col_cursor = slot.col_end;
-        for _ in 0..COL_GAP { line.push(' '); }
+        for _ in 0..COL_GAP {
+            line.push(' ');
+        }
     }
     line.trim_end().to_string()
 }
@@ -466,7 +559,9 @@ fn build_content_line(
     for slot in row_slots {
         if slot.col_start > col_cursor {
             let gap = (slot.col_start - col_cursor) * (MIN_CELL_INNER + 2 + COL_GAP);
-            for _ in 0..gap { buf.push(' '); }
+            for _ in 0..gap {
+                buf.push(' ');
+            }
         }
         let inner_w = spanned_inner_width(col_inner_widths, slot.col_start, slot.col_end);
         let label = slot.block.display_text();
@@ -483,14 +578,20 @@ fn build_content_line(
 
         buf.push('\u{2502}'); // │
         buf.push(' ');
-        for _ in 0..left_pad { buf.push(' '); }
+        for _ in 0..left_pad {
+            buf.push(' ');
+        }
         buf.push_str(&label);
-        for _ in 0..right_pad { buf.push(' '); }
+        for _ in 0..right_pad {
+            buf.push(' ');
+        }
         buf.push(' ');
         buf.push('\u{2502}'); // │
 
         col_cursor = slot.col_end;
-        for _ in 0..COL_GAP { buf.push(' '); }
+        for _ in 0..COL_GAP {
+            buf.push(' ');
+        }
     }
 
     // Stamp horizontal arrows into the gap positions (mutate char vector).
@@ -504,7 +605,9 @@ fn build_content_line(
             chars[arrow.gap_char_idx] = arrow.glyph;
         }
     }
-    while chars.last() == Some(&' ') { chars.pop(); }
+    while chars.last() == Some(&' ') {
+        chars.pop();
+    }
     chars.into_iter().collect()
 }
 
@@ -522,7 +625,9 @@ fn build_gap_line(v_arrows: &[VerticalArrow]) -> String {
     for arrow in v_arrows {
         chars[arrow.centre_x] = arrow.glyph;
     }
-    while chars.last() == Some(&' ') { chars.pop(); }
+    while chars.last() == Some(&' ') {
+        chars.pop();
+    }
     chars.into_iter().collect()
 }
 
@@ -537,8 +642,12 @@ fn collect_unrouted_edges<'a>(
     diag.edges
         .iter()
         .filter(|e| {
-            let Some(src) = block_pos_map.get(&e.source) else { return true; };
-            let Some(tgt) = block_pos_map.get(&e.target) else { return true; };
+            let Some(src) = block_pos_map.get(&e.source) else {
+                return true;
+            };
+            let Some(tgt) = block_pos_map.get(&e.target) else {
+                return true;
+            };
             detect_adjacency(*src, *tgt) == Adjacency::NotAdjacent
         })
         .collect()
@@ -549,7 +658,9 @@ fn collect_unrouted_edges<'a>(
 // ---------------------------------------------------------------------------
 
 fn render_edge_summary(edges: &[&BlockEdge]) -> String {
-    if edges.is_empty() { return String::new(); }
+    if edges.is_empty() {
+        return String::new();
+    }
     let mut out = String::from("Edges:\n");
     for edge in edges {
         if let Some(label) = &edge.label {
@@ -564,7 +675,9 @@ fn render_edge_summary(edges: &[&BlockEdge]) -> String {
             ));
         }
     }
-    while out.ends_with('\n') { out.pop(); }
+    while out.ends_with('\n') {
+        out.pop();
+    }
     out
 }
 
@@ -585,9 +698,18 @@ mod tests {
     fn renders_single_block() {
         let diag = parsed("block-beta\n    A");
         let out = render(&diag, None);
-        assert!(out.contains('A'), "block label 'A' must appear in output:\n{out}");
-        assert!(out.contains('\u{250C}'), "top-left corner ┌ must appear:\n{out}");
-        assert!(out.contains('\u{2518}'), "bottom-right corner ┘ must appear:\n{out}");
+        assert!(
+            out.contains('A'),
+            "block label 'A' must appear in output:\n{out}"
+        );
+        assert!(
+            out.contains('\u{250C}'),
+            "top-left corner ┌ must appear:\n{out}"
+        );
+        assert!(
+            out.contains('\u{2518}'),
+            "bottom-right corner ┘ must appear:\n{out}"
+        );
     }
 
     #[test]
@@ -638,9 +760,8 @@ mod tests {
 
     #[test]
     fn grid_integrity_preserved_with_edges() {
-        let diag = parsed(
-            "block-beta\n    columns 3\n    A B C\n    D E F\n    A --> B\n    D --> E",
-        );
+        let diag =
+            parsed("block-beta\n    columns 3\n    A B C\n    D E F\n    A --> B\n    D --> E");
         let out = render(&diag, None);
         let corner_count: usize = out.chars().filter(|&c| c == '\u{250C}').count();
         assert_eq!(
@@ -653,7 +774,10 @@ mod tests {
     fn empty_diagram_renders_without_panic() {
         let diag = BlockDiagram::default();
         let out = render(&diag, None);
-        assert!(!out.contains('\u{250C}'), "no box should be drawn for empty diagram");
+        assert!(
+            !out.contains('\u{250C}'),
+            "no box should be drawn for empty diagram"
+        );
     }
 
     #[test]
@@ -681,7 +805,10 @@ mod tests {
             total_corners >= 6,
             "expected ≥6 ┌ corners across all rows, got {total_corners}:\n{out}"
         );
-        assert!(out.contains("b "), "b label with trailing space missing:\n{out}");
+        assert!(
+            out.contains("b "),
+            "b label with trailing space missing:\n{out}"
+        );
     }
 
     #[test]
@@ -700,7 +827,9 @@ mod tests {
         // Three rows → two gap separators. A gap line is either empty or contains a ▼.
         let non_box_lines: Vec<&str> = out
             .lines()
-            .filter(|l| !l.contains('\u{250C}') && !l.contains('\u{2502}') && !l.contains('\u{2514}'))
+            .filter(|l| {
+                !l.contains('\u{250C}') && !l.contains('\u{2502}') && !l.contains('\u{2514}')
+            })
             .collect();
         assert!(
             non_box_lines.len() >= 2,
