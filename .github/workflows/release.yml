@@ -278,6 +278,22 @@ jobs:
         working-directory: artifacts
         run: sha256sum *.tar.gz *.zip > SHA256SUMS
 
+      - name: Create unversioned asset aliases
+        working-directory: artifacts
+        run: |
+          # Mirror each versioned archive under a stable filename so
+          # https://github.com/<owner>/<repo>/releases/latest/download/<unversioned>
+          # resolves. SHA256SUMS only references the versioned canonical
+          # files; the aliases are convenience pointers with identical
+          # bytes.
+          shopt -s nullglob
+          for f in markdown-reader-*.tar.gz markdown-reader-*.zip; do
+            unversioned=$(echo "$f" | sed -E 's/^(markdown-reader)-[0-9]+\.[0-9]+\.[0-9]+-/\1-/')
+            if [ "$f" != "$unversioned" ]; then
+              cp "$f" "$unversioned"
+            fi
+          done
+
       - name: Extract changelog section
         id: changelog
         run: |

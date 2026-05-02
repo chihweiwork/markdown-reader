@@ -5,6 +5,18 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.47] — 2026-05-02
+
+### Fixed — README install URLs now resolve
+
+The release pipeline now publishes unversioned filename aliases for each
+prebuilt archive (e.g. `markdown-reader-x86_64-unknown-linux-gnu.tar.gz`
+alongside `markdown-reader-1.34.47-x86_64-unknown-linux-gnu.tar.gz`) so
+the `releases/latest/download/<asset>` URLs documented in the README
+resolve to a real file. `SHA256SUMS` continues to reference only the
+versioned canonical archives; the unversioned aliases are byte-identical
+copies for download convenience.
+
 ## [1.34.46] — 2026-04-30
 
 ### Changed — block-beta inline spatial edges (mermaid-text 0.42.0)
