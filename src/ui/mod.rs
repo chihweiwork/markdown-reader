@@ -178,6 +178,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
             tree_position: app.tree_position,
             search_preview: app.search_preview,
             mermaid_mode: app.mermaid_mode,
+            mermaid_text_backend: app.mermaid_text_backend,
             palette: &app.palette,
         };
         config_popup::render_config_popup(f, &params);

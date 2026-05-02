@@ -5,6 +5,30 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.48] — 2026-05-02
+
+### Added — `mermaid_text_backend` config (sugiyama / native)
+
+A new `mermaid_text_backend` setting picks the layered-layout engine used
+to render text-mode flowchart and state diagrams. `mermaid-text` has
+shipped two backends since 0.17.0; until now the choice was hard-wired
+to the in-library default (`Sugiyama`) and could not be changed without
+recompiling.
+
+- **`sugiyama`** (the default — preserves existing behaviour) — the
+  `ascii-dag`-backed Sugiyama layout with proper crossing minimisation,
+  long-edge dummy nodes, and Brandes-Köpf coordinate assignment. Best
+  for flat dependency graphs.
+- **`native`** — the in-house layered layout that has fuller coverage
+  of subgraph-heavy diagrams, parallel-edge groups, and nested
+  direction overrides.
+
+Set via the `c` settings popup (two new rows in the **Mermaid** section)
+or by editing `mermaid_text_backend = "native"` in `config.toml`. The
+choice is honoured by both the inline document render and the modal
+`+`/`-` zoom path. Image-mode rendering and non-flowchart diagram types
+(sequence, pie, ER, mindmap, beta types) are unaffected.
+
 ## [1.34.47] — 2026-05-02
 
 ### Fixed — README install URLs now resolve

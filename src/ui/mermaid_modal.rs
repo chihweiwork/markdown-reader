@@ -60,6 +60,11 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let background = app.palette.background;
     let foreground = app.palette.foreground;
     let dim_style = app.palette.dim_style();
+    // Capture the user's text-backend choice so the `+`/`-` zoom re-renders
+    // honour the same backend as the inline render. Captured up front to
+    // avoid an immutable-borrow-of-`app` overlap with the `&mut` borrow
+    // taken below by `app.mermaid_cache.get_mut(...)`.
+    let text_backend = app.mermaid_text_backend;
 
     let area = f.area();
     let popup = centered_pct(90, 90, area);
@@ -125,7 +130,8 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 let default_node = 2i32;
                 let layer = (default_layer + text_zoom * 2).clamp(0, 24) as usize;
                 let node = (default_node + text_zoom).clamp(0, 10) as usize;
-                crate::mermaid::try_text_render_with_gaps(&source, layer, node).unwrap_or(cached)
+                crate::mermaid::try_text_render_with_gaps(&source, layer, node, text_backend)
+                    .unwrap_or(cached)
             };
             draw_text(f, content_rect, &diagram, h_scroll, v_scroll, foreground);
             text_footer(&diagram, h_scroll, v_scroll, text_zoom)

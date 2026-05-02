@@ -1,6 +1,8 @@
 use crate::action::Action;
 use crate::cast::u32_sat;
-use crate::config::{Config, MermaidMode, SearchPreview, TreePosition, UpdatesConfig};
+use crate::config::{
+    Config, MermaidMode, MermaidTextBackend, SearchPreview, TreePosition, UpdatesConfig,
+};
 use crate::event::EventHandler;
 use crate::fs::discovery::FileEntry;
 use crate::fs::git_status;
@@ -308,7 +310,7 @@ impl ConfigPopupState {
         ("Markdown", 1),
         ("Panels", 2),
         ("Search", 2),
-        ("Mermaid", 3), // Auto / Text only / Image only
+        ("Mermaid", 5), // Mode: Auto / Text only / Image only — Backend: Sugiyama / Native
     ];
 
     /// Total number of rows across all sections.
@@ -392,6 +394,9 @@ pub struct App {
     pub mermaid_mode: MermaidMode,
     /// User-configured maximum height for mermaid diagram blocks (in display lines).
     pub mermaid_max_height: u32,
+    /// User-configured layered-layout backend for text-mode flowchart and
+    /// state diagrams.  See [`MermaidTextBackend`] for the trade-offs.
+    pub mermaid_text_backend: MermaidTextBackend,
     /// Mirror of [`Config::use_hybrid_by_default`].
     ///
     /// When `true`, `i` opens hybrid mode and `I` opens the legacy fullscreen
@@ -530,6 +535,7 @@ impl App {
             search_preview: config.search_preview,
             mermaid_mode: config.mermaid_mode,
             mermaid_max_height: config.mermaid_max_height,
+            mermaid_text_backend: config.mermaid_text_backend,
             use_hybrid_by_default: config.use_hybrid_by_default,
             updates: config.updates,
             copy_menu: None,
@@ -718,6 +724,7 @@ impl App {
             search_preview: self.search_preview,
             mermaid_mode: self.mermaid_mode,
             mermaid_max_height: self.mermaid_max_height,
+            mermaid_text_backend: self.mermaid_text_backend,
             use_hybrid_by_default: self.use_hybrid_by_default,
             updates: self.updates.clone(),
         };
@@ -910,7 +917,11 @@ impl App {
                             .map(|t| t.view.layout_width)
                             .filter(|&w| w > 0)
                             .map(usize::from);
-                        match crate::mermaid::try_text_render_public(&source, width) {
+                        match crate::mermaid::try_text_render_public(
+                            &source,
+                            width,
+                            self.mermaid_text_backend,
+                        ) {
                             Ok(diagram) => MermaidEntry::AsciiDiagram {
                                 diagram,
                                 reason: format!("image failed: {msg}"),

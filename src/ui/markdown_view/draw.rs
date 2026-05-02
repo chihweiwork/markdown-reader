@@ -646,6 +646,7 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect, focused: bool) {
             mode: app.mermaid_mode,
             max_height: app.mermaid_max_height,
             content_width: Some(usize::from(effective_width)),
+            text_backend: app.mermaid_text_backend,
         };
         for (id, source) in mermaid_to_queue {
             app.mermaid_cache.ensure_queued(id, &source, &render_cfg);

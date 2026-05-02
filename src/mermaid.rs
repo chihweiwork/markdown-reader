@@ -7,7 +7,7 @@ use image::{DynamicImage, RgbaImage};
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 use resvg::usvg;
 
-use crate::config::MermaidMode;
+use crate::config::{MermaidMode, MermaidTextBackend};
 use crate::markdown::MermaidBlockId;
 
 /// Maximum number of concurrent mermaid render tasks.  Each task runs
@@ -134,6 +134,9 @@ pub struct MermaidRenderConfig<'a> {
     /// rendering at their natural (potentially much wider) size.
     /// `None` preserves the previous behaviour (no width budget).
     pub content_width: Option<usize>,
+    /// User-configured layered-layout backend for text-mode flowchart and
+    /// state diagrams.
+    pub text_backend: MermaidTextBackend,
 }
 
 /// Per-app cache mapping diagram ids to their render state.
@@ -261,7 +264,7 @@ impl MermaidCache {
 
         // ── Text mode: always figurehead, never spawn image tasks ────────────
         if cfg.mode == MermaidMode::Text {
-            let entry = match try_text_render(source, cfg.content_width) {
+            let entry = match try_text_render(source, cfg.content_width, cfg.text_backend) {
                 Ok(diagram) => MermaidEntry::AsciiDiagram {
                     diagram,
                     reason: "text mode".to_string(),
@@ -290,7 +293,7 @@ impl MermaidCache {
                 }
             } else {
                 // Auto mode: try figurehead first.
-                match try_text_render(source, cfg.content_width) {
+                match try_text_render(source, cfg.content_width, cfg.text_backend) {
                     Ok(diagram) => MermaidEntry::AsciiDiagram {
                         diagram,
                         reason: "diagram type uses text-mode rendering".to_string(),
@@ -324,7 +327,7 @@ impl MermaidCache {
                 // Auto mode: try text-mode rendering via figurehead before
                 // falling back to raw source.  This gives terminals without
                 // graphics protocol support a readable Unicode box-drawing diagram.
-                match try_text_render(source, cfg.content_width) {
+                match try_text_render(source, cfg.content_width, cfg.text_backend) {
                     Ok(diagram) => MermaidEntry::AsciiDiagram {
                         diagram,
                         reason,
@@ -577,6 +580,14 @@ pub fn create_picker() -> Option<Picker> {
 /// The reason graphics are unavailable in a tmux session.
 pub const TMUX_DISABLED_REASON: &str = "disable tmux for graphics";
 
+/// Map a [`MermaidTextBackend`] config value to its [`mermaid_text`] equivalent.
+fn to_layout_backend(backend: MermaidTextBackend) -> mermaid_text::layout::LayoutBackend {
+    match backend {
+        MermaidTextBackend::Sugiyama => mermaid_text::layout::LayoutBackend::Sugiyama,
+        MermaidTextBackend::Native => mermaid_text::layout::LayoutBackend::Native,
+    }
+}
+
 /// Render mermaid source to Unicode box-drawing text via `mermaid-text`.
 ///
 /// `mermaid-text` is our own library crate (MIT, zero unsafe, no stdout
@@ -590,8 +601,19 @@ pub const TMUX_DISABLED_REASON: &str = "disable tmux for graphics";
 /// * `max_width` – optional column budget; when `Some(w)` the renderer
 ///   progressively compacts gap sizes until the output fits within `w`
 ///   columns.  `None` renders at natural size (previous behaviour).
-fn try_text_render(source: &str, max_width: Option<usize>) -> Result<String, String> {
-    mermaid_text::render_with_width(source, max_width).map_err(|e| format!("{e}"))
+/// * `backend` – the layered-layout backend to use for flowchart and state
+///   diagrams. Other diagram types ignore this.
+fn try_text_render(
+    source: &str,
+    max_width: Option<usize>,
+    backend: MermaidTextBackend,
+) -> Result<String, String> {
+    let opts = mermaid_text::RenderOptions {
+        max_width,
+        backend: to_layout_backend(backend),
+        ..Default::default()
+    };
+    mermaid_text::render_with_options(source, &opts).map_err(|e| format!("{e}"))
 }
 
 /// Public wrapper around [`try_text_render`] for use from the
@@ -600,9 +622,14 @@ fn try_text_render(source: &str, max_width: Option<usize>) -> Result<String, Str
 /// # Arguments
 ///
 /// * `source` – raw mermaid source text.
-/// * `max_width` – optional column budget passed to `mermaid_text::render_with_width`.
-pub fn try_text_render_public(source: &str, max_width: Option<usize>) -> Result<String, String> {
-    try_text_render(source, max_width)
+/// * `max_width` – optional column budget passed to `mermaid_text`.
+/// * `backend` – the layered-layout backend to use; see [`try_text_render`].
+pub fn try_text_render_public(
+    source: &str,
+    max_width: Option<usize>,
+    backend: MermaidTextBackend,
+) -> Result<String, String> {
+    try_text_render(source, max_width, backend)
 }
 
 /// Render mermaid source with an explicit `(layer_gap, node_gap)` override,
@@ -617,9 +644,11 @@ pub fn try_text_render_with_gaps(
     source: &str,
     layer_gap: usize,
     node_gap: usize,
+    backend: MermaidTextBackend,
 ) -> Result<String, String> {
     let opts = mermaid_text::RenderOptions {
         gaps_override: Some((layer_gap, node_gap)),
+        backend: to_layout_backend(backend),
         ..Default::default()
     };
     mermaid_text::render_with_options(source, &opts).map_err(|e| format!("{e}"))
@@ -822,6 +851,7 @@ mod tests {
             mode: MermaidMode::Auto,
             max_height: 30,
             content_width: None,
+            text_backend: MermaidTextBackend::default(),
         };
         cache.ensure_queued(id, src, &cfg);
 
@@ -850,6 +880,7 @@ mod tests {
             mode: MermaidMode::Text,
             max_height: 30,
             content_width: None,
+            text_backend: MermaidTextBackend::default(),
         };
         let spawned = cache.ensure_queued(id, src, &cfg);
 
@@ -879,6 +910,7 @@ mod tests {
             mode: MermaidMode::Image,
             max_height: 30,
             content_width: None,
+            text_backend: MermaidTextBackend::default(),
         };
         cache.ensure_queued(id, src, &cfg);
 
@@ -934,6 +966,50 @@ mod tests {
         );
         let h = cache.height(id, "", 30);
         assert_eq!(h, ASCII_DIAGRAM_HARD_CAP);
+    }
+
+    /// Pinning that the `text_backend` argument actually reaches the
+    /// underlying `mermaid_text::RenderOptions`.
+    ///
+    /// `Native` and `Sugiyama` produce visibly different text-mode layouts
+    /// for the resilience-graph fixture (`GRAPH_LR_1` has a subgraph with
+    /// nested-direction overrides — a shape Sugiyama renders less compactly
+    /// than the in-house Native pipeline). If this test ever passes with
+    /// equal outputs it means the `text_backend` parameter is being threaded
+    /// through the function signature but discarded before reaching
+    /// `RenderOptions::backend` — i.e. the entire feature is silently
+    /// no-op'd. None of the surrounding plumbing tests catch that.
+    #[test]
+    fn backend_threads_through_render_with_options() {
+        let native = try_text_render_public(GRAPH_LR_1, None, MermaidTextBackend::Native)
+            .expect("Native render must succeed");
+        let sugiyama = try_text_render_public(GRAPH_LR_1, None, MermaidTextBackend::Sugiyama)
+            .expect("Sugiyama render must succeed");
+        assert_ne!(
+            native, sugiyama,
+            "Native and Sugiyama outputs must differ — if equal, the \
+             text_backend argument is being discarded before reaching \
+             RenderOptions::backend (the whole feature is a no-op)"
+        );
+    }
+
+    /// Same load-bearing check for the modal `+`/`-` zoom path. The modal
+    /// builds its own `RenderOptions` with `gaps_override` set, so it could
+    /// silently fall back to the default backend if the parameter is dropped
+    /// at the wrapper boundary. Pin the difference here too so a regression
+    /// in either wrapper is caught immediately.
+    #[test]
+    fn modal_gap_render_uses_chosen_backend() {
+        let native = try_text_render_with_gaps(GRAPH_LR_1, 6, 2, MermaidTextBackend::Native)
+            .expect("Native gap render must succeed");
+        let sugiyama = try_text_render_with_gaps(GRAPH_LR_1, 6, 2, MermaidTextBackend::Sugiyama)
+            .expect("Sugiyama gap render must succeed");
+        assert_ne!(
+            native, sugiyama,
+            "modal `+`/`-` zoom path must honour the user's text_backend \
+             choice — if equal, the argument is being dropped at the \
+             try_text_render_with_gaps wrapper boundary"
+        );
     }
 
     #[test]

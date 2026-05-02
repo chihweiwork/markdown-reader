@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::app::ConfigPopupState;
-use crate::config::{Config, MermaidMode, SearchPreview, TreePosition};
+use crate::config::{Config, MermaidMode, MermaidTextBackend, SearchPreview, TreePosition};
 use crate::theme::{Palette, Theme};
 
 /// Parameters for [`render_config_popup`].
@@ -26,6 +26,8 @@ pub struct ConfigPopupParams<'a> {
     pub search_preview: SearchPreview,
     /// Active mermaid rendering mode.
     pub mermaid_mode: MermaidMode,
+    /// Active layered-layout backend for text-mode flowchart and state diagrams.
+    pub mermaid_text_backend: MermaidTextBackend,
     /// Active colour palette.
     pub palette: &'a Palette,
 }
@@ -40,9 +42,9 @@ const INACTIVE_BULLET: &str = "○";
 /// * `f`      - Ratatui frame to render into.
 /// * `params` - All display parameters (theme, flags, palette, etc.).
 pub fn render_config_popup(f: &mut Frame, params: &ConfigPopupParams<'_>) {
-    // content-sized: 46 cols fits the longest config label; 27 rows = original 22 + 1 blank
-    //   + 1 "Mermaid" section header + 3 mode options
-    let area = centered_rect(46, 27, f.area());
+    // content-sized: 46 cols fits the longest config label; 29 rows = original 22 + 1 blank
+    //   + 1 "Mermaid" section header + 3 mode options + 2 text-backend options
+    let area = centered_rect(46, 29, f.area());
     f.render_widget(Clear, area);
 
     let lines = build_lines(params);
@@ -66,6 +68,7 @@ fn build_lines<'a>(params: &ConfigPopupParams<'_>) -> Vec<Line<'a>> {
         tree_position,
         search_preview,
         mermaid_mode,
+        mermaid_text_backend,
         palette,
     } = params;
     let theme = *theme;
@@ -73,6 +76,7 @@ fn build_lines<'a>(params: &ConfigPopupParams<'_>) -> Vec<Line<'a>> {
     let tree_position = *tree_position;
     let search_preview = *search_preview;
     let mermaid_mode = *mermaid_mode;
+    let mermaid_text_backend = *mermaid_text_backend;
 
     let section_style = Style::new()
         .fg(palette.accent_alt)
@@ -212,6 +216,29 @@ fn build_lines<'a>(params: &ConfigPopupParams<'_>) -> Vec<Line<'a>> {
         row == state.cursor,
         mermaid_mode == MermaidMode::Image,
         Config::mermaid_mode_label(MermaidMode::Image),
+        cursor_style,
+        active_style,
+        text_style,
+        dim_style,
+    ));
+    row += 1;
+    // Two text-backend options live inside the Mermaid section (no
+    // separate header) — they only affect text-mode flowchart and state
+    // diagrams, so they read as a sub-choice of the mode rows above.
+    lines.push(option_line(
+        row == state.cursor,
+        mermaid_text_backend == MermaidTextBackend::Sugiyama,
+        Config::mermaid_text_backend_label(MermaidTextBackend::Sugiyama),
+        cursor_style,
+        active_style,
+        text_style,
+        dim_style,
+    ));
+    row += 1;
+    lines.push(option_line(
+        row == state.cursor,
+        mermaid_text_backend == MermaidTextBackend::Native,
+        Config::mermaid_text_backend_label(MermaidTextBackend::Native),
         cursor_style,
         active_style,
         text_style,

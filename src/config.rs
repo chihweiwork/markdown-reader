@@ -91,6 +91,30 @@ pub enum MermaidMode {
     Image,
 }
 
+/// Which layered-layout backend to use when rendering text-mode flowchart and
+/// state diagrams via `mermaid-text`.
+///
+/// `mermaid-text` ships two backends. `Sugiyama` (the historical default since
+/// the library's 0.17.0 release) is `ascii-dag`-backed with proper crossing
+/// minimisation and Brandes-Köpf coordinate assignment — it tends to produce
+/// the cleanest layouts for flat dependency graphs. `Native` is the in-house
+/// layered layout that has fuller coverage of subgraph-heavy diagrams,
+/// parallel-edge groups, and nested direction overrides.
+///
+/// This setting only affects text-mode flowchart and state diagrams; sequence,
+/// pie, ER, mindmap and the various beta diagram types have their own
+/// pipelines and are unaffected. Image-mode rendering (which goes through
+/// `mermaid-rs-renderer`) is also unaffected.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MermaidTextBackend {
+    /// `ascii-dag`-backed Sugiyama layout. The historical default.
+    #[default]
+    Sugiyama,
+    /// In-house layered layout with fuller subgraph and parallel-edge coverage.
+    Native,
+}
+
 /// How to render the inline preview for a content-search result.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -130,6 +154,10 @@ pub struct Config {
     /// There is no UI widget for this field — edit `config.toml` directly.
     #[serde(default = "default_mermaid_max_height")]
     pub mermaid_max_height: u32,
+    /// Which layered-layout backend to use when rendering text-mode flowchart
+    /// and state diagrams.  See [`MermaidTextBackend`] for the trade-offs.
+    #[serde(default)]
+    pub mermaid_text_backend: MermaidTextBackend,
     /// When `true` (the default), `i` opens hybrid live-preview mode and `I`
     /// opens the legacy fullscreen edtui.  Set to `false` to restore the
     /// pre-1.33.0 behaviour (`i` → fullscreen, `I` → hybrid) as an opt-out
@@ -152,6 +180,7 @@ impl Default for Config {
             search_preview: SearchPreview::default(),
             mermaid_mode: MermaidMode::default(),
             mermaid_max_height: default_mermaid_max_height(),
+            mermaid_text_backend: MermaidTextBackend::default(),
             use_hybrid_by_default: default_use_hybrid_by_default(),
             updates: UpdatesConfig::default(),
         }
@@ -192,6 +221,14 @@ impl Config {
             MermaidMode::Auto => "Auto",
             MermaidMode::Text => "Text only",
             MermaidMode::Image => "Image only",
+        }
+    }
+
+    /// Return a [`MermaidTextBackend`] label suitable for display (e.g. in the UI).
+    pub fn mermaid_text_backend_label(backend: MermaidTextBackend) -> &'static str {
+        match backend {
+            MermaidTextBackend::Sugiyama => "Backend: Sugiyama (default)",
+            MermaidTextBackend::Native => "Backend: Native (subgraph-friendly)",
         }
     }
 }
@@ -242,6 +279,47 @@ mod tests {
         let toml_str = r#"theme = "default""#;
         let config: Config = toml::from_str(toml_str).expect("deserialization failed");
         assert_eq!(config.mermaid_max_height, 30);
+    }
+
+    /// A non-default `MermaidTextBackend` must survive a TOML round-trip.
+    /// Catches: a `Default` impl that masks the deserialised value, a
+    /// serde-rename mismatch, or a missing `#[serde(default)]` attribute.
+    #[test]
+    fn mermaid_text_backend_round_trips() {
+        let config = Config {
+            mermaid_text_backend: MermaidTextBackend::Native,
+            ..Config::default()
+        };
+        let serialized = toml::to_string_pretty(&config).expect("serialization failed");
+        let deserialized: Config = toml::from_str(&serialized).expect("deserialization failed");
+        assert_eq!(
+            deserialized.mermaid_text_backend,
+            MermaidTextBackend::Native
+        );
+    }
+
+    /// A TOML file without `mermaid_text_backend` must default to `Sugiyama`.
+    /// This is the user-visible promise that pre-1.34.48 config files keep
+    /// rendering identically: Sugiyama has been the in-library default since
+    /// `mermaid-text` 0.17.0.
+    #[test]
+    fn mermaid_text_backend_missing_field_defaults_to_sugiyama() {
+        let toml_str = r#"theme = "default""#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization failed");
+        assert_eq!(config.mermaid_text_backend, MermaidTextBackend::Sugiyama);
+    }
+
+    /// An explicit `mermaid_text_backend = "native"` in TOML must be honoured.
+    /// Pairs with the round-trip test to guarantee the default doesn't mask a
+    /// user-supplied value (a class of bug we have hit before).
+    #[test]
+    fn mermaid_text_backend_explicit_native_is_honoured() {
+        let toml_str = r#"
+theme = "default"
+mermaid_text_backend = "native"
+"#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization failed");
+        assert_eq!(config.mermaid_text_backend, MermaidTextBackend::Native);
     }
 
     /// `MermaidMode` must round-trip through TOML.
