@@ -1433,16 +1433,18 @@ fn draw_subgraph_border(grid: &mut Grid, bounds: &SubgraphBounds, style: Option<
     let label = truncate_to_width(&bounds.label, max_label_w);
     if !label.is_empty() {
         grid.write_text_protected(label_col, label_row, &label);
-        // B-title fix: `seed_border_dirs` seeded DIR_LEFT|DIR_RIGHT on every
-        // top-border cell (including the ones that now hold label chars).
-        // `Grid::add_dirs` skips protected cells ONLY when directions == 0.
-        // With stale seeded bits, routing would bypass protection and overwrite
-        // title characters with junction glyphs (e.g. `┼`), corrupting the
-        // subgraph label.  Clearing the bits here restores the invariant.
-        let label_display_w = unicode_width::UnicodeWidthStr::width(label.as_str());
-        for dx in 0..label_display_w {
-            grid.clear_dirs(label_col + dx, label_row);
-        }
+    }
+    // Clear seeded dir-bits across the ENTIRE top border line (excluding
+    // corners). The previous fix only cleared label-letter cells, but
+    // `seed_border_dirs` had marked DIR_LEFT|DIR_RIGHT on every cell from
+    // (col+1)..(col+w-1) — so an edge crossing the title row at a non-letter
+    // column would still trip `add_dirs` and stamp a `┼`/`┬`/`┴` junction
+    // INSIDE the title bar (gallery example: `╭─Backend─┼────╮`). Junctions
+    // remain enabled on the BOTTOM border because that border carries no label
+    // and visualising route entry/exit there is desirable. Pinned by
+    // `subgraph_title_row_has_no_junction_glyphs`.
+    for x in (col + 1)..(col + w - 1) {
+        grid.clear_dirs(x, row);
     }
 }
 
@@ -3148,6 +3150,53 @@ if_state --> False: !condition";
     ///
     /// Repro: two sibling subgraphs (Frontend / Backend) arranged TB where
     /// UI→API and SW→API route vertically through the Backend title row.
+    /// Stronger sibling of `route_does_not_pierce_subgraph_title_row`: the
+    /// title row must be free of routing junction glyphs (`┼ ┬ ┴ ├ ┤`)
+    /// across its ENTIRE width, not just at label-letter columns.
+    ///
+    /// The earlier fix cleared seeded dir-bits on label-letter cells only, so
+    /// when an edge crossed the title border at a non-letter column the
+    /// seeded `DIR_LEFT|DIR_RIGHT` bits were still live and `add_dirs` ORed
+    /// the route's `DIR_DOWN`/`DIR_UP` over them, producing a `┼` smack in
+    /// the middle of the title bar. The gallery's `## Flowcharts` "Subgraphs"
+    /// example shows this on `╭─Backend─┼────╮`.
+    ///
+    /// A trivially-broken implementation that only protects label letters
+    /// fails this assertion: today the rendered title row contains at least
+    /// one `┼`. The test is also robust to "look elsewhere for `Backend`" no-op
+    /// fixes because we explicitly anchor to the LINE that contains "Backend".
+    #[test]
+    fn subgraph_title_row_has_no_junction_glyphs() {
+        let src = "flowchart TB
+    subgraph frontend [Frontend]
+        UI[Browser UI]
+        SW[Service Worker]
+    end
+    subgraph backend [Backend]
+        API[REST API]
+        DB[(Postgres)]
+    end
+    UI --> API
+    SW --> API
+    API --> DB";
+        let out = crate::render(src).expect("render must succeed");
+
+        let backend_title_line = out
+            .lines()
+            .find(|l| l.contains("Backend"))
+            .expect("Backend label missing from output");
+
+        let junctions = ['\u{253C}', '\u{252C}', '\u{2534}', '\u{251C}', '\u{2524}'];
+        for ch in backend_title_line.chars() {
+            assert!(
+                !junctions.contains(&ch),
+                "junction glyph {ch:?} found in Backend's title border row \
+                 — routing pierced the title bar at a non-letter column. \
+                 Title row:\n{backend_title_line}\n\nFull output:\n{out}"
+            );
+        }
+    }
+
     #[test]
     fn route_does_not_pierce_subgraph_title_row() {
         let src = "flowchart TB
