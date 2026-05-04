@@ -880,7 +880,15 @@ fn render_inner(
         Direction::LeftToRight | Direction::RightToLeft => '┬',
         Direction::TopToBottom | Direction::BottomToTop => '├',
     };
-    let path_junction_lr = '┴'; // LR/RL: vertical adjacency, T-up reads fine
+    // LR back-edges always route left from the source's exit cell
+    // (destination is to the left), so the first path cell has only an
+    // upward AND leftward connection — use `┘` (bottom-right corner)
+    // rather than `┴` (T-junction with phantom rightward extension).
+    // Symmetric for RL: route goes right → `└`. The `┴` glyph is still
+    // produced when the cell has an existing `├` from a B9 exit-collision
+    // (handled below).
+    let path_junction_lr_corner_left = '\u{2518}'; // ┘
+    let path_junction_lr_corner_right = '\u{2514}'; // └
     for (col, row, is_dest, skip_border_stamp) in &back_edge_border_joins {
         if *is_dest || *skip_border_stamp {
             // `is_dest`: destination border glyph is the arrow tip placed by
@@ -908,10 +916,17 @@ fn render_inner(
         if current != '─' && current != '│' && !is_exit_collision {
             continue;
         }
-        let glyph = match graph.direction {
-            Direction::LeftToRight | Direction::RightToLeft => path_junction_lr,
-            Direction::TopToBottom => '┘', // path turns from left to up
-            Direction::BottomToTop => '┐', // path turns from left to down
+        // For B9 exit-collision (cell already had `├` = up+down+right), the
+        // historic `┴` overlay produced `┼` — preserve that case.
+        let glyph = if is_exit_collision {
+            '\u{2534}' // ┴
+        } else {
+            match graph.direction {
+                Direction::LeftToRight => path_junction_lr_corner_left,
+                Direction::RightToLeft => path_junction_lr_corner_right,
+                Direction::TopToBottom => '┘',
+                Direction::BottomToTop => '┐',
+            }
         };
         grid.set(*col, *row, glyph);
     }
@@ -3164,12 +3179,16 @@ if_state --> False: !condition";
             }
         }
 
-        // The perimeter path row must contain `┴` — the back-edge exit stub
-        // that replaces the border-row `┬` stamp.
+        // The perimeter path row must contain a back-edge exit stub —
+        // historically `┴` (T-junction), now `┘` or `└` (corner) since the
+        // F2 fix replaced the spurious T-with-rightward-extension with a
+        // proper corner glyph that matches the path's actual direction.
+        // Either form satisfies the underlying intent: the back-edge has
+        // a visible perimeter-path connection from the source node.
         assert!(
-            out.contains('┴'),
-            "Expected at least one `┴` (back-edge perimeter exit stub) in the output, \
-             but none found.\nFull output:\n{out}"
+            out.contains('┴') || out.contains('┘') || out.contains('└'),
+            "Expected at least one back-edge perimeter exit stub (`┴` / `┘` / `└`) \
+             in the output, but none found.\nFull output:\n{out}"
         );
     }
 
@@ -3189,6 +3208,59 @@ if_state --> False: !condition";
     ///
     /// Repro: two sibling subgraphs (Frontend / Backend) arranged TB where
     /// UI→API and SW→API route vertically through the Backend title row.
+    /// Back-edge exit-stub glyphs at the source's path-row must connect
+    /// cleanly to the path direction — if the route goes LEFT (typical
+    /// LR back-edge), the glyph should be `┘` (bottom-right corner with
+    /// up + left), NOT `┴` (T-junction with up + left + right). The
+    /// gallery's Diagram 7 (composite states with `Working --> Idle`
+    /// back-edge labelled "done") shows the orphan `┴` below the "done"
+    /// label, with nothing visually continuing right from the junction.
+    ///
+    /// Strong assertion: locate the back-edge path row in Diagram 7's
+    /// rendered output and confirm the rightmost endpoint of the route
+    /// is `┘` not `┴`. A no-op fix where the stamp logic still picks
+    /// `┴` cannot satisfy this.
+    #[test]
+    fn back_edge_left_terminus_uses_corner_not_t_junction() {
+        let src = "stateDiagram-v2
+    state Active {
+        [*] --> Idle
+        Idle --> Working: task
+        Working --> Idle: done
+    }
+    [*] --> Active";
+        let out = crate::render(src).expect("render must succeed");
+
+        // Find the back-edge route row: a line containing `└` followed by
+        // multiple `─` then a terminating glyph (either `┘` or the buggy `┴`).
+        // Pin the last char of the route as `┘`.
+        let route_row = out
+            .lines()
+            .find(|l| {
+                let chars: Vec<char> = l.chars().collect();
+                let has_left_corner = chars.contains(&'\u{2514}'); // └
+                has_left_corner && (chars.contains(&'\u{2518}') || chars.contains(&'\u{2534}'))
+            })
+            .expect("back-edge route row not found");
+
+        // Walk left-to-right. After the leftmost `└`, find the next
+        // glyph that ENDS the route (`┘` good, `┴` bad).
+        let chars: Vec<char> = route_row.chars().collect();
+        let left_corner_idx = chars.iter().position(|&c| c == '\u{2514}').unwrap();
+        let endpoint = chars[(left_corner_idx + 1)..]
+            .iter()
+            .find(|&&c| c == '\u{2518}' || c == '\u{2534}')
+            .copied()
+            .expect("no route endpoint glyph (┘ or ┴) after └");
+
+        assert_eq!(
+            endpoint, '\u{2518}',
+            "back-edge route's right endpoint is `┴` (T-junction with phantom \
+             rightward continuation) — should be `┘` (clean bottom-right corner). \
+             Route row:\n{route_row}\n\nFull output:\n{out}"
+        );
+    }
+
     /// Two parallel edges fanning out from the same source with text labels
     /// must NOT have their labels land on adjacent rows. The canonical
     /// repro is the gallery's Decision diagram: `Decision -->|yes| Build`
