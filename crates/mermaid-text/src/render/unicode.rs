@@ -3189,6 +3189,46 @@ if_state --> False: !condition";
     ///
     /// Repro: two sibling subgraphs (Frontend / Backend) arranged TB where
     /// UI→API and SW→API route vertically through the Backend title row.
+    /// Two parallel edges fanning out from the same source with text labels
+    /// must NOT have their labels land on adjacent rows. The canonical
+    /// repro is the gallery's Decision diagram: `Decision -->|yes| Build`
+    /// and `Decision -->|no| Skip` previously placed both "yes" and "no"
+    /// labels on adjacent rows at the diamond's right exit.
+    ///
+    /// This test pins the byproduct of G1 (symmetric centring of source
+    /// attach points): when `spread_sources` distributes attach points
+    /// symmetrically, the labels follow their attach points and end up
+    /// well-separated. Strong assertion: row distance between "yes" and
+    /// "no" must be ≥ 2.
+    #[test]
+    fn fan_out_labels_distribute_with_row_separation() {
+        let src = "flowchart LR
+    Start --> Decision{Decision}
+    Decision -->|yes| Build
+    Decision -->|no| Skip
+    Build --> Deploy
+    Skip --> Deploy";
+        let out = crate::render(src).expect("render must succeed");
+        let lines: Vec<&str> = out.lines().collect();
+
+        let yes_row = lines
+            .iter()
+            .position(|l| l.contains("yes"))
+            .expect("yes label missing");
+        let no_row = lines
+            .iter()
+            .position(|l| l.contains("no") && !l.contains("yes"))
+            .expect("no label on its own row missing");
+
+        let distance = yes_row.abs_diff(no_row);
+        assert!(
+            distance >= 2,
+            "fan-out labels 'yes' (line {yes_row}) and 'no' (line {no_row}) \
+             are only {distance} row(s) apart — labels at a parallel-edge \
+             fan-out should be separated by ≥ 2 rows. Full output:\n{out}"
+        );
+    }
+
     /// Two edges merging into the same destination must produce arrow tips
     /// (`▸`) at least 2 rows apart on the destination's left border, not
     /// adjacent rows. The gallery's Diagram 1 (Decision → Build/Skip → Deploy)
