@@ -3208,6 +3208,72 @@ if_state --> False: !condition";
     ///
     /// Repro: two sibling subgraphs (Frontend / Backend) arranged TB where
     /// UI→API and SW→API route vertically through the Backend title row.
+    /// **Known limitation (B1, deferred from Path B)**: state diagrams
+    /// where a terminal `[*]` final state is reached via a SHORT path while
+    /// other states sit on a LONGER path render the final state in the
+    /// MIDDLE of the diagram instead of at the end.
+    ///
+    /// In the gallery's Diagram 6 ("Basic state machine"), the source
+    /// `Idle --> [*]` makes the final state a sink at layer 2 (initial(0)
+    /// → Idle(1) → final(2)), while `Paused` sits at layer 3 via the longer
+    /// path through Running. Sugiyama's longest-path-from-sources layer
+    /// assignment correctly puts each node at its longest-path layer, but
+    /// the resulting visual is the final state appearing mid-graph.
+    ///
+    /// The fix would be a post-pass in `sugiyama_layout` that detects
+    /// terminal-sink nodes (no outgoing edges) and promotes them to the
+    /// maximum layer. The risk is high: the change requires recomputing
+    /// both the level AND the ascii-dag column coordinate, with within-
+    /// layer row placement falling out as a secondary concern. Estimated
+    /// snapshot churn was 40–60 files; in practice the cascading effects
+    /// of moving a node late in the pipeline made bounded scoping
+    /// impractical for the launch window.
+    ///
+    /// This test is `#[ignore]`d so it doesn't block CI but stays as a
+    /// pinned target for future work — when B1 is implemented, remove the
+    /// `#[ignore]` and verify the assertion passes.
+    #[test]
+    #[ignore = "B1: terminal sinks not promoted to last layer (deferred)"]
+    fn final_state_renders_at_rightmost_column() {
+        let src = "stateDiagram-v2
+    [*] --> Idle
+    Idle --> Running : start
+    Running --> Paused : pause
+    Paused --> Running : resume
+    Running --> Idle : stop
+    Idle --> [*]";
+        let out = crate::render(src).expect("render must succeed");
+        let lines: Vec<Vec<char>> = out.lines().map(|l| l.chars().collect()).collect();
+
+        let paused_line_idx = lines
+            .iter()
+            .position(|l| l.iter().collect::<String>().contains("Paused"))
+            .expect("Paused line missing");
+        let paused_col = lines[paused_line_idx]
+            .iter()
+            .collect::<String>()
+            .find("Paused")
+            .unwrap();
+
+        // Final state `((●))` renders as a nested rounded box. Find the
+        // outermost `╭` of that box (it's the only `╭` line whose body
+        // contains another `╭` two lines below).
+        let final_box_col = (0..lines.len().saturating_sub(2))
+            .find_map(|i| {
+                let outer = lines[i].iter().position(|&c| c == '\u{256D}')?;
+                let inner = lines[i + 2].iter().position(|&c| c == '\u{256D}')?;
+                if inner > outer { Some(outer) } else { None }
+            })
+            .expect("final-state nested-rounded-box outline missing");
+
+        assert!(
+            final_box_col >= paused_col,
+            "final state at col {final_box_col} should be ≥ Paused at col \
+             {paused_col} (terminal sinks should be in the rightmost layer). \
+             Full output:\n{out}"
+        );
+    }
+
     /// State-diagram notes (`note right of X`, `note left of X`) must be
     /// registered as full routing obstacles — no edge route should pass
     /// through a note's interior cells. The gallery's Diagram 9 places a
@@ -3278,9 +3344,9 @@ if_state --> False: !condition";
             '\u{256E}', '\u{256F}', '\u{256D}', '\u{2570}', '\u{2518}', '\u{2514}', '\u{2510}',
             '\u{250C}',
         ];
-        for r in (top + 1)..bot {
+        for (r, line) in lines.iter().enumerate().take(bot).skip(top + 1) {
             for c in (left + 1)..right {
-                let ch = lines[r].get(c).copied().unwrap_or(' ');
+                let ch = line.get(c).copied().unwrap_or(' ');
                 assert!(
                     !routing_glyphs.contains(&ch),
                     "routing glyph {ch:?} found inside note interior at \

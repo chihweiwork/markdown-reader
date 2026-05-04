@@ -253,6 +253,17 @@ stateDiagram-v2
     Idle --> [*]
 ```
 
+> **Known limitation**: when a `[*]` final state is reachable via a SHORT
+> path (here `Idle → [*]`) while other states sit on a LONGER path (`Idle
+> → Running → Paused`), the final state renders at its longest-path
+> layer (mid-graph) rather than at the visual end. Terminal-sink
+> promotion to the last layer is tracked as a future Sugiyama post-pass;
+> see the `#[ignore]`d regression test
+> `final_state_renders_at_rightmost_column` in
+> `crates/mermaid-text/src/render/unicode.rs`. Workaround: phrase your
+> diagram so the terminal node is reached on the longest path (e.g.
+> `Paused → [*]` rather than `Idle → [*]`).
+
 ### Composite states (nested)
 
 ```mermaid
