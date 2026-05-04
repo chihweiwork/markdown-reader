@@ -3,6 +3,64 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.42.4 — 2026-05-03 — Path A polish: 6 visible-quality fixes
+
+### Fixed
+
+This release bundles six independent rendering-quality fixes from the
+"polish-to-launch" plan's Phase 1, each shipped as its own commit on
+master with a failing-reproduction-test-first pattern.
+
+- **D1 — Quadrant chart label truncation.** Point labels near the
+  right edge no longer drop characters mid-coordinate. The renderer
+  now flips the label to the LEFT side of the marker when right-edge
+  overflow is detected, falling back to ellipsis only as last resort.
+  Regression: `quadrant_chart_high_x_label_not_truncated`.
+
+- **C1+C2 — Architecture-beta tightness.** `architecture-beta`
+  diagrams used `LayoutConfig::default()`'s 6-cell `layer_gap` (which
+  exists for flowchart edge labels). Architecture-beta edges are
+  typically unlabeled, so the gap was wasted. Now starts with
+  `LayoutConfig::with_gaps(2, 1)`. Diagram 38's filler rows between
+  Gateway and the Backend group went from 6 → 3.
+  Regression: `architecture_beta_diagram38_compact_vertical_spacing`.
+
+- **G2 — Subgraph title row no longer pierced by `┼`.** The previous
+  fix cleared seeded direction bits on label-letter cells only; the
+  `─` cells before/after the label still produced junction glyphs
+  when an edge crossed at a non-letter column. Now clears dirs across
+  the entire top-border line. The bottom border keeps its junctions
+  (no label there).
+  Regression: `subgraph_title_row_has_no_junction_glyphs`.
+
+- **A3 — Edge labels not flush against thick (`━ ┃`) or dotted
+  (`┄ ┆ ╍ ╏`) lines.** Thin lines (`─`, `│`) intentionally allow
+  label abutment — the `label───▸node` channel pattern is common.
+  Thick and dotted glyphs have visual weight that fuses with adjacent
+  letters (`━━━labelled` reads as one ambiguous run). Extended
+  `label_touches_path_corner` to treat them as label-avoidance
+  triggers.
+  Regression: `edge_labels_not_flush_against_thick_or_dotted_lines`.
+
+- **G1 — Symmetric centring of merging arrow tips at shared
+  destinations.** `spread_destinations`/`spread_sources` used
+  `(i - (n-1)/2) * step`; the integer division `(n-1)/2` rounds to
+  zero for even n, producing asymmetric `[0, +step]` offsets for
+  n=2 instead of `[-step/2, +step/2]`. Two arrows merging into
+  Deploy from Build and Skip used to land at the middle and bottom
+  rows; now top and bottom with the label row between.
+  Regression: `merging_arrows_into_shared_destination_are_not_adjacent`.
+
+- **A1+A2 — Parallel-edge labels distribute across fan corridor.**
+  Resolved as a byproduct of G1's symmetric source-attach centring.
+  "yes/no" on Decision exits and "hit/miss" on choice exits now
+  spread to non-adjacent rows.
+  Regression: `fan_out_labels_distribute_with_row_separation`.
+
+Total snapshot churn: 65+ files, all spot-checked. Diffs are
+structural reshuffling (label/arrow positions moved) — no content
+loss, no tests broken.
+
 ## 0.42.3 — 2026-05-03 — xy-chart line series shows a marker at every data point
 
 ### Fixed

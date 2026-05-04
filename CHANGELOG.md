@@ -5,6 +5,27 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.52] — 2026-05-03
+
+### Fixed — Path A polish: 6 rendering-quality fixes (mermaid-text 0.42.4)
+
+This release bundles six independent fixes that each address a
+visible quality concern flagged during the pre-launch gallery audit:
+
+- **Quadrant charts** no longer truncate point labels at the right edge.
+- **Architecture-beta** diagrams render tighter (no excessive vertical
+  whitespace between groups).
+- **Subgraph title bars** no longer get pierced by `┼` junction glyphs.
+- **Edge labels** are no longer flush against thick or dotted line
+  glyphs (`━━━labelled` → readable separation).
+- **Merging arrow tips** at shared destinations distribute
+  symmetrically (not on adjacent rows).
+- **Parallel-edge labels** at decision/choice exits distribute across
+  the fan corridor instead of stacking adjacent.
+
+See `crates/mermaid-text/CHANGELOG.md` for technical detail on each
+fix and the failing-reproduction tests guarding against regression.
+
 ## [1.34.51] — 2026-05-03
 
 ### Fixed — xy-chart line markers now appear on every data point (mermaid-text 0.42.3)
