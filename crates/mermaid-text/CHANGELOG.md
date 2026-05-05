@@ -7,8 +7,10 @@ This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 
 This release ships the renderer-side fixes from the launch-quality
 plan (`docs/scope-launch-quality-plan-2026-05-04.md`). 4 of 9 catalogued
-bugs got real fixes; 5 are documented as known limitations with
-`#[ignore]`d tests pinning the future work.
+bugs got real fixes; 5 are documented as known limitations — three
+(Bugs 1, 5, B1) pinned by `#[ignore]`d failing-reproduction tests so
+the targets stay in tree, and two (Bug 6, E1) documented in the
+gallery with concrete workarounds.
 
 ### Fixed
 
@@ -46,7 +48,9 @@ bugs got real fixes; 5 are documented as known limitations with
   the inner `direction TB` override.
 - **Bug 5** — Excess vertical canvas / unshared back-edge corridors.
   Fix would require a perimeter-aware reduction of `SAME_AXIS_COST`
-  in the A* router; complications across both backends.
+  in the A* router; complications across both backends. Pinned by
+  `#[ignore]`d test `back_edges_share_return_corridor` (currently
+  renders 11 lines, target ≤ 9 with corridor sharing).
 - **Bug 6** — Edge labels in TB-inside-LR subgraphs land far from
   their endpoints. Documented in the gallery with three workarounds.
 - **B1** — Terminal-state `[*]` sinks not promoted to last layer

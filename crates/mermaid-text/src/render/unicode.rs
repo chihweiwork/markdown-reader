@@ -3661,6 +3661,71 @@ if_state --> False: !condition";
         }
     }
 
+    /// **Known limitation (Bug 5, deferred from Phase 3.B)**: every
+    /// back-edge in an LR (or TB) graph carves its OWN return corridor
+    /// row below (or beside) the main chain. Two back-edges that both
+    /// return from the right half to the left half of the diagram should
+    /// share a single corridor row — the A* router currently doesn't
+    /// reward route reuse on the perimeter, so each back-edge picks a
+    /// unique row to avoid the (artificially high) crossing-cost of
+    /// stepping onto an already-occupied edge cell.
+    ///
+    /// The fix is a perimeter-aware reduction of `SAME_AXIS_COST` so
+    /// that two back-edges flowing in the same direction along the
+    /// perimeter merge onto a shared row, reducing total canvas height.
+    /// Estimated snapshot churn was ≤ 40 files; complications across
+    /// both backends (Native + Sugiyama) push it past the launch
+    /// window's 2-session ceiling. Pinned by `#[ignore]`d test.
+    ///
+    /// Fixture: 5-node LR chain with 2 back-edges (E→A, D→B). Current
+    /// render is 11 lines tall: 5 lines for the box row, 1 for source
+    /// line, 1 for label, and ~4 for the two separate return corridors.
+    /// With corridor sharing the two back-edges merge onto one perimeter
+    /// row, saving 2 lines.
+    ///
+    /// This test is `#[ignore]`d so it doesn't block CI but stays as a
+    /// pinned target for future work — when Bug 5 is implemented, remove
+    /// the `#[ignore]` and verify the assertion passes.
+    ///
+    /// Trap-check: a render that produces empty output, or fails to lay
+    /// out the chain, has < 5 lines and thus also passes `<= 9`. So the
+    /// test additionally requires that the canonical box content (`A`,
+    /// `B`, `C`, `D`, `E` boxes inside `│ X │` borders) is present —
+    /// a trivially-broken render fails on the count.
+    #[test]
+    #[ignore = "Bug 5: back-edges don't share return corridors (deferred — needs perimeter-aware A* cost)"]
+    fn back_edges_share_return_corridor() {
+        let src = "graph LR
+    A --> B --> C --> D --> E
+    E -->|back1| A
+    D -->|back2| B";
+        let out = crate::render(src).expect("render must succeed");
+        let lines: Vec<&str> = out.lines().collect();
+        let height = lines.len();
+
+        // Trap-check: confirm boxes for all 5 chain members are rendered.
+        // A no-op render or one that swallows nodes would have < 5 boxes
+        // and trivially pass the height bound.
+        let box_count = ["│ A │", "│ B │", "│ C │", "│ D │", "│ E │"]
+            .iter()
+            .filter(|needle| lines.iter().any(|l| l.contains(*needle)))
+            .count();
+        assert_eq!(
+            box_count, 5,
+            "trap-check: not all 5 chain boxes rendered ({box_count}/5).\nFull:\n{out}"
+        );
+
+        // Bug 5 assertion: with corridor sharing, total height should be
+        // ≤ 9 lines. Current rendering produces 11 lines because each
+        // back-edge gets its own perimeter row.
+        assert!(
+            height <= 9,
+            "diagram height {height} > 9 — back-edges aren't sharing the \
+             return corridor. Two back-edges in a 5-node chain should \
+             merge onto one perimeter row.\nFull:\n{out}"
+        );
+    }
+
     /// Bug 7 — Perimeter back-edge labels must be placed near the SOURCE,
     /// not at the midpoint of the perimeter return run. The longest-
     /// horizontal-segment heuristic chooses the perimeter run's midpoint,

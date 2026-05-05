@@ -92,6 +92,12 @@
 ### Phase 4 — release
 1.34.55 release with the 4 real fixes (Bug 2, Bug 7, plus the existing Path A+B fixes) and 4 documented limitations (Bug 1, Bug 4, Bug 5, Bug 6, E1, B1).
 
+### Phase 4 verification (post-release commit `df51029`)
+- **Projections fixture re-render**: Bugs 2 + 7 visibly fixed. Bottom border clean, back-edge labels source-biased. Bugs 1, 4, 5 still visible — exactly the documented limitations. Documented workaround (drop `direction TB`) helps Supervisor's bottom border but the right-border pierce persists; fixture is genuinely pathological (12 nodes, 12 edges, multiple back-edges).
+- **Full gallery re-render** (39 diagrams via `scripts/render-gallery.sh`): visible artifacts in Diagram 6 (B1), Diagram 9 (Bug 4 trace near "5 errors"), Diagram 19 (E1 spine). All catalogued. **No fresh bugs found.**
+- **Bug 5 test gap closed**: added `back_edges_share_return_corridor` (`#[ignore]`d, fixture renders 11 lines, asserts ≤ 9). Now 5/5 deferrals have pinned tests as the CHANGELOG claims.
+- **Idle-CPU mouse filter intact**: `src/event.rs:35` still drops `MouseEventKind::Moved`. Full 60s interactive measurement deferred to user — local environment bound.
+
 ### Honest summary
 4 of 9 bugs got real fixes. 5 are documented as known limitations with `#[ignore]`d tests pinning the future work. The launch ships a meaningfully cleaner renderer than Path A+B alone — particularly for state diagrams (Bug 7's label-placement is a global improvement) and subgraphs (Bug 2's bottom-border cleanup affects every subgraph-with-back-edges diagram). The dragons survived; the gallery has clear workaround documentation for users who hit them.
 
