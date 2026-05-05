@@ -504,6 +504,17 @@ single-row layout would exceed it), the renderer wraps entities into a
 use the existing horizontal routing; cross-row relationships route via a
 vertical spine on the right margin of the canvas.
 
+> **Known limitation — spine label alignment.** When 3+ cross-row
+> relationships share the right-margin spine, their labels are right-
+> aligned near the spine column on adjacent rows. Each label is on a
+> distinct row, but the right-edge alignment makes them appear visually
+> stacked — disambiguating which label belongs to which relationship
+> requires tracing the spine path. A future per-label horizontal offset
+> would distribute the labels across columns; not yet implemented.
+> Workaround: keep ER diagrams to ≤ 5 entities OR phrase relationships
+> as same-row when possible (the single-row layout has more room for
+> labels).
+
 ```mermaid
 erDiagram
     CUSTOMER ||--o{ ORDER : places
