@@ -12,5 +12,6 @@ expression: constrained
                   │                          │┆╭───────────────────────────────╮
                   │                          │┆│    Open state rejects all     │
                   │                          │─│ traffic for cool-down period. │
-                  │            5 errors      │ ╰───────────────────────────────╯
+                  │                          │ ╰───────────────────────────────╯
                   └──────────────────────────┘
+                                         5 errors

@@ -1872,10 +1872,39 @@ fn candidate_positions(
                  lo_col: usize,
                  hi_col: usize,
                  exclude_row: Option<usize>| {
-                    // Three column anchors: midpoint first, then 1/3 and 2/3
-                    // positions along the segment for more fallback variety.
+                    // Three column anchors. For forward edges: midpoint first,
+                    // then 1/3 and 2/3. For back-edges: SOURCE-side first, then
+                    // 1/3-from-source, then midpoint. The source-side bias
+                    // keeps perimeter-back-edge labels near where the route
+                    // departs the source rather than mid-perimeter (Bug 7 — the
+                    // `done` label on `F -->|done| A` was floating mid-route).
+                    //
+                    // For LR back-edges the source is to the RIGHT of the
+                    // destination, so the segment's source-side end is `hi_col`.
+                    // For RL it's `lo_col`. We pick the side closest to the
+                    // path's first cell: that's the topological source for
+                    // LR/RL irrespective of the perimeter direction.
                     let third = (hi_col - lo_col) / 3;
-                    let col_anchors = [mid_col, lo_col + third, lo_col + 2 * third];
+                    let col_anchors = if edge_is_back {
+                        // Source-side bias: prefer the endpoint nearest the
+                        // path's first cell.  We don't have direct access to
+                        // path[0] here, but for LR back-edges the convention
+                        // is source-on-right (so hi_col is source-side); for
+                        // RL it's source-on-left.
+                        match dir {
+                            Direction::LeftToRight => [
+                                hi_col.saturating_sub(lbl_w / 2),
+                                lo_col + 2 * third,
+                                mid_col,
+                            ],
+                            Direction::RightToLeft => {
+                                [lo_col + lbl_w / 2, lo_col + third, mid_col]
+                            }
+                            _ => [mid_col, lo_col + third, lo_col + 2 * third],
+                        }
+                    } else {
+                        [mid_col, lo_col + third, lo_col + 2 * third]
+                    };
                     // Row offsets: alternate above/below in growing distance
                     // so nearby rows are tried before far-away ones.
                     let row_offsets: [isize; 8] = [-1, 1, -2, 2, -3, 3, -4, 4];
@@ -3548,6 +3577,89 @@ if_state --> False: !condition";
                     .collect::<Vec<_>>()
             );
         }
+    }
+
+    /// Bug 7 — Perimeter back-edge labels must be placed near the SOURCE,
+    /// not at the midpoint of the perimeter return run. The longest-
+    /// horizontal-segment heuristic chooses the perimeter run's midpoint,
+    /// which lands the label visually disconnected from both endpoints
+    /// for any non-trivial perimeter run.
+    ///
+    /// Fixture: 6-node LR chain with a back-edge from F (rightmost) to
+    /// A (leftmost). The back-edge routes via the perimeter row below
+    /// the diagram body and the longest segment is the long left-going
+    /// horizontal run.
+    ///
+    /// Fix: for back-edges, bias `col_anchors` to put the source-side
+    /// endpoint first so the label lands within ~1/3 of the path from
+    /// the source rather than mid-perimeter.
+    ///
+    /// Trap-check: a no-op render produces no "done" label — the lookup
+    /// fails and the test panics. The Manhattan-distance bound (≤ 15
+    /// cells from F or A) cannot be satisfied without actually moving
+    /// the label closer to an endpoint.
+    #[test]
+    fn perimeter_back_edge_label_close_to_endpoint() {
+        let src = "flowchart LR
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F -->|done| A";
+        let out = crate::render(src).expect("render must succeed");
+        let lines: Vec<Vec<char>> = out.lines().map(|l| l.chars().collect()).collect();
+
+        // Find char-position of a label or single-char target in a row.
+        let find_char = |line: &[char], needle: char| line.iter().position(|&c| c == needle);
+        let find_substr = |line: &[char], s: &str| -> Option<usize> {
+            let chars: Vec<char> = s.chars().collect();
+            line.windows(chars.len()).position(|w| w == chars.as_slice())
+        };
+
+        let (label_row, label_col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(r, l)| find_substr(l, "done").map(|c| (r, c)))
+            .expect("'done' label missing");
+
+        // F and A are inside a `│ X │` box. Find the row containing the box
+        // (a row with both `│` and the letter), then locate the letter's
+        // CHAR column (not byte position — UTF-8 box-drawing chars are 3
+        // bytes each and would throw off Manhattan-distance arithmetic
+        // across rows of different glyph density).
+        let (f_row, f_col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(r, l)| {
+                if l.contains(&'│') {
+                    find_char(l, 'F').map(|c| (r, c))
+                } else {
+                    None
+                }
+            })
+            .expect("F box row missing");
+
+        let (a_row, a_col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(r, l)| {
+                if l.contains(&'│') {
+                    find_char(l, 'A').map(|c| (r, c))
+                } else {
+                    None
+                }
+            })
+            .expect("A box row missing");
+
+        let d_f = label_col.abs_diff(f_col) + label_row.abs_diff(f_row);
+        let d_a = label_col.abs_diff(a_col) + label_row.abs_diff(a_row);
+
+        assert!(
+            d_f <= 15 || d_a <= 15,
+            "label 'done' at ({label_col},{label_row}) is far from F ({f_col},{f_row}) \
+             dist={d_f} AND from A ({a_col},{a_row}) dist={d_a}\nFull:\n{out}"
+        );
     }
 
     /// Bug 4 — Regression guard. With a high-fan-out hub (Worker → 5
