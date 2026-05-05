@@ -1473,17 +1473,18 @@ fn draw_subgraph_border(grid: &mut Grid, bounds: &SubgraphBounds, style: Option<
     if !label.is_empty() {
         grid.write_text_protected(label_col, label_row, &label);
     }
-    // Clear seeded dir-bits across the ENTIRE top border line (excluding
-    // corners). The previous fix only cleared label-letter cells, but
-    // `seed_border_dirs` had marked DIR_LEFT|DIR_RIGHT on every cell from
-    // (col+1)..(col+w-1) — so an edge crossing the title row at a non-letter
-    // column would still trip `add_dirs` and stamp a `┼`/`┬`/`┴` junction
-    // INSIDE the title bar (gallery example: `╭─Backend─┼────╮`). Junctions
-    // remain enabled on the BOTTOM border because that border carries no label
-    // and visualising route entry/exit there is desirable. Pinned by
-    // `subgraph_title_row_has_no_junction_glyphs`.
+    // Clear seeded dir-bits across BOTH the top AND bottom border lines
+    // (excluding corners). The G2 fix originally only cleared the top —
+    // the assumption was that bottom-border junctions disambiguate route
+    // entry/exit. In practice with high-fan-out members (Worker exiting a
+    // Supervisor with 3+ outgoing edges to other layers) the bottom border
+    // accumulates 3+ `┼`/`┬`/`┴` stamps, reading as visual noise rather
+    // than disambiguation. Bug 2 mirrors the G2 clear to the bottom row.
+    // Pinned by `subgraph_title_row_has_no_junction_glyphs` (top) AND
+    // `subgraph_bottom_border_has_at_most_one_junction_glyph` (bottom).
     for x in (col + 1)..(col + w - 1) {
         grid.clear_dirs(x, row);
+        grid.clear_dirs(x, row + h - 1);
     }
 }
 
@@ -3547,6 +3548,66 @@ if_state --> False: !condition";
                     .collect::<Vec<_>>()
             );
         }
+    }
+
+    /// Bug 2 — A subgraph whose BOTTOM border is crossed by 2+ back-edge
+    /// or fan-out routes must not stamp `┼ ┬ ┴ ├ ┤` on every crossing
+    /// cell. The G2 fix cleared seeded direction bits on the TOP border
+    /// (which carries the label); this is the symmetric clear for the
+    /// BOTTOM border. Visible artifact in the projections gallery
+    /// fixture: `╰┼──────────┼────────┼──────╯` — three junction stamps
+    /// where multiple Worker outgoing edges pierce Supervisor's bottom
+    /// border. The dense junctions read as visual noise.
+    ///
+    /// Reproduction source matches the structural shape of the projections
+    /// fixture (Supervisor with 3+ external outgoing edges from a member),
+    /// which is when the count exceeds 1.
+    ///
+    /// Trap-check: a trivially-broken implementation that drew NO bottom
+    /// border would lack `╰` and `╯` corners — the lookup `find` would
+    /// fail and the test would panic before reaching the count assertion.
+    /// A no-op render also produces no `Worker`/`Heartbeat` content so
+    /// would render to nothing relevant. The strict `<=1` count cannot be
+    /// satisfied except by a real fix that suppresses the seeded dirs.
+    #[test]
+    fn subgraph_bottom_border_has_at_most_one_junction_glyph() {
+        let src = "graph LR
+    subgraph Supervisor
+        direction TB
+        F[Factory] -->|creates| W[Worker]
+        W -->|panics/exits| F
+    end
+    W -->|beat every cycle| HB[Heartbeat]
+    HB -->|checked every 10s| WD[Watchdog]
+    WD -->|stall > 120s| CT[Cancel Token]
+    CT -->|stops| W
+    W -->|check before DB call| CB{Circuit Breaker}
+    W -->|acquire permit| SEM[Semaphore]";
+        let out = crate::render(src).expect("render must succeed");
+        let lines: Vec<&str> = out.lines().collect();
+
+        // Bottom border row of the subgraph: contains both `╰` and `╯`
+        // (rounded BL and BR corners) AND nothing alphanumeric (so we
+        // don't pick up some other line containing curly chars).
+        let br_line = lines
+            .iter()
+            .find(|l| {
+                l.contains('\u{2570}')
+                    && l.contains('\u{256F}')
+                    && !l.chars().any(|c| c.is_alphanumeric())
+            })
+            .expect("subgraph bottom-border row missing");
+
+        let junctions = ['\u{253C}', '\u{252C}', '\u{2534}', '\u{251C}', '\u{2524}'];
+        let count = br_line
+            .chars()
+            .filter(|c| junctions.contains(c))
+            .count();
+        assert!(
+            count <= 1,
+            "subgraph bottom border has {count} junction glyph(s); expected ≤ 1. \
+             Line: {br_line:?}\n\nFull output:\n{out}"
+        );
     }
 
     /// Stronger sibling of `route_does_not_pierce_subgraph_title_row`: the
