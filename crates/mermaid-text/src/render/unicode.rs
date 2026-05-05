@@ -3809,6 +3809,95 @@ if_state --> False: !condition";
         );
     }
 
+    /// **Known limitation (Bug 4, attempted 2026-05-05, reverted)**: a
+    /// "diamond join" topology (4 sources fanning into 1 sink) puts
+    /// route corners in the halo columns of nodes that are NOT
+    /// endpoints of those routes. Visible artifact: `│ B │├────┐`
+    /// where B's right halo column carries a `├` from a route between
+    /// A and Z that B has nothing to do with.
+    ///
+    /// Tried fix: add `Obstacle::NearNodeBox` cost class (1-cell halo
+    /// around every node box) modeled after libavoid's
+    /// `shapeBufferDistance`. Implementation worked in isolation — the
+    /// failing assertion below turned green at every penalty value
+    /// from 1.0 to 6.0. But the change rippled into other tests:
+    /// `back_edge_attach_does_not_pierce_source_perimeter` failed
+    /// because forward edges around Running shifted, displacing the
+    /// `┴` exit-stub into a `┤` cell;
+    /// `edge_labels_not_flush_against_thick_or_dotted_lines` failed
+    /// because routes detoured into rows where labels then landed
+    /// flush against thick `┃` glyphs. Tried "corner-only" halo
+    /// penalty (only penalize corner steps in halo cells) — broke the
+    /// state-diagram exit stub even harder because routes started
+    /// going DEEPER into halos before turning, instead of turning at
+    /// the box-adjacent cell.
+    ///
+    /// Conclusion: the libavoid blueprint exempts only the source/
+    /// destination *cell*, but in practice on the ASCII grid the
+    /// load-bearing convention is exempting the source box's entire
+    /// bottom-edge halo (where back-edge exit stubs render) and the
+    /// destination box's perimeter approach (where forward-edge
+    /// attach glyphs render). Encoding that needs per-edge-type
+    /// awareness in A* — out of scope for a router-local fix.
+    /// Defer to a post-routing nudging pass (Wybrow 2009 §4) that
+    /// can move corners off halos without forcing A* to navigate
+    /// blind. Pinned by `#[ignore]`d test below.
+    ///
+    /// Trap-check: the fixture's 4 source boxes (A, B, C, D) and sink
+    /// (Z) must all be rendered. A no-op render that swallows nodes
+    /// would have no halos to pierce and trivially "pass" the
+    /// assertion.
+    #[test]
+    #[ignore = "Bug 4: route corners in non-endpoint halos (deferred — needs post-routing nudging pass, not router-local cost change)"]
+    fn route_corners_clear_non_endpoint_node_halos() {
+        let src = "graph LR
+    A --> Z
+    B --> Z
+    C --> Z
+    D --> Z";
+        let out = crate::render(src).expect("render must succeed");
+        let lines: Vec<Vec<char>> = out.lines().map(|l| l.chars().collect()).collect();
+
+        let needle: Vec<char> = "│ B │".chars().collect();
+        let (b_row, b_col) = lines
+            .iter()
+            .enumerate()
+            .find_map(|(r, l)| {
+                l.windows(needle.len())
+                    .position(|w| w == needle.as_slice())
+                    .map(|c| (r, c))
+            })
+            .expect("trap-check: B box not rendered (fixture render is broken)");
+
+        for label in ["│ A │", "│ C │", "│ D │", "│ Z │"] {
+            let n: Vec<char> = label.chars().collect();
+            let found = lines
+                .iter()
+                .any(|l| l.windows(n.len()).any(|w| w == n.as_slice()));
+            assert!(found, "trap-check: {label} not rendered. Full:\n{out}");
+        }
+
+        let halo_col = b_col + 5;
+        let mut bad_glyphs = Vec::new();
+        for r in b_row.saturating_sub(1)..=b_row + 1 {
+            let ch = lines.get(r).and_then(|l| l.get(halo_col)).copied().unwrap_or(' ');
+            if matches!(
+                ch,
+                '\u{250C}' | '\u{2510}' | '\u{2514}' | '\u{2518}'
+                    | '\u{252C}' | '\u{2534}' | '\u{251C}' | '\u{2524}'
+                    | '\u{253C}'
+            ) {
+                bad_glyphs.push((r, ch));
+            }
+        }
+        assert!(
+            bad_glyphs.is_empty(),
+            "B is not on any A↔Z route, but its right halo column ({halo_col}) \
+             carries route corners {bad_glyphs:?}. Edges should detour around \
+             non-endpoint node halos.\nFull:\n{out}"
+        );
+    }
+
     /// Bug 4 — Regression guard. With a high-fan-out hub (Worker → 5
     /// downstream nodes), routes splay outward and DON'T concentrate
     /// against Worker's border on a clean topology. The visible "hugging"
