@@ -3550,6 +3550,81 @@ if_state --> False: !condition";
         }
     }
 
+    /// Bug 3 — Regression guard. A decision diamond `{Label}` is registered
+    /// as a rectangular `NodeBox` obstacle so A* cannot route any edge
+    /// THROUGH the diamond's interior. This test pins that contract: render
+    /// a flowchart where a diamond sits between routes that have a
+    /// straight-line path through the diamond's bounding rectangle, and
+    /// assert no cross-junction (`┼`) appears inside the diamond's interior
+    /// (the label-area row, excluding the diamond's own `│` borders).
+    ///
+    /// The user originally suspected this was a real bug in the projections
+    /// fixture; on inspection the visible artifact was actually Bug 4 (routes
+    /// hugging the diamond's RIGHT EDGE), not piercing the interior. So this
+    /// test is a guard against future routing-cost-tweaks (e.g. Bug 4's
+    /// NearNodeBox halo) accidentally allowing diamonds to be traversed.
+    ///
+    /// Trap-check: if the diamond is rendered as a rectangle (no `╱`/`╲`),
+    /// the corner-find fails and the test panics before the assertion. If
+    /// the routes vanish entirely (no `│` anywhere outside the diamond),
+    /// the diagram has no edges to potentially pierce — also a trap. The
+    /// test asserts both edges-exist AND interior-clean.
+    #[test]
+    fn diamond_interior_has_no_routing_glyphs() {
+        let src = "flowchart LR
+    A --> B{Decision}
+    A --> C[Cached]
+    B --> D[Done]
+    C --> D";
+        let out = crate::render(src).expect("render must succeed");
+        let lines: Vec<Vec<char>> = out.lines().map(|l| l.chars().collect()).collect();
+
+        // Diamond corners: top is `╱─...─╲`, mid is `│ Decision │`,
+        // bottom is `╲─...─╱`. Find any line containing both `╱` and `╲`.
+        let top_idx = lines
+            .iter()
+            .position(|l| l.contains(&'\u{2571}') && l.contains(&'\u{2572}'))
+            .expect("diamond top corner row missing — `╱` and `╲` not both found");
+        let bot_idx = (top_idx + 1..lines.len())
+            .find(|&i| lines[i].contains(&'\u{2572}') && lines[i].contains(&'\u{2571}'))
+            .expect("diamond bottom corner row missing");
+        // Diamond's left and right column extents from the top row.
+        let left = lines[top_idx]
+            .iter()
+            .position(|&c| c == '\u{2571}')
+            .unwrap();
+        let right = lines[top_idx]
+            .iter()
+            .rposition(|&c| c == '\u{2572}')
+            .unwrap();
+
+        // Edges must exist somewhere outside the diamond — guard against a
+        // no-op render that has no routes at all.
+        let any_edge_glyph = lines.iter().any(|l| {
+            l.iter().enumerate().any(|(c, &ch)| {
+                ch == '\u{2502}' && (c < left.saturating_sub(1) || c > right + 1)
+            })
+        });
+        assert!(
+            any_edge_glyph,
+            "no edge glyphs anywhere outside the diamond — render is a no-op:\n{out}"
+        );
+
+        // Interior rows: between top and bottom, columns strictly between
+        // diamond's outermost `╱`/`╲`. No `┼` (cross-junction) allowed —
+        // that would indicate two routes crossing inside the diamond.
+        for r in (top_idx + 1)..bot_idx {
+            for c in (left + 2)..(right - 1) {
+                let ch = lines[r].get(c).copied().unwrap_or(' ');
+                assert_ne!(
+                    ch, '\u{253C}',
+                    "cross-junction `┼` at ({c},{r}) inside diamond bbox \
+                     [{left}..={right}, {top_idx}..={bot_idx}].\nFull:\n{out}"
+                );
+            }
+        }
+    }
+
     /// Bug 2 — A subgraph whose BOTTOM border is crossed by 2+ back-edge
     /// or fan-out routes must not stamp `┼ ┬ ┴ ├ ┤` on every crossing
     /// cell. The G2 fix cleared seeded direction bits on the TOP border
