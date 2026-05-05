@@ -3,35 +3,50 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-## Unreleased — Parser-syntax follow-ups
+## 0.44.0 — 2026-05-05 — Bug 4 + parser fan-out + inline edge labels
 
-### Known limitations (deferred with `#[ignore]`d tests)
+### Fixed
 
-- **P1 — `A & B --> C` fan-out shorthand not parsed.** Mermaid's
-  multi-source / multi-target syntax (where `&` lists nodes that
-  share an arrow) collapses into a single node with label `"A & B"`
-  instead of expanding into the two edges `A → C` and `B → C`.
-  Surfaced 2026-05-05 by an external file (intuition-v2
-  `personal_notes.md`'s recommendation-engine notes).
-  Workaround: write each edge on its own line.
-  Pinned by `#[ignore]`d test
-  `parser::flowchart::tests::ampersand_fanout_expands_to_multiple_edges`.
+- **Bug 4 — Foreign-halo eviction.** Routes that ran through the 1-cell
+  halo of a non-endpoint node now shift outward, with bridges in the
+  adjacent path segments. The visible artifact `│ B │├────┐` (B's right
+  halo column carrying a `├` from a route between A and Z) becomes a
+  clean `│ B │─┼───┐` with the corner pulled out to col 6. Operates as a
+  second scan in `crate::layout::nudge::evict_foreign_halo_runs`,
+  reusing the parallel-corridor merge's `apply_shifts` infrastructure.
+  Skips edges with text labels (label placement needs adjacent free
+  space). One eviction per render call by design — see the docstring
+  for the rationale and the path forward if a future fixture needs more.
+  Pinned by `route_corners_clear_non_endpoint_node_halos`
+  (un-`#[ignore]`d).
 
-- **P2 — Inline-label syntax for dotted/thick edges not parsed.**
-  `A -.LABEL.-> B` and `A ==LABEL==> B` collapse the entire line
-  into a single node label. The pipe-delimited form is supported
-  (`A -.->|LABEL| B`, `A ==>|LABEL| B`). Surfaced 2026-05-05 in the
-  same file as P1.
-  Workaround: use pipe-delimited labels.
-  Pinned by `#[ignore]`d test
-  `parser::flowchart::tests::inline_dotted_label_parses_as_edge_label`.
+- **P1 — `A & B --> C` fan-out shorthand now expands into the cross
+  product of edges.** Both LHS and RHS of the arrow can carry `&` lists,
+  with the cartesian-product semantics matching Mermaid's spec. Node
+  shapes, classes, and labels are preserved per side. New
+  `DelimiterDepth` helper tracks bracket nesting so `&` inside a label
+  (e.g. `A[a & b]`) doesn't trigger the split.
 
-These are Mermaid syntax features that the launch-quality plan
-(`docs/scope-launch-quality-plan-2026-05-04.md`) didn't cover —
-its 9-bug scope was rendering-side. Both have a clear Mermaid-spec
-target (URLs in the test docstrings) and a workaround already
-available, so they can be addressed in a future minor release
-without blocking renderer-side work.
+- **P2 — Inline-label syntax for dotted/thick edges (`A -.LABEL.-> B`,
+  `A ==LABEL==> B`) now parses as a labeled edge** instead of collapsing
+  into one giant node label. Internally normalised to the pipe-label
+  form (`-.->|LABEL|`, `==>|LABEL|`) so downstream label handling needs
+  no changes.
+
+### Refactored
+
+- Extracted `materialize_node_token` as the shared path between
+  pure-node statements and edge-chain operands; eliminated the
+  duplicated class-stripping + node-shape-parsing logic.
+- Replaced the keyword-list-based `looks_like_edge_chain` with a
+  call to `tokenise_chain` — the tokenizer is now the single source
+  of truth for "is this a node-or-edge sequence."
+- Added `Grid::can_draw_path_cell` and `Grid::cols` helpers consumed
+  by the nudging pass's feasibility checks.
+- Internal: `count_crossings_in_grid` iterates cells directly instead
+  of allocating a String.
+
+## 0.43.0 — 2026-05-05 — Post-routing nudging pass + B1 + Bug 1
 
 ## 0.43.0 — 2026-05-05 — Post-routing nudging pass + B1 + Bug 1
 

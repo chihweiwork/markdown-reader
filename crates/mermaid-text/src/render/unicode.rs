@@ -705,13 +705,17 @@ fn render_inner(
         |edge_idx| edge_is_back_flags.get(edge_idx).copied().unwrap_or(false),
     );
 
-    // Post-routing nudging pass: merges co-directional parallel
-    // back-edge corridors (Bug 5). Phase D (Bug 4 corner-in-halo)
-    // is deferred — see nudge.rs docstring for details.
+    // Post-routing nudging pass: merges co-directional parallel back-edge
+    // corridors (Bug 5) and evicts route runs from non-endpoint node halos
+    // (Bug 4). Operates on path data rather than A* costs so the router's
+    // load-bearing direction-bit conventions stay intact.
+    let edge_has_label: Vec<bool> = graph.edges.iter().map(|e| e.label.is_some()).collect();
     crate::layout::nudge::run(
         &mut grid,
         &mut paths,
         &edge_is_back_flags,
+        &edge_has_label,
+        &node_rects,
         |edge_idx| {
             if edge_is_back_flags.get(edge_idx).copied().unwrap_or(false) {
                 tip_char_for_back_edge(graph.direction)
@@ -1746,8 +1750,7 @@ fn label_touches_path_corner(col: usize, row: usize, w: usize, grid: &Grid) -> b
     const CORNERS: &[char] = &[
         '┘', '└', '┐', '┌', '┤', '├', '┬', '┴', '┼',
         // Thick/double variants used by some edges or borders.
-        '╯', '╰', '╮', '╭',
-        // T-junctions that appear in back-edge routing.
+        '╯', '╰', '╮', '╭', // T-junctions that appear in back-edge routing.
         '▴', '▾', '▸', '◂',
         // Thick line styles: labels flush against these visually merge.
         '\u{2501}', '\u{2503}', // ━ ┃
@@ -1913,9 +1916,7 @@ fn candidate_positions(
                                 lo_col + 2 * third,
                                 mid_col,
                             ],
-                            Direction::RightToLeft => {
-                                [lo_col + lbl_w / 2, lo_col + third, mid_col]
-                            }
+                            Direction::RightToLeft => [lo_col + lbl_w / 2, lo_col + third, mid_col],
                             _ => [mid_col, lo_col + third, lo_col + 2 * third],
                         }
                     } else {
@@ -3031,17 +3032,20 @@ mod tests {
         // adjacent. The relaxed check preserves the original intent (no
         // floating labels in the void) while admitting the A3 placement.
         let lines: Vec<&str> = out.lines().collect();
-        let has_edge_glyph =
-            |line: &str| line.chars().any(|c| matches!(c,
-                '─' | '┄' | '━' | '│' | '┆' | '┃' | '▸' | '▹' | '▶' | '╱' | '╲'
-            ));
+        let has_edge_glyph = |line: &str| {
+            line.chars().any(|c| {
+                matches!(
+                    c,
+                    '─' | '┄' | '━' | '│' | '┆' | '┃' | '▸' | '▹' | '▶' | '╱' | '╲'
+                )
+            })
+        };
         for label in &["dashed label", "thick label"] {
             let label_row_idx = lines
                 .iter()
                 .position(|l| l.contains(label))
                 .unwrap_or_else(|| panic!("{label:?} not found in output:\n{out}"));
-            let neighbours = label_row_idx.saturating_sub(1)
-                ..(label_row_idx + 2).min(lines.len());
+            let neighbours = label_row_idx.saturating_sub(1)..(label_row_idx + 2).min(lines.len());
             let connected = neighbours.clone().any(|i| has_edge_glyph(lines[i]));
             assert!(
                 connected,
@@ -3384,9 +3388,7 @@ if_state --> False: !condition";
                     note_left = Some(l);
                     note_right = Some(rr);
                 }
-            } else if note_top.is_some()
-                && line.contains(&'\u{2570}')
-                && line.contains(&'\u{256F}')
+            } else if note_top.is_some() && line.contains(&'\u{2570}') && line.contains(&'\u{256F}')
             {
                 let l = line.iter().position(|&c| c == '\u{2570}').unwrap();
                 let rr = line.iter().rposition(|&c| c == '\u{256F}').unwrap();
@@ -3842,7 +3844,8 @@ if_state --> False: !condition";
         let find_char = |line: &[char], needle: char| line.iter().position(|&c| c == needle);
         let find_substr = |line: &[char], s: &str| -> Option<usize> {
             let chars: Vec<char> = s.chars().collect();
-            line.windows(chars.len()).position(|w| w == chars.as_slice())
+            line.windows(chars.len())
+                .position(|w| w == chars.as_slice())
         };
 
         let (label_row, label_col) = lines
@@ -3890,54 +3893,12 @@ if_state --> False: !condition";
         );
     }
 
-    /// **Known limitation (Bug 4, attempted 2026-05-05, reverted)**: a
-    /// "diamond join" topology (4 sources fanning into 1 sink) puts
-    /// route corners in the halo columns of nodes that are NOT
-    /// endpoints of those routes. Visible artifact: `│ B │├────┐`
-    /// where B's right halo column carries a `├` from a route between
-    /// A and Z that B has nothing to do with.
+    /// Bug 4 — fan-in routes must not stamp junction/corner glyphs in the
+    /// 1-cell halo of nodes that are not endpoints of those routes.
     ///
-    /// Tried fix: add `Obstacle::NearNodeBox` cost class (1-cell halo
-    /// around every node box) modeled after libavoid's
-    /// `shapeBufferDistance`. Implementation worked in isolation — the
-    /// failing assertion below turned green at every penalty value
-    /// from 1.0 to 6.0. But the change rippled into other tests:
-    /// `back_edge_attach_does_not_pierce_source_perimeter` failed
-    /// because forward edges around Running shifted, displacing the
-    /// `┴` exit-stub into a `┤` cell;
-    /// `edge_labels_not_flush_against_thick_or_dotted_lines` failed
-    /// because routes detoured into rows where labels then landed
-    /// flush against thick `┃` glyphs. Tried "corner-only" halo
-    /// penalty (only penalize corner steps in halo cells) — broke the
-    /// state-diagram exit stub even harder because routes started
-    /// going DEEPER into halos before turning, instead of turning at
-    /// the box-adjacent cell.
-    ///
-    /// **Second attempt (2026-05-05 — Phase D of nudging-pass plan)**:
-    /// implemented single-path corner displacement in
-    /// `crate::layout::nudge::plan_corner_displacements`. The bend
-    /// detection was correct, but the diamond_join fixture's `├`
-    /// glyph ISN'T a single-path bend — it's a JUNCTION of two
-    /// paths' separate bits (one path transits vertically through
-    /// the cell, another path's source-attach contributes its
-    /// horizontal exit-bit). Each path individually has NO bend
-    /// inside B's halo, so the corner-displacement scan finds
-    /// nothing to shift.
-    ///
-    /// The correct fix needs **segment-level eviction**: detect
-    /// runs of cells in non-endpoint halos and shift the entire
-    /// run perpendicular to its axis, with bridges in the adjacent
-    /// segments. This is a 2-3× expansion of the nudge module's
-    /// scope (additional shift logic for vertical segments, halo-
-    /// run detection across full path length, more aggressive
-    /// feasibility checks). Deferred to a follow-up release.
-    ///
-    /// Trap-check: the fixture's 4 source boxes (A, B, C, D) and sink
-    /// (Z) must all be rendered. A no-op render that swallows nodes
-    /// would have no halos to pierce and trivially "pass" the
-    /// assertion.
+    /// Acceptance fixture: four sources converge into one sink. B's right
+    /// halo column must remain free of foreign `├ ┤ ┬ ┴ ┼` route geometry.
     #[test]
-    #[ignore = "Bug 4: route corners in non-endpoint halos (deferred — needs post-routing nudging pass, not router-local cost change)"]
     fn route_corners_clear_non_endpoint_node_halos() {
         let src = "graph LR
     A --> Z
@@ -3966,34 +3927,49 @@ if_state --> False: !condition";
             assert!(found, "trap-check: {label} not rendered. Full:\n{out}");
         }
 
-        // Strong trap-check: all 4 source routes must reach Z. Without
-        // this, a render that drops some routes would have fewer corners
-        // to pierce halos and could trivially "pass" the halo assertion.
-        // We count arrow tips pointing right (▸ / ▶) anywhere in the
-        // rendering — each route to Z contributes one tip.
-        let arrow_tip_count = lines
-            .iter()
-            .map(|l| {
-                l.iter()
-                    .filter(|&&c| matches!(c, '\u{25B8}' | '\u{25B6}'))
-                    .count()
-            })
-            .sum::<usize>();
-        assert!(
-            arrow_tip_count >= 4,
-            "trap-check: expected ≥4 right-pointing arrow tips (one per route \
-             into Z); found {arrow_tip_count}. A render that drops routes \
-             would pass the halo check vacuously.\nFull:\n{out}"
-        );
+        // Trap-check: each source row must visibly carry an outgoing route in
+        // the halo column immediately right of the box. Fan-in may merge tips
+        // at the sink, so visible arrowheads are not a reliable route count.
+        for label in ["A", "B", "C", "D"] {
+            let needle: Vec<char> = format!("│ {label} │").chars().collect();
+            let (row, col) = lines
+                .iter()
+                .enumerate()
+                .find_map(|(r, l)| {
+                    l.windows(needle.len())
+                        .position(|w| w == needle.as_slice())
+                        .map(|c| (r, c))
+                })
+                .unwrap_or_else(|| panic!("trap-check: {label} box not rendered. Full:\n{out}"));
+            let halo = lines
+                .get(row)
+                .and_then(|l| l.get(col + needle.len()))
+                .copied()
+                .unwrap_or(' ');
+            assert_ne!(
+                halo, ' ',
+                "trap-check: {label} has no visible outgoing route in its source halo.\nFull:\n{out}"
+            );
+        }
 
         let halo_col = b_col + 5;
         let mut bad_glyphs = Vec::new();
         for r in b_row.saturating_sub(1)..=b_row + 1 {
-            let ch = lines.get(r).and_then(|l| l.get(halo_col)).copied().unwrap_or(' ');
+            let ch = lines
+                .get(r)
+                .and_then(|l| l.get(halo_col))
+                .copied()
+                .unwrap_or(' ');
             if matches!(
                 ch,
-                '\u{250C}' | '\u{2510}' | '\u{2514}' | '\u{2518}'
-                    | '\u{252C}' | '\u{2534}' | '\u{251C}' | '\u{2524}'
+                '\u{250C}'
+                    | '\u{2510}'
+                    | '\u{2514}'
+                    | '\u{2518}'
+                    | '\u{252C}'
+                    | '\u{2534}'
+                    | '\u{251C}'
+                    | '\u{2524}'
                     | '\u{253C}'
             ) {
                 bad_glyphs.push((r, ch));
@@ -4061,21 +4037,45 @@ if_state --> False: !condition";
 
         // Existence trap-check: at least one corner glyph somewhere.
         let any_corner = lines.iter().flatten().any(|&c| {
-            matches!(c, '\u{250C}' | '\u{2510}' | '\u{2514}' | '\u{2518}'
-                       | '\u{252C}' | '\u{2534}' | '\u{251C}' | '\u{2524}'
-                       | '\u{253C}')
+            matches!(
+                c,
+                '\u{250C}'
+                    | '\u{2510}'
+                    | '\u{2514}'
+                    | '\u{2518}'
+                    | '\u{252C}'
+                    | '\u{2534}'
+                    | '\u{251C}'
+                    | '\u{2524}'
+                    | '\u{253C}'
+            )
         });
-        assert!(any_corner, "no corner glyphs in render — diagram empty:\n{out}");
+        assert!(
+            any_corner,
+            "no corner glyphs in render — diagram empty:\n{out}"
+        );
 
         // Count corners in the halo column across the rows that contain
         // Worker's box (worker_row-1 .. worker_row+1).
         let mut halo_corners = 0;
         for r in worker_row.saturating_sub(1)..=worker_row + 1 {
-            let ch = lines.get(r).and_then(|l| l.get(halo_col)).copied().unwrap_or(' ');
-            if matches!(ch, '\u{250C}' | '\u{2510}' | '\u{2514}' | '\u{2518}'
-                          | '\u{252C}' | '\u{2534}' | '\u{251C}' | '\u{2524}'
-                          | '\u{253C}')
-            {
+            let ch = lines
+                .get(r)
+                .and_then(|l| l.get(halo_col))
+                .copied()
+                .unwrap_or(' ');
+            if matches!(
+                ch,
+                '\u{250C}'
+                    | '\u{2510}'
+                    | '\u{2514}'
+                    | '\u{2518}'
+                    | '\u{252C}'
+                    | '\u{2534}'
+                    | '\u{251C}'
+                    | '\u{2524}'
+                    | '\u{253C}'
+            ) {
                 halo_corners += 1;
             }
         }
@@ -4137,9 +4137,9 @@ if_state --> False: !condition";
         // Edges must exist somewhere outside the diamond — guard against a
         // no-op render that has no routes at all.
         let any_edge_glyph = lines.iter().any(|l| {
-            l.iter().enumerate().any(|(c, &ch)| {
-                ch == '\u{2502}' && (c < left.saturating_sub(1) || c > right + 1)
-            })
+            l.iter()
+                .enumerate()
+                .any(|(c, &ch)| ch == '\u{2502}' && (c < left.saturating_sub(1) || c > right + 1))
         });
         assert!(
             any_edge_glyph,
@@ -4210,10 +4210,7 @@ if_state --> False: !condition";
             .expect("subgraph bottom-border row missing");
 
         let junctions = ['\u{253C}', '\u{252C}', '\u{2534}', '\u{251C}', '\u{2524}'];
-        let count = br_line
-            .chars()
-            .filter(|c| junctions.contains(c))
-            .count();
+        let count = br_line.chars().filter(|c| junctions.contains(c)).count();
         assert!(
             count <= 1,
             "subgraph bottom border has {count} junction glyph(s); expected ≤ 1. \

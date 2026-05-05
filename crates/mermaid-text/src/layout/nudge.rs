@@ -1,42 +1,28 @@
 //! Post-routing nudging pass.
 //!
-//! Reads the routes produced by `router::route_all` and re-shifts
-//! segments to merge co-directional parallel back-edge corridors
-//! (Bug 5). Phase D will add corner-displacement for non-endpoint
-//! halo cells (Bug 4).
+//! Reads the routes produced by `router::route_all` and makes two targeted
+//! post-processing adjustments:
 //!
-//! The pass operates on path data, not on A\* cost classes. Routing-
-//! time cost tweaks ripple into specific cells with load-bearing
-//! direction-bit conventions (e.g. the `┴` exit stub below a
-//! state-diagram back-edge source); the post-routing approach
-//! preserves those conventions because it only moves BEND cells —
-//! exit stubs have only one axis of bits and are therefore not
-//! candidates for any shift.
+//! 1. Merge adjacent horizontal back-edge corridors (Bug 5).
+//! 2. Evict routed path runs from the 1-cell halo around nodes when that node
+//!    is not an endpoint of the edge (Bug 4).
 //!
-//! Algorithm (Phase C — parallel-merge):
-//! 1. Collect back-edge horizontal-segment occupancy per row.
-//! 2. For two back-edges with horizontal segments on adjacent rows
-//!    (≤ MAX_NUDGE_DISTANCE) AND overlapping col ranges, plan a
-//!    shift that moves the shorter-path back-edge's corridor onto
-//!    the other's row.
-//! 3. Verify feasibility: every cell of the new path must be Free
-//!    or already EdgeOccupied (cross is OK), never NodeBox.
-//! 4. Apply: erase the old path's bits, regenerate the new path,
-//!    draw the new path. Atomic per-shift to avoid race conditions
-//!    between two shifts.
+//! The pass operates on finished paths rather than A* costs. That keeps the
+//! router's attach semantics intact and limits change to paths we can inspect
+//! and re-stamp atomically.
 
 use crate::layout::Grid;
 
-/// Maximum row/col delta between two segments for them to be
-/// considered "adjacent" and candidate for merging. The Bug 5
-/// fixture has back-edges 1 row apart; tolerating up to 3 covers
-/// fixtures with thicker corridor zones.
+/// Maximum row/col delta between two segments for them to be considered
+/// "adjacent" and candidate for merging.
 const MAX_NUDGE_DISTANCE: usize = 3;
 
-/// Don't nudge segments shorter than this. Stub segments (1-2
-/// cells) are typically tied to an endpoint and shifting them
-/// detaches.
+/// Don't nudge very short segments. Stub segments are often endpoint-adjacent
+/// and moving them detaches the edge from its source/target neighborhood.
 const MIN_SEGMENT_LEN_FOR_NUDGE: usize = 4;
+
+/// When evicting a halo run, try a few cells farther away before giving up.
+const MAX_HALO_EVICTION_SHIFT: usize = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Axis {
@@ -64,48 +50,63 @@ struct Shift {
     new_path: Vec<(usize, usize)>,
 }
 
-/// Run the nudging pass. Mutates `paths` in place and re-stamps
-/// the grid.
+#[derive(Debug, Clone, Copy)]
+struct NodeRect {
+    col: usize,
+    row: usize,
+    width: usize,
+    height: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HaloRun {
+    axis: Axis,
+    start_idx: usize,
+    end_idx: usize,
+    fixed_coord: usize,
+    shift_dir: isize,
+}
+
+/// Run the nudging pass. Mutates `paths` in place and re-stamps the grid.
 ///
-/// `edge_is_back[i]` is true when edge `i` is a back-edge. Back-
-/// edges are the only candidates for parallel-merge in Phase C.
-/// `tip_for(i)` returns the arrow-tip glyph for edge `i`.
+/// Two scans run in sequence:
+/// 1. **Parallel-corridor merge (Bug 5)** — pairs of horizontal back-edge
+///    segments at adjacent rows with overlapping column ranges merge onto
+///    the outer row. Back-edges only; forward edges have different attach-
+///    point semantics that are out of scope.
+/// 2. **Foreign-halo eviction (Bug 4)** — runs of cells in a non-endpoint
+///    node's 1-cell halo shift outward, with bridges in the adjacent
+///    segments. Skipped for edges with a label (the label needs adjacent
+///    free space; shifting the route would push labels off the route).
 ///
-/// **Phase D (Bug 4) deferred:** the plan's corner-displacement
-/// algorithm assumed bend cells (single-path with both H+V bits)
-/// would be the targets, but the diamond_join fixture's `├` glyph
-/// is a JUNCTION of two paths' separate bits — each path
-/// individually transits through the cell without bending. A real
-/// fix needs segment-level eviction: detect runs of cells in non-
-/// endpoint halos and shift the entire run outward, with bridges
-/// in the adjacent segments. That's a 2-3× expansion of this
-/// module's scope and is deferred to a follow-up.
+/// Arguments mirror per-edge state already collected in `render_inner`:
+/// - `edge_is_back[i]` — true for back-edges.
+/// - `edge_has_label[i]` — true when the edge carries a text label.
+/// - `node_boxes` — every node bounding box, as `(col, row, w, h)`.
+/// - `tip_for(i)` — arrow-tip glyph for edge `i`, used when re-stamping
+///   the new path after a shift.
 pub(crate) fn run(
     grid: &mut Grid,
     paths: &mut [Option<Vec<(usize, usize)>>],
     edge_is_back: &[bool],
+    edge_has_label: &[bool],
+    node_boxes: &[(usize, usize, usize, usize)],
     tip_for: impl Fn(usize) -> char,
 ) {
-    let segments = collect_segments(paths, edge_is_back);
-    let shifts = plan_parallel_merges(&segments, paths, grid);
+    let segments = collect_segments(paths);
+    let shifts = plan_parallel_merges(&segments, paths, grid, edge_is_back);
     apply_shifts(grid, paths, shifts, &tip_for);
+    evict_foreign_halo_runs(grid, paths, edge_has_label, node_boxes, &tip_for);
 }
 
-/// Walk all back-edge paths and emit their segments.
-fn collect_segments(
-    paths: &[Option<Vec<(usize, usize)>>],
-    edge_is_back: &[bool],
-) -> Vec<Segment> {
+/// Walk all routed paths and emit their maximal segments.
+fn collect_segments(paths: &[Option<Vec<(usize, usize)>>]) -> Vec<Segment> {
     let mut out = Vec::new();
     for (edge_idx, path_opt) in paths.iter().enumerate() {
         let Some(path) = path_opt else { continue };
-        if !edge_is_back.get(edge_idx).copied().unwrap_or(false) {
-            continue;
-        }
         if path.len() < 2 {
             continue;
         }
-        // Walk the path, emitting segments at axis transitions.
         let mut start_idx = 0usize;
         let mut current_axis = step_axis(path, 0);
         for i in 1..path.len() - 1 {
@@ -116,7 +117,6 @@ fn collect_segments(
                 current_axis = next_axis;
             }
         }
-        // Emit the final segment up to (and including) the tip cell.
         emit_segment(
             path,
             edge_idx,
@@ -129,18 +129,15 @@ fn collect_segments(
     out
 }
 
-/// Determine the axis of the step `path[i] → path[i+1]`. Panics if
-/// the two cells are equal (shouldn't happen for routed paths).
+/// Determine the axis of the step `path[i] → path[i+1]`. Diagonal
+/// steps (which shouldn't occur for orthogonal routes) fall through
+/// to Horizontal as a safe default.
 fn step_axis(path: &[(usize, usize)], i: usize) -> Axis {
-    let (c, r) = path[i];
-    let (nc, nr) = path[i + 1];
+    let (c, _r) = path[i];
+    let (nc, _nr) = path[i + 1];
     if c == nc {
         Axis::Vertical
-    } else if r == nr {
-        Axis::Horizontal
     } else {
-        // Diagonal — shouldn't happen for orthogonal routing. Fall
-        // back to horizontal to avoid panicking on malformed input.
         Axis::Horizontal
     }
 }
@@ -171,27 +168,23 @@ fn emit_segment(
     });
 }
 
-/// Find pairs of back-edges with horizontal segments at adjacent
-/// rows and overlapping col ranges; plan a shift that merges them.
-///
-/// Strategy: the back-edge with the LATER segment (lower row /
-/// further from the diagram body) wins — it's already on the
-/// outer perimeter. The other back-edge's segment shifts to its
-/// row.
+/// Find pairs of back-edges with horizontal segments at adjacent rows and
+/// overlapping col ranges; plan a shift that merges them.
 fn plan_parallel_merges(
     segments: &[Segment],
     paths: &[Option<Vec<(usize, usize)>>],
     grid: &Grid,
+    edge_is_back: &[bool],
 ) -> Vec<Shift> {
     let mut shifts = Vec::new();
     let horizontals: Vec<&Segment> = segments
         .iter()
+        .filter(|s| edge_is_back.get(s.edge_idx).copied().unwrap_or(false))
         .filter(|s| s.axis == Axis::Horizontal)
         .filter(|s| s.range.1 - s.range.0 + 1 >= MIN_SEGMENT_LEN_FOR_NUDGE)
         .collect();
 
-    let mut already_shifted: std::collections::HashSet<usize> =
-        std::collections::HashSet::new();
+    let mut already_shifted: std::collections::HashSet<usize> = std::collections::HashSet::new();
 
     for i in 0..horizontals.len() {
         for j in (i + 1)..horizontals.len() {
@@ -199,31 +192,24 @@ fn plan_parallel_merges(
             if a.edge_idx == b.edge_idx {
                 continue;
             }
-            if already_shifted.contains(&a.edge_idx)
-                || already_shifted.contains(&b.edge_idx)
-            {
+            if already_shifted.contains(&a.edge_idx) || already_shifted.contains(&b.edge_idx) {
                 continue;
             }
             let row_delta = a.fixed_coord.abs_diff(b.fixed_coord);
             if row_delta == 0 || row_delta > MAX_NUDGE_DISTANCE {
                 continue;
             }
-            // Range overlap check.
             let (a_lo, a_hi) = a.range;
             let (b_lo, b_hi) = b.range;
             if a_hi < b_lo || b_hi < a_lo {
                 continue;
             }
-            // Pick the "outer" target row — the larger fixed_coord
-            // (further down the canvas), reflecting the perimeter.
             let target_row = a.fixed_coord.max(b.fixed_coord);
             let source_seg = if a.fixed_coord < b.fixed_coord { a } else { b };
-            // Build the candidate new path.
             let Some(old_path) = paths[source_seg.edge_idx].as_ref() else {
                 continue;
             };
-            let new_path = build_shifted_path(old_path, source_seg, target_row);
-            // Feasibility: no cell may be a NodeBox.
+            let new_path = build_shifted_segment_path(old_path, source_seg, target_row);
             if !path_is_feasible(grid, &new_path) {
                 continue;
             }
@@ -237,11 +223,299 @@ fn plan_parallel_merges(
     shifts
 }
 
-/// Build a new path where the horizontal segment at `seg.path_idx_range`
-/// is moved from its current row to `target_row`. Cells in the bend
-/// regions before/after the segment are extended/shortened to bridge
-/// the row delta.
-fn build_shifted_path(
+/// Evict at most ONE halo run per render call.
+///
+/// The pass intentionally applies a single shift even when multiple foreign
+/// halo runs exist on different edges. Rationale:
+/// - Each shift mutates the grid (re-stamps direction bits and obstacle
+///   classification); subsequent shifts must be planned against the post-
+///   shift state, which would require re-running `plan_next_halo_shift`
+///   in a loop with a fixed-point check. The crossings comparison adds
+///   non-trivial cost (each candidate clones the grid in
+///   `crossings_after_shift`), so a multi-shift loop would be quadratic
+///   in the worst case.
+/// - Empirically (gallery + corpus) one shift per call clears the visible
+///   diamond-join Bug 4 fixture and leaves all other diagrams unchanged.
+///   Diagrams with multiple foreign halo runs are rare enough that the
+///   conservative single-shift behaviour is acceptable; if a future
+///   fixture needs more, lift this into a bounded loop with an iteration
+///   cap and re-baseline the snapshot suite.
+fn evict_foreign_halo_runs(
+    grid: &mut Grid,
+    paths: &mut [Option<Vec<(usize, usize)>>],
+    edge_has_label: &[bool],
+    node_boxes: &[(usize, usize, usize, usize)],
+    tip_for: &impl Fn(usize) -> char,
+) {
+    let rects: Vec<NodeRect> = node_boxes
+        .iter()
+        .map(|&(col, row, width, height)| NodeRect {
+            col,
+            row,
+            width,
+            height,
+        })
+        .collect();
+
+    if let Some(shift) = plan_next_halo_shift(paths, grid, edge_has_label, &rects) {
+        apply_shifts(grid, paths, vec![shift], tip_for);
+    }
+}
+
+fn plan_next_halo_shift(
+    paths: &[Option<Vec<(usize, usize)>>],
+    grid: &Grid,
+    edge_has_label: &[bool],
+    rects: &[NodeRect],
+) -> Option<Shift> {
+    let baseline_crossings = count_crossings_in_grid(grid);
+    for (edge_idx, path_opt) in paths.iter().enumerate() {
+        if edge_has_label.get(edge_idx).copied().unwrap_or(false) {
+            continue;
+        }
+        let Some(path) = path_opt.as_ref() else {
+            continue;
+        };
+        if path.len() < 4 {
+            continue;
+        }
+        let endpoint_nodes = endpoint_node_indices(path, rects);
+        let baseline = count_foreign_halo_cells(path, rects, &endpoint_nodes);
+        if baseline == 0 {
+            continue;
+        }
+
+        for (node_idx, rect) in rects.iter().enumerate() {
+            if endpoint_nodes.contains(&node_idx) {
+                continue;
+            }
+            for run in collect_halo_runs(path, *rect) {
+                if run.start_idx <= 1 || run.end_idx + 1 >= path.len() - 1 {
+                    continue;
+                }
+                if !halo_run_has_corner_or_junction(grid, path, &run) {
+                    continue;
+                }
+                for distance in 1..=MAX_HALO_EVICTION_SHIFT {
+                    let Some(target_fixed) =
+                        apply_signed_offset(run.fixed_coord, run.shift_dir * distance as isize)
+                    else {
+                        break;
+                    };
+                    let new_path = build_evicted_run_path(path, &run, target_fixed);
+                    if !path_is_feasible(grid, &new_path) {
+                        continue;
+                    }
+                    let candidate = count_foreign_halo_cells(&new_path, rects, &endpoint_nodes);
+                    let candidate_crossings =
+                        crossings_after_shift(grid, path, &new_path).unwrap_or(usize::MAX);
+                    let crosses_ok = candidate_crossings <= baseline_crossings
+                        || (baseline_crossings == 0 && candidate_crossings == 1);
+                    if candidate < baseline && crosses_ok {
+                        return Some(Shift { edge_idx, new_path });
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn halo_run_has_corner_or_junction(grid: &Grid, path: &[(usize, usize)], run: &HaloRun) -> bool {
+    path.iter()
+        .take(run.end_idx + 1)
+        .skip(run.start_idx)
+        .any(|&(col, row)| matches!(grid.get(col, row), '┬' | '┴' | '├' | '┤' | '┼'))
+}
+
+/// Speculatively apply `old_path → new_path` on a clone of the grid and
+/// return the resulting crossing count.
+///
+/// Cost note: this clones the entire grid (O(width × height)) per call, and
+/// `plan_next_halo_shift` may invoke it once per (edge × node × distance)
+/// candidate. For typical gallery diagrams (≤ 50 cells × 30 cells × 12 edges
+/// × 8 nodes × 4 distances) the wall-clock cost is well under the launch
+/// budget's < 8 ms frame draw target, but for pathologically dense diagrams
+/// this is the first thing to optimise (e.g. by tracking crossings
+/// incrementally during `erase_path` / `draw_path`).
+fn crossings_after_shift(
+    grid: &Grid,
+    old_path: &[(usize, usize)],
+    new_path: &[(usize, usize)],
+) -> Option<usize> {
+    let mut scratch = grid.clone();
+    scratch.erase_path(old_path);
+    let &(tip_col, tip_row) = old_path.last()?;
+    let tip = grid.get(tip_col, tip_row);
+    scratch.draw_path(new_path.to_vec(), tip)?;
+    Some(count_crossings_in_grid(&scratch))
+}
+
+fn count_crossings_in_grid(grid: &Grid) -> usize {
+    let mut count = 0;
+    for row in 0..grid.rows() {
+        for col in 0..grid.cols() {
+            let ch = grid.get(col, row);
+            if ch == '┼' || ch == '╋' {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+fn endpoint_node_indices(path: &[(usize, usize)], rects: &[NodeRect]) -> Vec<usize> {
+    let mut out = Vec::new();
+    let endpoints = [path[0], *path.last().unwrap_or(&path[0])];
+    for (idx, rect) in rects.iter().enumerate() {
+        if endpoints
+            .iter()
+            .any(|&(c, r)| point_in_expanded_rect(*rect, c, r))
+        {
+            out.push(idx);
+        }
+    }
+    out
+}
+
+fn count_foreign_halo_cells(
+    path: &[(usize, usize)],
+    rects: &[NodeRect],
+    endpoint_nodes: &[usize],
+) -> usize {
+    path.iter()
+        .enumerate()
+        .filter(|(idx, _)| *idx > 0 && *idx + 1 < path.len())
+        .filter(|&(_, &(c, r))| {
+            rects.iter().enumerate().any(|(node_idx, rect)| {
+                !endpoint_nodes.contains(&node_idx) && point_in_halo(*rect, c, r)
+            })
+        })
+        .count()
+}
+
+fn collect_halo_runs(path: &[(usize, usize)], rect: NodeRect) -> Vec<HaloRun> {
+    let mut runs = Vec::new();
+    let mut i = 1usize;
+    while i + 1 < path.len() {
+        let (c, r) = path[i];
+        if !point_in_halo(rect, c, r) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i + 1 < path.len() {
+            let (cc, rr) = path[i + 1];
+            if !point_in_halo(rect, cc, rr) {
+                break;
+            }
+            i += 1;
+        }
+        let end = i;
+        if let Some(axis) = axis_for_run(path, start, end)
+            && let Some(shift_dir) = shift_direction_for_run(rect, axis, path, start, end)
+        {
+            let fixed_coord = match axis {
+                Axis::Horizontal => path[start].1,
+                Axis::Vertical => path[start].0,
+            };
+            runs.push(HaloRun {
+                axis,
+                start_idx: start,
+                end_idx: end,
+                fixed_coord,
+                shift_dir,
+            });
+        }
+        i += 1;
+    }
+    runs
+}
+
+/// Return the axis of a halo run spanning `path[start_idx..=end_idx]`.
+///
+/// Multi-cell runs are classified by comparing the start and end cells
+/// directly. Single-cell runs (`start_idx == end_idx`) have no run-internal
+/// step to read, so we infer from the `path[start_idx-1] → path[start_idx]`
+/// step. Callers always pass `start_idx ≥ 1`, so that lookup is in bounds.
+fn axis_for_run(path: &[(usize, usize)], start_idx: usize, end_idx: usize) -> Option<Axis> {
+    if start_idx < end_idx {
+        if path[start_idx].0 == path[end_idx].0 {
+            return Some(Axis::Vertical);
+        }
+        if path[start_idx].1 == path[end_idx].1 {
+            return Some(Axis::Horizontal);
+        }
+        return None;
+    }
+
+    // Single-cell run: take the inbound step's axis. Optionally cross-check
+    // against the outbound step's axis if the run isn't at the path tail —
+    // a mismatch means the run cell IS a corner, which the run-shift logic
+    // can't model, so we bail with `None`.
+    let before = step_axis(path, start_idx - 1);
+    if start_idx + 1 < path.len() {
+        let after = step_axis(path, start_idx);
+        if after != before {
+            return None;
+        }
+    }
+    Some(before)
+}
+
+fn shift_direction_for_run(
+    rect: NodeRect,
+    axis: Axis,
+    path: &[(usize, usize)],
+    start_idx: usize,
+    end_idx: usize,
+) -> Option<isize> {
+    match axis {
+        Axis::Vertical => {
+            let col = path[start_idx].0;
+            if col < rect.col {
+                Some(-1)
+            } else if col >= rect.col + rect.width {
+                Some(1)
+            } else if end_idx > start_idx {
+                None
+            } else {
+                // One-cell corner overlap inside the top/bottom halo band.
+                let prev = path[start_idx - 1];
+                if prev.0 < col {
+                    Some(1)
+                } else if prev.0 > col {
+                    Some(-1)
+                } else {
+                    None
+                }
+            }
+        }
+        Axis::Horizontal => {
+            let row = path[start_idx].1;
+            if row < rect.row {
+                Some(-1)
+            } else if row >= rect.row + rect.height {
+                Some(1)
+            } else if end_idx > start_idx {
+                None
+            } else {
+                let prev = path[start_idx - 1];
+                if prev.1 < row {
+                    Some(1)
+                } else if prev.1 > row {
+                    Some(-1)
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
+
+/// Build a new path where the horizontal segment at `seg.path_idx_range` is
+/// moved from its current row to `target_row`.
+fn build_shifted_segment_path(
     old_path: &[(usize, usize)],
     seg: &Segment,
     target_row: usize,
@@ -249,103 +523,120 @@ fn build_shifted_path(
     let (start_idx, end_idx) = seg.path_idx_range;
     let mut new_path = Vec::with_capacity(old_path.len() + 4);
 
-    // Pre-segment cells: keep, but inject a vertical bridge from the
-    // last pre-segment cell's row to target_row at start_c.
     new_path.extend_from_slice(&old_path[..start_idx]);
     let start_c = old_path[start_idx].0;
     if let Some(&(prev_c, prev_r)) = new_path.last() {
-        // Bridge from (prev_c, prev_r) vertically to target_row at start_c.
-        // First, walk vertically along prev_c if needed; then snap to start_c.
         if prev_c == start_c {
             extend_vertical(&mut new_path, prev_c, prev_r, target_row);
         } else {
-            // The pre-segment cell at start_idx was a corner; the
-            // last pre-cell shares a column with start_c (not common
-            // — fall through to direct bridge).
             extend_vertical(&mut new_path, start_c, prev_r, target_row);
         }
     } else {
-        new_path.push((start_c, target_row));
+        push_cell(&mut new_path, (start_c, target_row));
     }
 
-    // Segment cells: same column range, target_row.
     for &(c, _) in old_path.iter().take(end_idx + 1).skip(start_idx) {
-        let last = new_path.last().copied();
-        if last != Some((c, target_row)) {
-            new_path.push((c, target_row));
-        }
+        push_cell(&mut new_path, (c, target_row));
     }
 
-    // Post-segment cells: bridge from target_row back to old_path[end_idx+1].
     if end_idx + 1 < old_path.len() {
         let end_c = old_path[end_idx].0;
         let (next_c, next_r) = old_path[end_idx + 1];
-        if next_c == end_c {
-            extend_vertical(&mut new_path, end_c, target_row, next_r);
-        } else {
-            extend_vertical(&mut new_path, end_c, target_row, next_r);
-            // Then horizontal-bridge to next_c at next_r.
-            let mut c = end_c;
-            while c != next_c {
-                if c < next_c {
-                    c += 1;
-                } else {
-                    c -= 1;
-                }
-                let cell = (c, next_r);
-                if new_path.last().copied() != Some(cell) {
-                    new_path.push(cell);
-                }
-            }
-        }
-        // Remaining post-segment cells (skip the one we just bridged to).
+        extend_vertical(&mut new_path, end_c, target_row, next_r);
+        extend_horizontal(&mut new_path, next_r, end_c, next_c);
         for &cell in old_path.iter().skip(end_idx + 2) {
-            if new_path.last().copied() != Some(cell) {
-                new_path.push(cell);
-            }
+            push_cell(&mut new_path, cell);
         }
     }
 
     new_path
 }
 
-/// Append cells (col, from_row+1), (col, from_row+2), ..., (col, to_row)
-/// (or descending) to `path`. If `from_row == to_row`, this is a no-op.
-/// The starting cell (col, from_row) is assumed to already be at the
-/// end of `path` (or absent for path-start cases).
-fn extend_vertical(
-    path: &mut Vec<(usize, usize)>,
-    col: usize,
-    from_row: usize,
-    to_row: usize,
-) {
-    if from_row == to_row {
-        let cell = (col, to_row);
-        if path.last().copied() != Some(cell) {
-            path.push(cell);
+fn build_evicted_run_path(
+    old_path: &[(usize, usize)],
+    run: &HaloRun,
+    target_fixed: usize,
+) -> Vec<(usize, usize)> {
+    let prev_idx = run.start_idx - 1;
+    let next_idx = run.end_idx + 1;
+    let prev = old_path[prev_idx];
+    let next = old_path[next_idx];
+    let mut new_path = Vec::with_capacity(old_path.len() + 8);
+
+    new_path.extend_from_slice(&old_path[..=prev_idx]);
+
+    match run.axis {
+        Axis::Vertical => {
+            extend_horizontal(&mut new_path, prev.1, prev.0, target_fixed);
+            let start_row = old_path[run.start_idx].1;
+            extend_vertical(&mut new_path, target_fixed, prev.1, start_row);
+            for &(_, row) in old_path.iter().take(run.end_idx + 1).skip(run.start_idx) {
+                push_cell(&mut new_path, (target_fixed, row));
+            }
+            let end_row = old_path[run.end_idx].1;
+            extend_vertical(&mut new_path, target_fixed, end_row, next.1);
+            extend_horizontal(&mut new_path, next.1, target_fixed, next.0);
         }
+        Axis::Horizontal => {
+            extend_vertical(&mut new_path, prev.0, prev.1, target_fixed);
+            let start_col = old_path[run.start_idx].0;
+            extend_horizontal(&mut new_path, target_fixed, prev.0, start_col);
+            for &(col, _) in old_path.iter().take(run.end_idx + 1).skip(run.start_idx) {
+                push_cell(&mut new_path, (col, target_fixed));
+            }
+            let end_col = old_path[run.end_idx].0;
+            extend_horizontal(&mut new_path, target_fixed, end_col, next.0);
+            extend_vertical(&mut new_path, next.0, target_fixed, next.1);
+        }
+    }
+
+    for &cell in old_path.iter().skip(next_idx + 1) {
+        push_cell(&mut new_path, cell);
+    }
+
+    new_path
+}
+
+fn extend_horizontal(path: &mut Vec<(usize, usize)>, row: usize, from_col: usize, to_col: usize) {
+    if from_col == to_col {
+        push_cell(path, (to_col, row));
         return;
     }
-    if from_row < to_row {
-        for r in (from_row + 1)..=to_row {
-            let cell = (col, r);
-            if path.last().copied() != Some(cell) {
-                path.push(cell);
-            }
+    if from_col < to_col {
+        for col in (from_col + 1)..=to_col {
+            push_cell(path, (col, row));
         }
     } else {
-        for r in (to_row..from_row).rev() {
-            let cell = (col, r);
-            if path.last().copied() != Some(cell) {
-                path.push(cell);
-            }
+        for col in (to_col..from_col).rev() {
+            push_cell(path, (col, row));
         }
     }
 }
 
-/// Check that `path` doesn't pass through any NodeBox cells (other
-/// than the destination tip, which is allowed to land on a node
-/// border).
+fn extend_vertical(path: &mut Vec<(usize, usize)>, col: usize, from_row: usize, to_row: usize) {
+    if from_row == to_row {
+        push_cell(path, (col, to_row));
+        return;
+    }
+    if from_row < to_row {
+        for row in (from_row + 1)..=to_row {
+            push_cell(path, (col, row));
+        }
+    } else {
+        for row in (to_row..from_row).rev() {
+            push_cell(path, (col, row));
+        }
+    }
+}
+
+fn push_cell(path: &mut Vec<(usize, usize)>, cell: (usize, usize)) {
+    if path.last().copied() != Some(cell) {
+        path.push(cell);
+    }
+}
+
+/// Check that `path` doesn't pass through any invisible protected cells or
+/// hard node boxes, other than the final tip cell.
 fn path_is_feasible(grid: &Grid, path: &[(usize, usize)]) -> bool {
     if path.is_empty() {
         return false;
@@ -353,14 +644,40 @@ fn path_is_feasible(grid: &Grid, path: &[(usize, usize)]) -> bool {
     let last = path.len() - 1;
     for (i, &(c, r)) in path.iter().enumerate() {
         if i == last {
-            // Tip cell — allowed on a node border.
             continue;
         }
-        if grid.is_node_box(c, r) {
+        if !grid.can_draw_path_cell(c, r) {
             return false;
         }
     }
     true
+}
+
+fn point_in_box(rect: NodeRect, col: usize, row: usize) -> bool {
+    col >= rect.col
+        && col < rect.col + rect.width
+        && row >= rect.row
+        && row < rect.row + rect.height
+}
+
+fn point_in_expanded_rect(rect: NodeRect, col: usize, row: usize) -> bool {
+    let min_col = rect.col.saturating_sub(1);
+    let min_row = rect.row.saturating_sub(1);
+    let max_col = rect.col + rect.width;
+    let max_row = rect.row + rect.height;
+    col >= min_col && col <= max_col && row >= min_row && row <= max_row
+}
+
+fn point_in_halo(rect: NodeRect, col: usize, row: usize) -> bool {
+    point_in_expanded_rect(rect, col, row) && !point_in_box(rect, col, row)
+}
+
+fn apply_signed_offset(value: usize, delta: isize) -> Option<usize> {
+    if delta >= 0 {
+        value.checked_add(delta as usize)
+    } else {
+        value.checked_sub(delta.unsigned_abs())
+    }
 }
 
 /// Apply each shift atomically: erase old, draw new, update paths.
@@ -394,8 +711,7 @@ mod tests {
     fn collect_segments_splits_at_corners() {
         let path = make_path(&[(0, 0), (0, 1), (0, 2), (1, 2), (2, 2), (2, 3)]);
         let paths = vec![Some(path)];
-        let edge_is_back = vec![true];
-        let segs = collect_segments(&paths, &edge_is_back);
+        let segs = collect_segments(&paths);
         assert_eq!(segs.len(), 3);
         assert_eq!(segs[0].axis, Axis::Vertical);
         assert_eq!(segs[1].axis, Axis::Horizontal);
@@ -403,12 +719,11 @@ mod tests {
     }
 
     #[test]
-    fn collect_segments_skips_forward_edges() {
+    fn collect_segments_keeps_forward_edges() {
         let path = make_path(&[(0, 0), (0, 1), (0, 2), (1, 2)]);
         let paths = vec![Some(path)];
-        let edge_is_back = vec![false];
-        let segs = collect_segments(&paths, &edge_is_back);
-        assert!(segs.is_empty());
+        let segs = collect_segments(&paths);
+        assert_eq!(segs.len(), 2);
     }
 
     #[test]
@@ -419,15 +734,14 @@ mod tests {
     }
 
     #[test]
-    fn extend_vertical_ascends() {
-        let mut p = vec![(5, 5)];
-        extend_vertical(&mut p, 5, 5, 2);
-        assert_eq!(p, vec![(5, 5), (5, 4), (5, 3), (5, 2)]);
+    fn extend_horizontal_ascends() {
+        let mut p = vec![(5, 2)];
+        extend_horizontal(&mut p, 2, 5, 2);
+        assert_eq!(p, vec![(5, 2), (4, 2), (3, 2), (2, 2)]);
     }
 
     #[test]
-    fn build_shifted_path_moves_corridor_down_one_row() {
-        // U-shape path: down 3, right 4, up 3.
+    fn build_shifted_segment_path_moves_corridor_down_one_row() {
         let old_path = vec![
             (0, 0),
             (0, 1),
@@ -441,7 +755,6 @@ mod tests {
             (4, 1),
             (4, 0),
         ];
-        // The horizontal segment is path indices 3..=7 at row 3.
         let seg = Segment {
             edge_idx: 0,
             axis: Axis::Horizontal,
@@ -449,18 +762,66 @@ mod tests {
             range: (0, 4),
             path_idx_range: (3, 7),
         };
-        let new_path = build_shifted_path(&old_path, &seg, 4);
+        let new_path = build_shifted_segment_path(&old_path, &seg, 4);
         assert!(new_path.contains(&(0, 4)));
         assert!(new_path.contains(&(4, 4)));
-        // Sanity: no diagonal jumps.
+    }
+
+    #[test]
+    fn build_evicted_run_path_shifts_vertical_subrange_outward() {
+        let old_path = vec![
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (2, 1),
+            (2, 2),
+            (2, 3),
+            (2, 4),
+            (1, 4),
+            (0, 4),
+        ];
+        let run = HaloRun {
+            axis: Axis::Vertical,
+            start_idx: 3,
+            end_idx: 5,
+            fixed_coord: 2,
+            shift_dir: 1,
+        };
+        let new_path = build_evicted_run_path(&old_path, &run, 3);
+        assert!(new_path.contains(&(3, 1)));
+        assert!(new_path.contains(&(3, 2)));
+        assert!(new_path.contains(&(3, 3)));
         for w in new_path.windows(2) {
-            let (a, b) = (w[0], w[1]);
-            let dc = a.0.abs_diff(b.0);
-            let dr = a.1.abs_diff(b.1);
-            assert!(
-                dc + dr == 1,
-                "non-orthogonal step from {a:?} to {b:?} in {new_path:?}"
-            );
+            let dc = w[0].0.abs_diff(w[1].0);
+            let dr = w[0].1.abs_diff(w[1].1);
+            assert_eq!(dc + dr, 1, "non-orthogonal step in {new_path:?}");
         }
+    }
+
+    #[test]
+    fn count_foreign_halo_cells_exempts_endpoint_nodes() {
+        let path = vec![(5, 0), (5, 1), (5, 2), (5, 3), (5, 4)];
+        let rects = vec![
+            NodeRect {
+                col: 3,
+                row: 0,
+                width: 2,
+                height: 1,
+            },
+            NodeRect {
+                col: 3,
+                row: 4,
+                width: 2,
+                height: 1,
+            },
+            NodeRect {
+                col: 6,
+                row: 2,
+                width: 1,
+                height: 1,
+            },
+        ];
+        let endpoints = endpoint_node_indices(&path, &rects);
+        assert_eq!(count_foreign_halo_cells(&path, &rects, &endpoints), 3);
     }
 }

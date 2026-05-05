@@ -335,6 +335,11 @@ impl Grid {
         self.height
     }
 
+    /// Return the number of columns in this grid.
+    pub(crate) fn cols(&self) -> usize {
+        self.width
+    }
+
     /// OR the given direction bits into the cell at `(col, row)` and update
     /// the cell's glyph from the direction-to-char lookup table.
     ///
@@ -518,6 +523,22 @@ impl Grid {
             return true; // treat out-of-bounds as impassable
         }
         self.obstacles[row][col] == Obstacle::NodeBox
+    }
+
+    /// Return `true` if a routed path cell can visibly stamp direction bits.
+    ///
+    /// Protected cells with zero direction bits are reserved for labels,
+    /// rounded corners, or tips and would silently drop `add_dirs` writes.
+    /// Protected cells that already carry direction bits are border-line cells
+    /// and remain legal path cells because later writes merge into junctions.
+    pub(crate) fn can_draw_path_cell(&self, col: usize, row: usize) -> bool {
+        if row >= self.height || col >= self.width {
+            return false;
+        }
+        if self.obstacles[row][col] == Obstacle::NodeBox {
+            return false;
+        }
+        !self.protected[row][col] || self.directions[row][col] != 0
     }
 
     /// Return a soft-obstacle weight for cell `(col, row)`.
@@ -1876,11 +1897,7 @@ mod tests {
         g.erase_path(&path);
         // All cells blanked.
         for (c, r) in &path {
-            assert_eq!(
-                g.get(*c, *r),
-                ' ',
-                "cell ({c},{r}) not cleared after erase"
-            );
+            assert_eq!(g.get(*c, *r), ' ', "cell ({c},{r}) not cleared after erase");
         }
         // Tip cell is unprotected — adding direction bits should write a glyph.
         g.add_dirs(5, 2, DIR_LEFT | DIR_RIGHT);

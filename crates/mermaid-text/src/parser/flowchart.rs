@@ -246,19 +246,29 @@ fn parse_statement(
         parse_edge_chain(stmt, graph, current_subgraph_id, pending_classes);
     } else {
         // Pure node definition: A[label]:::cls, A{label}, A((label)), A(label), A
-        // Strip the optional `:::cls1:::cls2` shorthand BEFORE the shape
-        // parser sees the token — shape parsing doesn't know about
-        // class modifiers.
-        let (clean_stmt, classes) = extract_class_modifier(stmt);
-        if let Some(node) = parse_node_definition(&clean_stmt) {
-            let node_id = node.id.clone();
-            for class_name in classes {
-                pending_classes.push((node_id.clone(), class_name));
-            }
-            graph.upsert_node(node);
-            register_node_in_subgraph(graph, &node_id, current_subgraph_id);
-        }
+        let _ = materialize_node_token(stmt, graph, current_subgraph_id, pending_classes);
     }
+}
+
+fn materialize_node_token(
+    token: &str,
+    graph: &mut Graph,
+    current_subgraph_id: &mut Option<String>,
+    pending_classes: &mut Vec<(String, String)>,
+) -> Option<String> {
+    // Strip the optional `:::cls1:::cls2` shorthand BEFORE the shape
+    // parser sees the token — shape parsing doesn't know about
+    // class modifiers.
+    let (clean_tok, classes) = extract_class_modifier(token);
+    let node = parse_node_definition(&clean_tok)
+        .unwrap_or_else(|| Node::new(clean_tok.clone(), clean_tok.clone(), NodeShape::Rectangle));
+    let node_id = node.id.clone();
+    for class_name in classes {
+        pending_classes.push((node_id.clone(), class_name));
+    }
+    graph.upsert_node(node);
+    register_node_in_subgraph(graph, &node_id, current_subgraph_id);
+    Some(node_id)
 }
 
 /// Register `node_id` as a direct member of the current subgraph (if any).
@@ -314,22 +324,7 @@ fn parse_subgraph_header(stmt: &str) -> (String, String) {
 
 /// Return `true` if the statement appears to contain at least one edge arrow.
 fn looks_like_edge_chain(s: &str) -> bool {
-    // Quick scan: any known arrow token.
-    //
-    // Note: the inline-quoted dashed form `-. "label" .->` does NOT contain
-    // the substring `-.->` as a contiguous run (the label splits the two
-    // halves), so we check for `-. "` explicitly.  The thick form `== "label"
-    // ==>` does contain `==>`, so no extra check is needed there.
-    s.contains("-->")
-        || s.contains("---")
-        || s.contains("-.->")
-        || s.contains("-. \"") // inline-quoted dashed: `-. "label" .->`
-        || s.contains("==>")
-        || s.contains("<-->")
-        || s.contains("--o")
-        || s.contains("--x")
-        || s.contains("-- ") // "-- label -->" form
-        || s.contains("--") // catch-all for remaining "--" forms
+    tokenise_chain(s).len() >= 3
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +357,7 @@ fn parse_edge_chain(
     // Collect (node_token, Option<edge_label_before_next_node>) pairs.
     // We iterate pairs of (node_tok, Option<arrow_tok>).
     let mut i = 0;
-    let mut prev_id: Option<String> = None;
+    let mut prev_ids: Vec<String> = Vec::new();
 
     // Pending edge metadata carried forward between node tokens.
     let mut pending_edge_label: Option<String> = None;
@@ -379,36 +374,33 @@ fn parse_edge_chain(
                 i += 1;
                 continue;
             }
-            // Strip optional `:::cls1:::cls2` shorthand BEFORE the
-            // shape parser sees the token.
-            let (clean_tok, classes) = extract_class_modifier(tok);
-            let node = parse_node_definition(&clean_tok).unwrap_or_else(|| {
-                // Treat as bare ID (after class stripping).
-                Node::new(clean_tok.clone(), clean_tok.clone(), NodeShape::Rectangle)
-            });
-            let node_id = node.id.clone();
-            for class_name in classes {
-                pending_classes.push((node_id.clone(), class_name));
-            }
-            graph.upsert_node(node);
-            register_node_in_subgraph(graph, &node_id, current_subgraph_id);
+            let current_ids = split_grouped_node_token(tok)
+                .into_iter()
+                .filter_map(|part| {
+                    materialize_node_token(&part, graph, current_subgraph_id, pending_classes)
+                })
+                .collect::<Vec<_>>();
 
-            if let Some(ref from) = prev_id {
-                let edge = Edge::new_styled(
-                    from.clone(),
-                    node_id.clone(),
-                    pending_edge_label.take(),
-                    pending_edge_style,
-                    pending_edge_start,
-                    pending_edge_end,
-                );
-                graph.edges.push(edge);
-                // Reset per-edge state for the next edge in the chain.
+            if !prev_ids.is_empty() {
+                for from in &prev_ids {
+                    for to in &current_ids {
+                        let edge = Edge::new_styled(
+                            from.clone(),
+                            to.clone(),
+                            pending_edge_label.clone(),
+                            pending_edge_style,
+                            pending_edge_start,
+                            pending_edge_end,
+                        );
+                        graph.edges.push(edge);
+                    }
+                }
+                pending_edge_label = None;
                 pending_edge_style = EdgeStyle::Solid;
                 pending_edge_start = EdgeEndpoint::None;
                 pending_edge_end = EdgeEndpoint::Arrow;
             }
-            prev_id = Some(node_id);
+            prev_ids = current_ids;
         } else {
             // Arrow token — extract style and optional label.
             let (style, start, end) = classify_arrow(tok);
@@ -432,29 +424,33 @@ fn tokenise_chain(stmt: &str) -> Vec<String> {
     let len = chars.len();
     let mut i = 0;
     let mut current = String::new();
+    let mut depth = DelimiterDepth::default();
+    let mut in_quotes = false;
 
     while i < len {
-        // Detect start of an arrow sequence.
-        // Arrows: -->, ---, -.->, ==>, <-->, --o, --x, -- label -->, -->|label|
-        // We look for `-`, `=`, or `<` (for bidirectional) not inside a node bracket.
         let ch = chars[i];
 
-        let is_potential_arrow_start =
-            (ch == '-' || ch == '=' || ch == '<') && !current.trim().is_empty();
+        let is_potential_arrow_start = !depth.is_nested()
+            && !in_quotes
+            && (ch == '-' || ch == '=' || ch == '<')
+            && !current.trim().is_empty();
 
-        if is_potential_arrow_start && is_arrow_start(&chars, i) {
-            // Push the current node token
-            tokens.push(current.trim().to_string());
-            current = String::new();
-
-            // Consume the full arrow (including optional |label|)
-            let (arrow_tok, consumed) = consume_arrow(&chars, i);
-            tokens.push(arrow_tok);
-            i += consumed;
-            continue;
+        if is_potential_arrow_start {
+            let remaining: String = chars[i..].iter().collect();
+            if let Some((arrow_tok, consumed)) = try_consume_arrow(&remaining) {
+                tokens.push(current.trim().to_string());
+                current = String::new();
+                tokens.push(arrow_tok);
+                i += consumed;
+                continue;
+            }
         }
 
         current.push(ch);
+        depth.observe(ch, in_quotes);
+        if ch == '"' {
+            in_quotes = !in_quotes;
+        }
         i += 1;
     }
 
@@ -467,40 +463,141 @@ fn tokenise_chain(stmt: &str) -> Vec<String> {
     tokens
 }
 
-/// Return `true` if position `i` in `chars` starts an arrow sequence.
-fn is_arrow_start(chars: &[char], i: usize) -> bool {
-    let remaining: String = chars[i..].iter().collect();
-    remaining.starts_with("-->")
-        || remaining.starts_with("---")
-        || remaining.starts_with("-.->")
-        || remaining.starts_with("==>")
-        || remaining.starts_with("<-->")
-        || remaining.starts_with("--o")
-        || remaining.starts_with("--x")
-        || remaining.starts_with("-- ") // "-- label -->" and "-- \"label\" -->"
-        || remaining.starts_with("--")
-        // Inline-quoted label forms: `-. "label" .->` and `== "label" ==>`
-        // These don't start with the bare arrow token, so they need explicit
-        // detection here so the tokeniser fires an arrow-consumption pass
-        // instead of swallowing the `-`/`=` into the node token.
-        || inline_quoted_arrow_matches(&remaining)
+#[derive(Debug, Default, Clone, Copy)]
+struct DelimiterDepth {
+    square: usize,
+    round: usize,
+    curly: usize,
 }
 
-/// Return `true` if `s` starts with an inline-quoted-label arrow prefix.
-///
-/// Mermaid allows `A -. "label" .-> B` and `A == "label" ==> B` in addition
-/// to the pipe-label form (`A -.->|"label"| B`). The inline-quoted form puts
-/// the label *between* the two halves of the arrow, which means neither half
-/// alone is a complete arrow token — we must detect the opening half here.
-///
-/// We check for `-. ` (dashed inline) and `== ` (thick inline) followed by
-/// an opening double-quote. Single-quoted variants are not part of the
-/// Mermaid spec and are intentionally not supported.
-fn inline_quoted_arrow_matches(s: &str) -> bool {
-    // Dashed: -. "label" .->
-    (s.starts_with("-. \"") && s.contains(".->"))
-        // Thick: == "label" ==>
-        || (s.starts_with("== \"") && s.contains("==>"))
+impl DelimiterDepth {
+    fn is_nested(self) -> bool {
+        self.square > 0 || self.round > 0 || self.curly > 0
+    }
+
+    fn observe(&mut self, ch: char, in_quotes: bool) {
+        if in_quotes && ch != '"' {
+            return;
+        }
+        match ch {
+            '[' => self.square += 1,
+            ']' => self.square = self.square.saturating_sub(1),
+            '(' => self.round += 1,
+            ')' => self.round = self.round.saturating_sub(1),
+            '{' => self.curly += 1,
+            '}' => self.curly = self.curly.saturating_sub(1),
+            _ => {}
+        }
+    }
+}
+
+fn split_grouped_node_token(token: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut depth = DelimiterDepth::default();
+    let mut in_quotes = false;
+
+    for ch in token.chars() {
+        if ch == '&' && !depth.is_nested() && !in_quotes {
+            let part = current.trim();
+            if part.is_empty() {
+                return vec![token.trim().to_string()];
+            }
+            parts.push(part.to_string());
+            current.clear();
+            continue;
+        }
+        current.push(ch);
+        depth.observe(ch, in_quotes);
+        if ch == '"' {
+            in_quotes = !in_quotes;
+        }
+    }
+
+    let tail = current.trim();
+    if tail.is_empty() {
+        return vec![token.trim().to_string()];
+    }
+    parts.push(tail.to_string());
+    parts
+}
+
+fn try_consume_arrow(s: &str) -> Option<(String, usize)> {
+    if let Some(rest) = s.strip_prefix("<-->") {
+        let (label_part, extra) = try_consume_pipe_label(rest);
+        return Some((format!("<-->{label_part}"), 4 + extra));
+    }
+    if let Some(arrow) = try_consume_labeled_dash_arrow(s) {
+        let len = arrow.chars().count();
+        return Some((arrow, len));
+    }
+    if let Some((tok, consumed)) = try_consume_inline_quoted_arrow(s) {
+        return Some((tok, consumed));
+    }
+    if let Some((tok, consumed)) = try_consume_inline_compact_arrow(s) {
+        return Some((tok, consumed));
+    }
+    if s.starts_with("-.-") {
+        let base = if s.starts_with("-.->") { 4 } else { 3 };
+        let (label_part, extra) = try_consume_pipe_label(&s[base..]);
+        return Some((format!("{}{label_part}", &s[..base]), base + extra));
+    }
+    if s.starts_with("==") {
+        let mut len = 0;
+        for ch in s.chars() {
+            if ch == '=' {
+                len += 1;
+            } else {
+                break;
+            }
+        }
+        let has_arrow = s[len..].starts_with('>');
+        if has_arrow {
+            len += 1;
+        }
+        let (label_part, extra) = try_consume_pipe_label(&s[len..]);
+        return Some((format!("{}{label_part}", &s[..len]), len + extra));
+    }
+    if s.starts_with("--o") {
+        return Some(("--o".to_string(), 3));
+    }
+    if s.starts_with("--x") {
+        return Some(("--x".to_string(), 3));
+    }
+    if let Some(rest) = s.strip_prefix("-->") {
+        let (label_part, extra) = try_consume_pipe_label(rest);
+        return Some((format!("-->{label_part}"), 3 + extra));
+    }
+    if let Some(rest) = s.strip_prefix("---") {
+        let (label_part, extra) = try_consume_pipe_label(rest);
+        return Some((format!("---{label_part}"), 3 + extra));
+    }
+    if s.starts_with("--") {
+        return Some((s[..2].to_string(), 2));
+    }
+    None
+}
+
+fn try_consume_inline_compact_arrow(s: &str) -> Option<(String, usize)> {
+    if let Some(rest) = s.strip_prefix("-.")
+        && !rest.starts_with("->")
+        && let Some(end) = rest.find(".->")
+    {
+        let label = rest[..end].trim();
+        if !label.is_empty() {
+            return Some((format!("-.->|{label}|"), 2 + end + 3));
+        }
+    }
+    if let Some(rest) = s.strip_prefix("==")
+        && !rest.starts_with('>')
+        && let Some(end) = rest.find("==>")
+    {
+        let label = rest[..end].trim();
+        if !label.is_empty() {
+            return Some((format!("==>|{label}|"), 2 + end + 3));
+        }
+    }
+    None
 }
 
 /// Classify an arrow token into `(style, start_endpoint, end_endpoint)`.
@@ -561,95 +658,6 @@ fn classify_arrow(arrow: &str) -> (EdgeStyle, EdgeEndpoint, EdgeEndpoint) {
     }
     // Default: solid arrow -->
     (EdgeStyle::Solid, EdgeEndpoint::None, EdgeEndpoint::Arrow)
-}
-
-/// Consume an arrow starting at position `i`, returning `(arrow_token, chars_consumed)`.
-///
-/// Handles these forms:
-/// - `-->` / `-->|label|`
-/// - `---`
-/// - `-.->` / `-.->|label|`
-/// - `-. "label" .->` (inline-quoted dashed; normalised to `-.->|label|` internally)
-/// - `==>`
-/// - `== "label" ==>` (inline-quoted thick; normalised to `==>|label|` internally)
-/// - `<-->`
-/// - `--o` / `--x`
-/// - `-- label -->` / `-- "label" -->`
-fn consume_arrow(chars: &[char], start: usize) -> (String, usize) {
-    let remaining: String = chars[start..].iter().collect();
-
-    // "<-->" bidirectional (must check before "--" forms that start with '<')
-    if let Some(rest) = remaining.strip_prefix("<-->") {
-        let (label_part, extra) = try_consume_pipe_label(rest);
-        let tok = format!("<-->{label_part}");
-        return (tok, 4 + extra);
-    }
-
-    // "-- label -->" and "-- \"label\" -->" forms (must check before plain "--")
-    if let Some(arrow) = try_consume_labeled_dash_arrow(&remaining) {
-        let len = arrow.chars().count();
-        return (arrow, len);
-    }
-
-    // Inline-quoted dashed:  `-. "label" .->` → normalise to `-.->|label|`
-    // Inline-quoted thick:   `== "label" ==>` → normalise to `==>|label|`
-    //
-    // We normalise to the pipe-label form so that `classify_arrow` and
-    // `extract_arrow_label` require no changes: both code paths share the
-    // same downstream label handling.
-    if let Some((tok, consumed)) = try_consume_inline_quoted_arrow(&remaining) {
-        return (tok, consumed);
-    }
-
-    // "-.->"|label|? (also handles "-..->")
-    if remaining.starts_with("-.-") {
-        let base = if remaining.starts_with("-.->") { 4 } else { 3 };
-        let (label_part, extra) = try_consume_pipe_label(&remaining[base..]);
-        let tok = format!("{}{label_part}", &remaining[..base]);
-        return (tok, base + extra);
-    }
-
-    // "==>" (also "===", "===>", etc.)
-    if remaining.starts_with("==") {
-        // Consume all '=' chars then optional '>'
-        let mut len = 0;
-        for ch in remaining.chars() {
-            if ch == '=' {
-                len += 1;
-            } else {
-                break;
-            }
-        }
-        let has_arrow = remaining[len..].starts_with('>');
-        if has_arrow {
-            len += 1;
-        }
-        let (label_part, extra) = try_consume_pipe_label(&remaining[len..]);
-        let tok = format!("{}{label_part}", &remaining[..len]);
-        return (tok, len + extra);
-    }
-
-    // "--o" and "--x" endpoint markers
-    if remaining.starts_with("--o") {
-        return ("--o".to_string(), 3);
-    }
-    if remaining.starts_with("--x") {
-        return ("--x".to_string(), 3);
-    }
-
-    // "-->" / "---"
-    if let Some(rest) = remaining.strip_prefix("-->") {
-        let (label_part, extra) = try_consume_pipe_label(rest);
-        let tok = format!("-->{label_part}");
-        return (tok, 3 + extra);
-    }
-    if let Some(rest) = remaining.strip_prefix("---") {
-        let (label_part, extra) = try_consume_pipe_label(rest);
-        let tok = format!("---{label_part}");
-        return (tok, 3 + extra);
-    }
-    // Fallback: consume "--"
-    (remaining[..2].to_string(), 2)
 }
 
 /// Try to parse inline-quoted-label arrow forms, returning `(normalised_token, chars_consumed)`.
@@ -1672,28 +1680,7 @@ class A cls";
         );
     }
 
-    /// **Known limitation (P1, deferred 2026-05-05)**: Mermaid's
-    /// fan-out shorthand `A & B --> C` (which expands to two edges,
-    /// `A --> C` and `B --> C`) is not parsed. The whole `A & B`
-    /// is treated as a single node id with label "A & B".
-    ///
-    /// Surfaced by an external file (intuition-v2 personal_notes.md)
-    /// containing `P1a & P1b --> K1`.
-    ///
-    /// Reference: <https://mermaid.js.org/syntax/flowchart.html#a-link-between-multiple-nodes>
-    /// "You can also link multiple nodes with multiple arrows ... in
-    /// a single statement."
-    ///
-    /// Workaround: write each edge on its own line.
-    ///   `A --> C`
-    ///   `B --> C`
-    ///
-    /// Implementation hint for future fix: in the line tokenizer
-    /// that splits source/dest around the arrow, recognise `&` at
-    /// the same depth as the arrow and synthesise the cross product
-    /// of edges. Both LHS and RHS of the arrow can carry `&` lists.
     #[test]
-    #[ignore = "P1: `A & B --> C` fan-out shorthand not parsed (deferred)"]
     fn ampersand_fanout_expands_to_multiple_edges() {
         let src = "flowchart LR\n    P1a & P1b --> K1";
         let g = parse(src).expect("parse must succeed");
@@ -1710,29 +1697,64 @@ class A cls";
         assert!(g.nodes.iter().any(|n| n.id == "P1b"), "P1b missing");
     }
 
-    /// **Known limitation (P2, deferred 2026-05-05)**: Mermaid's
-    /// inline-label syntax for dotted/thick edges (`A -.LABEL.-> B`
-    /// and `A ==LABEL==> B`) is not parsed. The whole line collapses
-    /// into a single node label.
-    ///
-    /// Surfaced by an external file (intuition-v2 personal_notes.md)
-    /// containing `Stop(["createOutboxRunner.stop()"]) -.cancels.-> Sleep`.
-    ///
-    /// Reference: <https://mermaid.js.org/syntax/flowchart.html#text-on-links>
-    /// "It is also possible to put text on links ... A-- text -->B
-    /// or A-->|text|B" — and the dotted/thick variants
-    /// `A -.text.-> B`, `A ==text==> B`.
-    ///
-    /// Workaround: use the pipe-delimited form, which IS supported:
-    ///   `A -.->|cancels| B`
-    ///   `A ==>|text| B`
-    ///
-    /// Implementation hint: extend the edge-pattern regex (or hand
-    /// tokenizer) to recognise `-.<text>.->`, `<-.text.-`,
-    /// `==<text>==>`, `<==text==`. Capture <text> as the edge
-    /// label, set EdgeStyle accordingly.
     #[test]
-    #[ignore = "P2: inline-dotted/thick edge labels (-.LABEL.->, ==LABEL==>) not parsed (deferred)"]
+    fn ampersand_fanout_cross_products_both_sides() {
+        let src = "flowchart LR\n    A & B --> C & D";
+        let g = parse(src).expect("parse must succeed");
+        let edges: Vec<(&str, &str)> = g
+            .edges
+            .iter()
+            .map(|e| (e.from.as_str(), e.to.as_str()))
+            .collect();
+        assert_eq!(edges, vec![("A", "C"), ("A", "D"), ("B", "C"), ("B", "D")]);
+    }
+
+    #[test]
+    fn ampersand_fanout_expands_each_chain_step() {
+        let src = "flowchart LR\n    A --> B & C --> D";
+        let g = parse(src).expect("parse must succeed");
+        let edges: Vec<(&str, &str)> = g
+            .edges
+            .iter()
+            .map(|e| (e.from.as_str(), e.to.as_str()))
+            .collect();
+        assert_eq!(edges, vec![("A", "B"), ("A", "C"), ("B", "D"), ("C", "D")]);
+    }
+
+    #[test]
+    fn ampersand_fanout_keeps_node_shapes_classes_and_labels() {
+        let src = "flowchart LR
+    A[one]:::left & B(two):::right --> C:::sink
+    classDef left fill:#123
+    classDef right fill:#456
+    classDef sink fill:#789";
+        let g = parse(src).expect("parse must succeed");
+        assert_eq!(g.node("A").unwrap().label, "one");
+        assert_eq!(g.node("B").unwrap().shape, NodeShape::Rounded);
+        assert_eq!(
+            g.node_styles.get("A").and_then(|s| s.fill),
+            Some(Rgb(0x11, 0x22, 0x33))
+        );
+        assert_eq!(
+            g.node_styles.get("B").and_then(|s| s.fill),
+            Some(Rgb(0x44, 0x55, 0x66))
+        );
+        assert_eq!(
+            g.node_styles.get("C").and_then(|s| s.fill),
+            Some(Rgb(0x77, 0x88, 0x99))
+        );
+    }
+
+    #[test]
+    fn ampersand_inside_node_label_does_not_split_group() {
+        let src = "flowchart LR\n    A[Research & Development] --> B";
+        let g = parse(src).expect("parse must succeed");
+        assert_eq!(g.edges.len(), 1);
+        assert_eq!(g.node("A").unwrap().label, "Research & Development");
+        assert_eq!(g.node("B").unwrap().label, "B");
+    }
+
+    #[test]
     fn inline_dotted_label_parses_as_edge_label() {
         let src = "flowchart TD\n    A[start] -.cancels.-> B[Sleep]";
         let g = parse(src).expect("parse must succeed");
@@ -1751,5 +1773,40 @@ class A cls";
             "edge label should be 'cancels', got {:?}",
             edge.label
         );
+    }
+
+    #[test]
+    fn inline_thick_label_parses_as_edge_label() {
+        let src = "flowchart TD\n    A ==promotes==> B";
+        let g = parse(src).expect("parse must succeed");
+        let edge = g
+            .edges
+            .iter()
+            .find(|e| e.from == "A" && e.to == "B")
+            .expect("edge A → B not parsed");
+        assert_eq!(edge.style, EdgeStyle::Thick);
+        assert_eq!(edge.label.as_deref(), Some("promotes"));
+    }
+
+    #[test]
+    fn inline_compact_labels_preserve_spacing_and_shapes() {
+        let src = r#"flowchart TD
+    Stop(["createOutboxRunner.stop()"]) -. cancels retry .-> Sleep
+    Sleep == wakes worker ==> Wake"#;
+        let g = parse(src).expect("parse must succeed");
+        let dotted = g
+            .edges
+            .iter()
+            .find(|e| e.from == "Stop" && e.to == "Sleep")
+            .expect("dotted edge not parsed");
+        assert_eq!(dotted.style, EdgeStyle::Dotted);
+        assert_eq!(dotted.label.as_deref(), Some("cancels retry"));
+        let thick = g
+            .edges
+            .iter()
+            .find(|e| e.from == "Sleep" && e.to == "Wake")
+            .expect("thick edge not parsed");
+        assert_eq!(thick.style, EdgeStyle::Thick);
+        assert_eq!(thick.label.as_deref(), Some("wakes worker"));
     }
 }

@@ -5,6 +5,28 @@ All notable changes to `markdown-tui-explorer` are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.34.57] — 2026-05-05
+
+### Fixed — Bug 4 + two parser features (mermaid-text 0.44.0)
+
+- **Bug 4 closes the renderer-side launch-quality plan.** Foreign-halo
+  eviction in the post-routing nudging pass shifts route runs out of
+  non-endpoint node halos. The diamond-join fixture's `│ B │├────┐`
+  artifact (B's right halo column carrying a `├` from a route between
+  A and Z) becomes `│ B │─┼───┐` with the corner pulled outside the
+  halo. Reuses the Bug 5 nudging infrastructure for the apply step.
+- **`A & B --> C` fan-out shorthand** now expands into the cross
+  product of edges per Mermaid's spec.
+- **Inline-label dotted/thick edge syntax** (`A -.LABEL.-> B`,
+  `A ==LABEL==> B`) now parses as a labeled edge instead of
+  collapsing the whole line into one node label.
+
+All 9 bugs from `docs/scope-launch-quality-plan-2026-05-04.md` are
+either fixed (7) or documented as design limitations with
+workarounds (2: Bug 6 `direction TB` inside `LR`, E1 ER spine label
+alignment). The two parser bugs (P1, P2) surfaced by the
+intuition-v2 recommendation-engine notes are also fixed.
+
 ## [1.34.56] — 2026-05-05
 
 ### Fixed — Three more launch-quality renderer fixes (mermaid-text 0.43.0)
