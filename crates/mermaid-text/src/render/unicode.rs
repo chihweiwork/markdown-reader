@@ -3690,12 +3690,25 @@ if_state --> False: !condition";
     /// unique row to avoid the (artificially high) crossing-cost of
     /// stepping onto an already-occupied edge cell.
     ///
-    /// The fix is a perimeter-aware reduction of `SAME_AXIS_COST` so
-    /// that two back-edges flowing in the same direction along the
-    /// perimeter merge onto a shared row, reducing total canvas height.
-    /// Estimated snapshot churn was ≤ 40 files; complications across
-    /// both backends (Native + Sugiyama) push it past the launch
-    /// window's 2-session ceiling. Pinned by `#[ignore]`d test.
+    /// The fix attempted (2026-05-05): reduce `SAME_AXIS_COST` for
+    /// back-edges so two back-edges flowing in the same direction
+    /// merge onto a shared row. Tried both global-back-edge reduction
+    /// (0.5) and canvas-perimeter-only reduction (0.5 for cells where
+    /// `nr==0 || nr+1==H || nc==0 || nc+1==W`). Both broke the
+    /// state-diagram exit-stub convention pinned by
+    /// `back_edge_attach_does_not_pierce_source_perimeter`: the
+    /// `┴` glyph (UP+LEFT+RIGHT, "exit stub") on the cell immediately
+    /// below a back-edge source's bottom border became `├`
+    /// (UP+DOWN+RIGHT, "pierce glyph") because A* found cheaper paths
+    /// that descended through that cell rather than turning at it.
+    ///
+    /// Conclusion: the A*-cost-tweak approach can make sharing happen
+    /// but cannot distinguish "shared perimeter corridor cell" (good)
+    /// from "shared exit-stub cell" (breaks load-bearing direction
+    /// bits). Per-cell metadata or a post-routing nudging pass
+    /// (Wybrow 2009 §4 — same algorithm Bug 4 needs) is the correct
+    /// path. Bug 4 + Bug 5 should be tackled together once the
+    /// post-routing pipeline is in place.
     ///
     /// Fixture: 5-node LR chain with 2 back-edges (E→A, D→B). Current
     /// render is 11 lines tall: 5 lines for the box row, 1 for source
