@@ -1669,6 +1669,72 @@ impl Grid {
         }
     }
 
+    /// Inverse of [`draw_routed_path`]: subtract `path`'s direction-bit
+    /// contributions from each cell so the cell re-renders with whatever
+    /// other paths' bits survive. Used by the post-routing nudging pass
+    /// (`crate::layout::nudge`) before re-drawing a shifted path.
+    ///
+    /// # Algorithm
+    ///
+    /// For each cell `(c, r)` in `path`:
+    /// 1. Compute the bits this path contributed at the cell using the
+    ///    same `neighbor_bit` derivation as `draw_routed_path`. Source
+    ///    cell (i=0) contributes only the next-direction bit; tip cell
+    ///    (i=last) contributes none (tip is set as a glyph, not via
+    ///    direction bits — special-cased below); interior cells
+    ///    contribute prev-bit OR next-bit.
+    /// 2. Defensive guard: only subtract if `directions[r][c] &
+    ///    our_bits == our_bits` — i.e., all our bits are present. If
+    ///    protected-with-zero-bits (label text, rounded corners) blocked
+    ///    the original `add_dirs`, our bits aren't there and we leave
+    ///    the cell alone. This preserves protected glyphs that we
+    ///    couldn't have stamped onto in the first place.
+    /// 3. Subtract: `directions[r][c] &= !our_bits`; rewrite glyph from
+    ///    LUT[surviving_bits] (mirrors `add_dirs`'s glyph derivation).
+    /// 4. Tip cell: unprotect, then either blank (if no surviving bits
+    ///    from other paths) or recompute glyph from survivors.
+    ///
+    /// # Obstacle layer (`EdgeOccupied*`)
+    ///
+    /// Left UNTOUCHED. The obstacle layer is read-only after `route_all`
+    /// returns — only A\* consumes it, and A\* finishes before the
+    /// nudging pass runs. Staleness is invisible to the renderer. If
+    /// future code reads obstacles after nudging, this assumption breaks
+    /// and a per-cell ref counter would be needed.
+    #[allow(dead_code)] // Wired in by `crate::layout::nudge` in Phase C.
+    pub(crate) fn erase_path(&mut self, path: &[(usize, usize)]) {
+        if path.len() < 2 {
+            return;
+        }
+        let last = path.len() - 1;
+        for i in 0..=last {
+            let (c, r) = path[i];
+            if c >= self.width || r >= self.height {
+                continue;
+            }
+            if i == last {
+                self.protected[r][c] = false;
+                if self.directions[r][c] == 0 {
+                    self.cells[r][c] = ' ';
+                } else {
+                    self.cells[r][c] = DIR_TO_CHAR[self.directions[r][c] as usize];
+                }
+                continue;
+            }
+            let mut our_bits = 0u8;
+            if i > 0 {
+                let (pc, pr) = path[i - 1];
+                our_bits |= neighbor_bit(c, r, pc, pr);
+            }
+            let (nc, nr) = path[i + 1];
+            our_bits |= neighbor_bit(c, r, nc, nr);
+            if our_bits != 0 && self.directions[r][c] & our_bits == our_bits {
+                self.directions[r][c] &= !our_bits;
+                self.cells[r][c] = DIR_TO_CHAR[self.directions[r][c] as usize];
+            }
+        }
+    }
+
     /// Draw a pre-computed path of `(col, row)` waypoints on the grid and
     /// return the path.  The final waypoint receives the arrow `tip` glyph and
     /// is protected against overwriting by later edges.
@@ -1797,6 +1863,64 @@ mod tests {
         for line in s.lines() {
             assert!(!line.ends_with(' '));
         }
+    }
+
+    #[test]
+    fn erase_path_clears_isolated_segment() {
+        let mut g = Grid::new(10, 5);
+        let path = vec![(2, 2), (3, 2), (4, 2), (5, 2)];
+        g.draw_routed_path(&path, '▶');
+        // Sanity: path was drawn.
+        assert_eq!(g.get(3, 2), '─');
+        assert_eq!(g.get(5, 2), '▶');
+        g.erase_path(&path);
+        // All cells blanked.
+        for (c, r) in &path {
+            assert_eq!(
+                g.get(*c, *r),
+                ' ',
+                "cell ({c},{r}) not cleared after erase"
+            );
+        }
+        // Tip cell is unprotected — adding direction bits should write a glyph.
+        g.add_dirs(5, 2, DIR_LEFT | DIR_RIGHT);
+        assert_eq!(g.get(5, 2), '─');
+    }
+
+    #[test]
+    fn erase_path_preserves_shared_junction() {
+        let mut g = Grid::new(10, 5);
+        // Horizontal path at row 2.
+        let h_path = vec![(1, 2), (2, 2), (3, 2), (4, 2)];
+        g.draw_routed_path(&h_path, '▶');
+        // Vertical path through (2, 2). draw_routed_path stamps only via
+        // direction bits at interior cells; (2, 2) becomes a junction
+        // when the vertical path's bits OR with the horizontal's.
+        let v_path = vec![(2, 0), (2, 1), (2, 2), (2, 3)];
+        g.draw_routed_path(&v_path, '▼');
+        // Junction at (2, 2) — horizontal LEFT|RIGHT plus vertical UP|DOWN = ┼.
+        assert_eq!(g.get(2, 2), '┼');
+        // Erase the horizontal. Vertical's UP|DOWN bits survive at (2,2).
+        g.erase_path(&h_path);
+        assert_eq!(g.get(2, 2), '│', "junction collapsed to vertical bit only");
+        // (1, 2) and (3, 2) are pure-horizontal cells — fully blanked.
+        assert_eq!(g.get(1, 2), ' ');
+        assert_eq!(g.get(3, 2), ' ');
+        // Vertical path's other cells unaffected.
+        assert_eq!(g.get(2, 1), '│');
+    }
+
+    #[test]
+    fn erase_path_handles_tip_unprotect() {
+        let mut g = Grid::new(10, 5);
+        let path = vec![(2, 2), (3, 2), (4, 2)];
+        g.draw_routed_path(&path, '▶');
+        assert_eq!(g.get(4, 2), '▶');
+        g.erase_path(&path);
+        assert_eq!(g.get(4, 2), ' ');
+        // Tip is unprotected: a subsequent add_dirs writes through.
+        g.add_dirs(4, 2, DIR_LEFT | DIR_RIGHT);
+        assert_eq!(g.get(4, 2), '─');
     }
 
     #[test]
