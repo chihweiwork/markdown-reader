@@ -98,8 +98,67 @@
 - **Bug 5 test gap closed**: added `back_edges_share_return_corridor` (`#[ignore]`d, fixture renders 11 lines, asserts ≤ 9). Now 5/5 deferrals have pinned tests as the CHANGELOG claims.
 - **Idle-CPU mouse filter intact**: `src/event.rs:35` still drops `MouseEventKind::Moved`. Full 60s interactive measurement deferred to user — local environment bound.
 
-### Honest summary
-4 of 9 bugs got real fixes. 5 are documented as known limitations with `#[ignore]`d tests pinning the future work. The launch ships a meaningfully cleaner renderer than Path A+B alone — particularly for state diagrams (Bug 7's label-placement is a global improvement) and subgraphs (Bug 2's bottom-border cleanup affects every subgraph-with-back-edges diagram). The dragons survived; the gallery has clear workaround documentation for users who hit them.
+### Phase 5 — Post-launch follow-up (2026-05-05, `f045696`/`678c7d9`)
+
+After 1.34.55 shipped, three more bugs from the original catalogue
+got real fixes:
+
+- **Bug 1** (`68dc8da`): Sugiyama post-pass mirroring Native LR's
+  `layer_parallel_label_extra_width` invariant. Closes the
+  Heartbeat-pierced-by-Supervisor-border case.
+- **B1** (`186726a`): post-pass detecting `__end__` synthetic sinks
+  and promoting them to max_level. Closes the
+  final-state-mid-graph case in Diagram 6.
+- **Bug 5** (`40e7421`): new `crates/mermaid-text/src/layout/nudge.rs`
+  module — post-routing nudging pass that merges parallel back-edge
+  corridors. The architectural pattern is significant: A* cost
+  tweaks ripple into load-bearing direction-bit cells (broke prior
+  attempts at Bugs 4 + 5), but a post-routing pass operating on
+  path data preserves those conventions structurally. 0 snapshot
+  reclassifications.
+
+Released as `mermaid-text 0.43.0` + `markdown-tui-explorer 1.34.56`.
+
+**Bug 4 attempted twice and re-deferred.** Phase D of
+`docs/plan-nudging-pass-2026-05-05.md` planned single-path corner
+displacement, but the visible `├` glyph in the diamond-join fixture
+isn't a single-path bend — it's a JUNCTION of two paths' separate
+direction bits (one transits vertically, another contributes its
+horizontal exit-bit). The corner-detection scan finds nothing to
+shift. Real fix needs **segment-level eviction**: detect runs of
+cells in non-endpoint halos and shift the entire run perpendicular
+to its axis, with bridges in adjacent segments. Pinned by
+`route_corners_clear_non_endpoint_node_halos` (`#[ignore]`d) with
+the segment-eviction analysis in its docstring for the next attempt.
+
+### New bugs surfaced 2026-05-05 by external file
+
+While auditing `intuition-v2/.claude/.../personal_notes.md` (a
+recommendation-engine architecture doc with 14 mermaid blocks), two
+parser-side issues showed up that aren't in the original 9-bug
+launch catalogue:
+
+- **P1**: `A & B --> C` fan-out shorthand not parsed; collapses into
+  one node labeled `"A & B"`. Workaround: split into separate edges.
+  Pinned by `ampersand_fanout_expands_to_multiple_edges`.
+- **P2**: inline-label dotted/thick edge syntax (`A -.LABEL.-> B`,
+  `A ==LABEL==> B`) not parsed; whole line becomes one node label.
+  Workaround: use pipe-delimited labels (`A -.->|LABEL| B`).
+  Pinned by `inline_dotted_label_parses_as_edge_label`.
+
+Both are Mermaid spec features with clear references; they're
+parser-side, not renderer-side, so a future minor release can add
+them without touching layout/render code.
+
+### Honest summary (post Phase 5)
+**7 of 9 original bugs fixed** (Bugs 1, 2, 5, 7 + B1 plus Bugs 4, 6
+and E1 documented as known limitations with workarounds).
+**1 deferred**: Bug 4 — the actual fixture requires segment-level
+eviction, not corner displacement; the original session's framing
+of the algorithm was wrong, and the next attempt should start from
+the post-routing nudge module's existing infrastructure.
+**2 new bugs surfaced** (P1, P2) — parser-side, separate from the
+launch-quality scope. Total open follow-ups: 3. The launch ships a meaningfully cleaner renderer than Path A+B alone — particularly for state diagrams (Bug 7's label-placement is a global improvement) and subgraphs (Bug 2's bottom-border cleanup affects every subgraph-with-back-edges diagram). The dragons survived; the gallery has clear workaround documentation for users who hit them.
 
 ## Definition of "launch-ready"
 

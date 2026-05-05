@@ -3,6 +3,36 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## Unreleased — Parser-syntax follow-ups
+
+### Known limitations (deferred with `#[ignore]`d tests)
+
+- **P1 — `A & B --> C` fan-out shorthand not parsed.** Mermaid's
+  multi-source / multi-target syntax (where `&` lists nodes that
+  share an arrow) collapses into a single node with label `"A & B"`
+  instead of expanding into the two edges `A → C` and `B → C`.
+  Surfaced 2026-05-05 by an external file (intuition-v2
+  `personal_notes.md`'s recommendation-engine notes).
+  Workaround: write each edge on its own line.
+  Pinned by `#[ignore]`d test
+  `parser::flowchart::tests::ampersand_fanout_expands_to_multiple_edges`.
+
+- **P2 — Inline-label syntax for dotted/thick edges not parsed.**
+  `A -.LABEL.-> B` and `A ==LABEL==> B` collapse the entire line
+  into a single node label. The pipe-delimited form is supported
+  (`A -.->|LABEL| B`, `A ==>|LABEL| B`). Surfaced 2026-05-05 in the
+  same file as P1.
+  Workaround: use pipe-delimited labels.
+  Pinned by `#[ignore]`d test
+  `parser::flowchart::tests::inline_dotted_label_parses_as_edge_label`.
+
+These are Mermaid syntax features that the launch-quality plan
+(`docs/scope-launch-quality-plan-2026-05-04.md`) didn't cover —
+its 9-bug scope was rendering-side. Both have a clear Mermaid-spec
+target (URLs in the test docstrings) and a workaround already
+available, so they can be addressed in a future minor release
+without blocking renderer-side work.
+
 ## 0.43.0 — 2026-05-05 — Post-routing nudging pass + B1 + Bug 1
 
 ### Fixed

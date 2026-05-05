@@ -1671,4 +1671,85 @@ class A cls";
             Some("https://b.example")
         );
     }
+
+    /// **Known limitation (P1, deferred 2026-05-05)**: Mermaid's
+    /// fan-out shorthand `A & B --> C` (which expands to two edges,
+    /// `A --> C` and `B --> C`) is not parsed. The whole `A & B`
+    /// is treated as a single node id with label "A & B".
+    ///
+    /// Surfaced by an external file (intuition-v2 personal_notes.md)
+    /// containing `P1a & P1b --> K1`.
+    ///
+    /// Reference: <https://mermaid.js.org/syntax/flowchart.html#a-link-between-multiple-nodes>
+    /// "You can also link multiple nodes with multiple arrows ... in
+    /// a single statement."
+    ///
+    /// Workaround: write each edge on its own line.
+    ///   `A --> C`
+    ///   `B --> C`
+    ///
+    /// Implementation hint for future fix: in the line tokenizer
+    /// that splits source/dest around the arrow, recognise `&` at
+    /// the same depth as the arrow and synthesise the cross product
+    /// of edges. Both LHS and RHS of the arrow can carry `&` lists.
+    #[test]
+    #[ignore = "P1: `A & B --> C` fan-out shorthand not parsed (deferred)"]
+    fn ampersand_fanout_expands_to_multiple_edges() {
+        let src = "flowchart LR\n    P1a & P1b --> K1";
+        let g = parse(src).expect("parse must succeed");
+        // Trap-check: K1 node must exist.
+        assert!(g.nodes.iter().any(|n| n.id == "K1"), "K1 missing");
+        // Acceptance: TWO edges exist (P1a → K1 and P1b → K1).
+        let edges_to_k1 = g.edges.iter().filter(|e| e.to == "K1").count();
+        assert_eq!(
+            edges_to_k1, 2,
+            "expected 2 edges into K1 from `P1a & P1b --> K1`; found {edges_to_k1}"
+        );
+        // Both nodes P1a and P1b must be parsed as separate nodes.
+        assert!(g.nodes.iter().any(|n| n.id == "P1a"), "P1a missing");
+        assert!(g.nodes.iter().any(|n| n.id == "P1b"), "P1b missing");
+    }
+
+    /// **Known limitation (P2, deferred 2026-05-05)**: Mermaid's
+    /// inline-label syntax for dotted/thick edges (`A -.LABEL.-> B`
+    /// and `A ==LABEL==> B`) is not parsed. The whole line collapses
+    /// into a single node label.
+    ///
+    /// Surfaced by an external file (intuition-v2 personal_notes.md)
+    /// containing `Stop(["createOutboxRunner.stop()"]) -.cancels.-> Sleep`.
+    ///
+    /// Reference: <https://mermaid.js.org/syntax/flowchart.html#text-on-links>
+    /// "It is also possible to put text on links ... A-- text -->B
+    /// or A-->|text|B" — and the dotted/thick variants
+    /// `A -.text.-> B`, `A ==text==> B`.
+    ///
+    /// Workaround: use the pipe-delimited form, which IS supported:
+    ///   `A -.->|cancels| B`
+    ///   `A ==>|text| B`
+    ///
+    /// Implementation hint: extend the edge-pattern regex (or hand
+    /// tokenizer) to recognise `-.<text>.->`, `<-.text.-`,
+    /// `==<text>==>`, `<==text==`. Capture <text> as the edge
+    /// label, set EdgeStyle accordingly.
+    #[test]
+    #[ignore = "P2: inline-dotted/thick edge labels (-.LABEL.->, ==LABEL==>) not parsed (deferred)"]
+    fn inline_dotted_label_parses_as_edge_label() {
+        let src = "flowchart TD\n    A[start] -.cancels.-> B[Sleep]";
+        let g = parse(src).expect("parse must succeed");
+        // Trap-check: BOTH nodes must exist as separate entities.
+        assert!(g.nodes.iter().any(|n| n.id == "A"), "A missing");
+        assert!(g.nodes.iter().any(|n| n.id == "B"), "B missing");
+        // Acceptance: an edge from A to B with label "cancels".
+        let edge = g
+            .edges
+            .iter()
+            .find(|e| e.from == "A" && e.to == "B")
+            .expect("edge A → B not parsed");
+        assert_eq!(
+            edge.label.as_deref(),
+            Some("cancels"),
+            "edge label should be 'cancels', got {:?}",
+            edge.label
+        );
+    }
 }
