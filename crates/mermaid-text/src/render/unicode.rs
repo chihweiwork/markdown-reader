@@ -691,7 +691,7 @@ fn render_inner(
     // Route all edges end-to-end with one A* call per edge (preceded by
     // straight-line and L-shape fast paths). Edges are routed in ascending
     // Manhattan-distance order so short edges claim clean corridors first.
-    let paths = router::route_all(
+    let mut paths = router::route_all(
         &mut grid,
         graph,
         &attach_points,
@@ -703,6 +703,25 @@ fn render_inner(
             }
         },
         |edge_idx| edge_is_back_flags.get(edge_idx).copied().unwrap_or(false),
+    );
+
+    // Post-routing nudging pass: merges co-directional parallel
+    // back-edge corridors (Bug 5) and shifts route corners out of
+    // non-endpoint node halos (Bug 4 — Phase D). The pass operates on
+    // path data, not on A* cost classes, so it preserves the load-
+    // bearing direction-bit conventions (e.g. state-diagram `┴` exit
+    // stubs) that prior routing-time attempts at these bugs broke.
+    crate::layout::nudge::run(
+        &mut grid,
+        &mut paths,
+        &edge_is_back_flags,
+        |edge_idx| {
+            if edge_is_back_flags.get(edge_idx).copied().unwrap_or(false) {
+                tip_char_for_back_edge(graph.direction)
+            } else {
+                tip_char(graph.direction)
+            }
+        },
     );
 
     // Collect edge label placements for a deferred write — labels must be
@@ -3730,7 +3749,6 @@ if_state --> False: !condition";
     /// (the bottommost perimeter corridor) carries 2+ `┴` glyphs —
     /// proof that both back-edges share that row.
     #[test]
-    #[ignore = "Bug 5: back-edges don't share return corridors (pinned target for nudging pass)"]
     fn back_edges_share_return_corridor() {
         let src = "graph LR
     A --> B --> C --> D --> E

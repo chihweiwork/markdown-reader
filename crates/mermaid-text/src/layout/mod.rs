@@ -2,6 +2,7 @@
 
 pub mod grid;
 pub mod layered;
+pub(crate) mod nudge;
 pub(crate) mod router;
 pub mod subgraph;
 pub mod sugiyama;
