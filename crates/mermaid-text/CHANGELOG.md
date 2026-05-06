@@ -3,6 +3,66 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.49.0 — 2026-05-06 — Perpendicular-aligned edges route on the perpendicular axis
+
+### Fixed
+
+- **Bidirectional edges between vertically-aligned nodes no longer
+  cross.** When two nodes share a "layer axis" — same column for LR/RL
+  graphs (e.g. Factory and Worker stacked inside a `direction TB`
+  subgraph nested in `graph LR`), or same row for TD/BT graphs — the
+  default LR exit/entry semantics gave both edges a `right-source` /
+  `left-destination` attach pair. For bidirectional pairs in this
+  geometry the two edges had to route through the same left-side
+  corridor in opposite directions, forcing them to cross. Visible in
+  the README's Supervisor pattern: `creates` and `panics` between
+  Factory and Worker crossed inside the subgraph.
+
+  Three coupled changes in `crates/mermaid-text/src/render/unicode.rs`:
+  1. **`same_layer` + `perpendicular_direction`** detect "perpendicular-
+     aligned" pairs and pick the canonical perpendicular flow direction
+     (TB for LR/RL, LR for TD/BT).
+  2. **Per-edge effective direction.** New `edge_effective_direction`
+     helper computes whether an edge should route under the graph
+     direction or the perpendicular direction. The render pipeline
+     threads `edge_effective_dirs[edge_idx]` through `compute_spread_
+     attaches` (so attach points use the perpendicular `exit_point` /
+     `entry_point` / `..._back_edge` variants), the `is_back_edge`
+     evaluation, the `back_edge_border_cells` computation, and the tip-
+     glyph closures for both `router::route_all` and `nudge::run`.
+  3. **Per-edge back-edge border + path-junction stamps.** The stamp
+     glyphs (`┬` vs `├` for source border; `┘` vs `└` vs `┐` for path
+     junction) are now picked from the entry's stored direction rather
+     than from `graph.direction`, so a perpendicular back-edge in an
+     LR graph correctly stamps `├` on the source's right border and a
+     corner on the path cell to its right.
+
+  Pinned by `supervisor_perpendicular_edges_use_perpendicular_attaches`
+  in `crates/mermaid-text/tests/snapshots.rs`. The forward `creates`
+  edge now routes as a straight vertical from Factory's bottom centre
+  to Worker's top border (with `▾` tip); the back-edge `panics` routes
+  via the right-side perimeter (`├` source stamp on Worker, `◂` tip on
+  Factory).
+
+### Snapshot churn
+
+10 snapshot files updated. All bucket A (strict improvement).
+Crossings counts: `supervisor_bidirectional_in_subgraph` improved
+2 → 1; every other fixture unchanged. Notable improvements:
+- `flowchart_supervisor_bidirectional`: `creates` and `panics` no
+  longer cross; corridor-detour and stray `││` artefacts removed.
+- `flowchart_perpendicular_subgraph`: chain of vertically-aligned
+  nodes (X, Y, Z) now uses straight TB tips and clean inter-node
+  vertical lines instead of LR-style left-side detours.
+- `snapshots__edge_label_does_not_abut_subgraph_right_wall`: the
+  `panics` label now sits beside the back-edge column, not above the
+  subgraph as a left-corridor detour.
+
+### Documentation
+
+- `docs/scope-attach-border-row-exclusion.md` extended with the
+  perpendicular-axis detection follow-up.
+
 ## 0.48.0 — 2026-05-06 — LR fanout destination-channel cleanup
 
 ### Fixed
