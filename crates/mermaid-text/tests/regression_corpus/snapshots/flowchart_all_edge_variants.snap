@@ -2,8 +2,6 @@
 source: crates/mermaid-text/tests/regression_corpus.rs
 expression: natural
 ---
-
-
           ┌───┐
       ┌──▸│ B │
       │   └───┘

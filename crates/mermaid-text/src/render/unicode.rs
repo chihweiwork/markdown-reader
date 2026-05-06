@@ -710,12 +710,14 @@ fn render_inner(
     // (Bug 4). Operates on path data rather than A* costs so the router's
     // load-bearing direction-bit conventions stay intact.
     let edge_has_label: Vec<bool> = graph.edges.iter().map(|e| e.label.is_some()).collect();
+    let enable_endpoint_corner_nudge = graph_supports_simple_lr_fanout_heuristics(graph);
     crate::layout::nudge::run(
         &mut grid,
         &mut paths,
         &edge_is_back_flags,
         &edge_has_label,
         &node_rects,
+        enable_endpoint_corner_nudge,
         |edge_idx| {
             if edge_is_back_flags.get(edge_idx).copied().unwrap_or(false) {
                 tip_char_for_back_edge(graph.direction)
@@ -1142,7 +1144,15 @@ fn compute_spread_attaches(
         let Some(&from_geom) = geoms.get(&first_edge.from) else {
             continue;
         };
-        spread_sources(&mut pairs, indices, from_pos, from_geom, graph.direction);
+        let reorder_for_lr_fanout = source_reordering_allowed(graph, indices);
+        spread_sources(
+            &mut pairs,
+            indices,
+            from_pos,
+            from_geom,
+            graph.direction,
+            reorder_for_lr_fanout,
+        );
     }
 
     pairs
@@ -1237,8 +1247,22 @@ fn spread_sources(
     from_pos: GridPos,
     from_geom: NodeGeom,
     dir: Direction,
+    reorder_for_lr_fanout: bool,
 ) {
-    let n = indices.len();
+    let mut ordered_indices = indices.to_vec();
+    if reorder_for_lr_fanout && matches!(dir, Direction::LeftToRight | Direction::RightToLeft) {
+        // Prefer nearer-layer targets for the inner slots. Long skip edges
+        // are more likely to need U-routes, so pushing them outward
+        // reduces avoidable fan-out crossings beside the source box.
+        ordered_indices.sort_by_key(|&idx| {
+            pairs[idx]
+                .as_ref()
+                .map(|(src, dst)| (src.col.abs_diff(dst.col), dst.row, dst.col))
+                .unwrap_or((usize::MAX, usize::MAX, usize::MAX))
+        });
+    }
+
+    let n = ordered_indices.len();
     let (from_col, from_row) = from_pos;
 
     match dir {
@@ -1264,7 +1288,7 @@ fn spread_sources(
             } else {
                 1
             };
-            for (i, &idx) in indices.iter().enumerate() {
+            for (i, &idx) in ordered_indices.iter().enumerate() {
                 // Symmetric centring: (2*i - (n-1)) * step / 2. For odd n
                 // this is identical to (i - (n-1)/2) * step. For even n it
                 // gives symmetric offsets [-step/2, +step/2, ...] instead of
@@ -1299,7 +1323,7 @@ fn spread_sources(
             } else {
                 1
             };
-            for (i, &idx) in indices.iter().enumerate() {
+            for (i, &idx) in ordered_indices.iter().enumerate() {
                 // Symmetric centring: (2*i - (n-1)) * step / 2. For odd n
                 // this is identical to (i - (n-1)/2) * step. For even n it
                 // gives symmetric offsets [-step/2, +step/2, ...] instead of
@@ -1316,6 +1340,38 @@ fn spread_sources(
             }
         }
     }
+}
+
+fn source_reordering_allowed(graph: &Graph, indices: &[usize]) -> bool {
+    if !graph_supports_simple_lr_fanout_heuristics(graph) {
+        return false;
+    }
+
+    indices.iter().all(|&idx| {
+        graph.edges.get(idx).is_some_and(|edge| {
+            graph
+                .node(&edge.from)
+                .is_some_and(|node| shape_supports_lr_fanout_ordering(node.shape))
+                && graph
+                    .node(&edge.to)
+                    .is_some_and(|node| shape_supports_lr_fanout_ordering(node.shape))
+        })
+    })
+}
+
+fn graph_supports_simple_lr_fanout_heuristics(graph: &Graph) -> bool {
+    matches!(
+        graph.direction,
+        Direction::LeftToRight | Direction::RightToLeft
+    ) && graph.subgraphs.is_empty()
+        && graph
+            .nodes
+            .iter()
+            .all(|node| shape_supports_lr_fanout_ordering(node.shape))
+}
+
+fn shape_supports_lr_fanout_ordering(shape: NodeShape) -> bool {
+    matches!(shape, NodeShape::Rectangle | NodeShape::Cylinder)
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,5 @@
 ---
 source: crates/mermaid-text/src/layout/sugiyama.rs
-assertion_line: 1159
 expression: out
 ---
  ╭─CI──────────────────────────────────────╮

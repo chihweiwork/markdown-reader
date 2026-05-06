@@ -1,11 +1,13 @@
 //! Post-routing nudging pass.
 //!
-//! Reads the routes produced by `router::route_all` and makes two targeted
+//! Reads the routes produced by `router::route_all` and makes three targeted
 //! post-processing adjustments:
 //!
 //! 1. Merge adjacent horizontal back-edge corridors (Bug 5).
 //! 2. Evict routed path runs from the 1-cell halo around nodes when that node
 //!    is not an endpoint of the edge (Bug 4).
+//! 3. Evict endpoint-halo runs that sit directly against a node corner row/col
+//!    and read as part of the box border.
 //!
 //! The pass operates on finished paths rather than A* costs. That keeps the
 //! router's attach semantics intact and limits change to paths we can inspect
@@ -78,6 +80,9 @@ struct HaloRun {
 ///    node's 1-cell halo shift outward, with bridges in the adjacent
 ///    segments. Skipped for edges with a label (the label needs adjacent
 ///    free space; shifting the route would push labels off the route).
+/// 3. **Endpoint corner-row eviction** — runs in an endpoint node's halo that
+///    touch the node's corner row/col shift outward so a stray `│` / `─`
+///    doesn't appear welded to the box corner.
 ///
 /// Arguments mirror per-edge state already collected in `render_inner`:
 /// - `edge_is_back[i]` — true for back-edges.
@@ -91,12 +96,16 @@ pub(crate) fn run(
     edge_is_back: &[bool],
     edge_has_label: &[bool],
     node_boxes: &[(usize, usize, usize, usize)],
+    enable_endpoint_corner_nudge: bool,
     tip_for: impl Fn(usize) -> char,
 ) {
     let segments = collect_segments(paths);
     let shifts = plan_parallel_merges(&segments, paths, grid, edge_is_back);
     apply_shifts(grid, paths, shifts, &tip_for);
     evict_foreign_halo_runs(grid, paths, edge_has_label, node_boxes, &tip_for);
+    if enable_endpoint_corner_nudge {
+        evict_endpoint_corner_runs(grid, paths, edge_has_label, node_boxes, &tip_for);
+    }
 }
 
 /// Walk all routed paths and emit their maximal segments.
@@ -262,6 +271,28 @@ fn evict_foreign_halo_runs(
     }
 }
 
+fn evict_endpoint_corner_runs(
+    grid: &mut Grid,
+    paths: &mut [Option<Vec<(usize, usize)>>],
+    edge_has_label: &[bool],
+    node_boxes: &[(usize, usize, usize, usize)],
+    tip_for: &impl Fn(usize) -> char,
+) {
+    let rects: Vec<NodeRect> = node_boxes
+        .iter()
+        .map(|&(col, row, width, height)| NodeRect {
+            col,
+            row,
+            width,
+            height,
+        })
+        .collect();
+
+    if let Some(shift) = plan_endpoint_corner_shift(paths, grid, edge_has_label, &rects) {
+        apply_shifts(grid, paths, vec![shift], tip_for);
+    }
+}
+
 fn plan_next_halo_shift(
     paths: &[Option<Vec<(usize, usize)>>],
     grid: &Grid,
@@ -311,6 +342,62 @@ fn plan_next_halo_shift(
                         crossings_after_shift(grid, path, &new_path).unwrap_or(usize::MAX);
                     let crosses_ok = candidate_crossings <= baseline_crossings
                         || (baseline_crossings == 0 && candidate_crossings == 1);
+                    if candidate < baseline && crosses_ok {
+                        return Some(Shift { edge_idx, new_path });
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn plan_endpoint_corner_shift(
+    paths: &[Option<Vec<(usize, usize)>>],
+    grid: &Grid,
+    edge_has_label: &[bool],
+    rects: &[NodeRect],
+) -> Option<Shift> {
+    let baseline_crossings = count_crossings_in_grid(grid);
+    for (edge_idx, path_opt) in paths.iter().enumerate() {
+        if edge_has_label.get(edge_idx).copied().unwrap_or(false) {
+            continue;
+        }
+        let Some(path) = path_opt.as_ref() else {
+            continue;
+        };
+        if path.len() < 4 {
+            continue;
+        }
+        let endpoint_nodes = endpoint_node_indices(path, rects);
+        let baseline = count_endpoint_corner_adjacent_cells(path, rects, &endpoint_nodes);
+        if baseline == 0 {
+            continue;
+        }
+        for &node_idx in &endpoint_nodes {
+            let rect = rects[node_idx];
+            for run in collect_halo_runs(path, rect) {
+                if run.end_idx + 1 >= path.len() {
+                    continue;
+                }
+                if !run_touches_endpoint_corner_band(path, rect, &run) {
+                    continue;
+                }
+                for distance in 1..=MAX_HALO_EVICTION_SHIFT {
+                    let Some(target_fixed) =
+                        apply_signed_offset(run.fixed_coord, run.shift_dir * distance as isize)
+                    else {
+                        break;
+                    };
+                    let new_path = build_evicted_run_path(path, &run, target_fixed);
+                    if !path_is_feasible(grid, &new_path) {
+                        continue;
+                    }
+                    let candidate =
+                        count_endpoint_corner_adjacent_cells(&new_path, rects, &endpoint_nodes);
+                    let candidate_crossings =
+                        crossings_after_shift(grid, path, &new_path).unwrap_or(usize::MAX);
+                    let crosses_ok = candidate_crossings <= baseline_crossings;
                     if candidate < baseline && crosses_ok {
                         return Some(Shift { edge_idx, new_path });
                     }
@@ -389,6 +476,24 @@ fn count_foreign_halo_cells(
         .filter(|&(_, &(c, r))| {
             rects.iter().enumerate().any(|(node_idx, rect)| {
                 !endpoint_nodes.contains(&node_idx) && point_in_halo(*rect, c, r)
+            })
+        })
+        .count()
+}
+
+fn count_endpoint_corner_adjacent_cells(
+    path: &[(usize, usize)],
+    rects: &[NodeRect],
+    endpoint_nodes: &[usize],
+) -> usize {
+    path.iter()
+        .enumerate()
+        .filter(|(idx, _)| *idx > 0 && *idx + 1 < path.len())
+        .filter(|&(_, &(c, r))| {
+            endpoint_nodes.iter().any(|&node_idx| {
+                rects
+                    .get(node_idx)
+                    .is_some_and(|&rect| point_is_corner_adjacent_halo(rect, c, r))
             })
         })
         .count()
@@ -511,6 +616,17 @@ fn shift_direction_for_run(
             }
         }
     }
+}
+
+fn run_touches_endpoint_corner_band(
+    path: &[(usize, usize)],
+    rect: NodeRect,
+    run: &HaloRun,
+) -> bool {
+    path.iter()
+        .take(run.end_idx + 1)
+        .skip(run.start_idx)
+        .any(|&(col, row)| point_is_corner_adjacent_halo(rect, col, row))
 }
 
 /// Build a new path where the horizontal segment at `seg.path_idx_range` is
@@ -672,6 +788,19 @@ fn point_in_halo(rect: NodeRect, col: usize, row: usize) -> bool {
     point_in_expanded_rect(rect, col, row) && !point_in_box(rect, col, row)
 }
 
+fn point_is_corner_adjacent_halo(rect: NodeRect, col: usize, row: usize) -> bool {
+    if !point_in_halo(rect, col, row) {
+        return false;
+    }
+
+    let on_side_halo_col = col + 1 == rect.col || col == rect.col + rect.width;
+    let on_side_halo_row = row + 1 == rect.row || row == rect.row + rect.height;
+    let on_border_row = row == rect.row || row + 1 == rect.row + rect.height;
+    let on_border_col = col == rect.col || col + 1 == rect.col + rect.width;
+
+    (on_side_halo_col && on_border_row) || (on_side_halo_row && on_border_col)
+}
+
 fn apply_signed_offset(value: usize, delta: isize) -> Option<usize> {
     if delta >= 0 {
         value.checked_add(delta as usize)
@@ -823,5 +952,22 @@ mod tests {
         ];
         let endpoints = endpoint_node_indices(&path, &rects);
         assert_eq!(count_foreign_halo_cells(&path, &rects, &endpoints), 3);
+    }
+
+    #[test]
+    fn endpoint_corner_halo_count_only_flags_corner_adjacent_side_cells() {
+        let rect = NodeRect {
+            col: 0,
+            row: 7,
+            width: 7,
+            height: 3,
+        };
+        let path = vec![(7, 8), (7, 7), (7, 6), (8, 6), (9, 6)];
+
+        assert_eq!(
+            count_endpoint_corner_adjacent_cells(&path, &[rect], &[0]),
+            1,
+            "only the side-halo cell sharing the node's top border row should count"
+        );
     }
 }

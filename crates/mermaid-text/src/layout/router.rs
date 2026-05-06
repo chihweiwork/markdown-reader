@@ -349,7 +349,7 @@ fn try_u_route(
     // shallowest bypass first — stays visually compact.
     let below_start = src.row.max(dst.row).saturating_add(1);
     for below_row in below_start..grid_h {
-        for turn_col in src.col..dst.col {
+        for turn_col in src.col.saturating_add(1)..dst.col {
             if u_route_clear(grid, src, dst, turn_col, below_row) {
                 let path = build_u_path(src, dst, turn_col, below_row);
                 return grid.draw_path(path, tip);

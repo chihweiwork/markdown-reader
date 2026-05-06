@@ -447,6 +447,69 @@ fn architecture_diagram_with_sugiyama_backend() {
 }
 
 // ---------------------------------------------------------------------------
+// 18b. App top-border row must not host a stray `│` adjacent to its top-right
+//      corner. The landed fix is intentionally scoped to simple LR flowcharts:
+//      `try_u_route` first steps away from the source halo, rectangular/
+//      cylinder source fan-out can reorder shared source slots so long
+//      skip-edges don't steal the central lane, and endpoint-corner nudging
+//      may not increase crossings.
+// ---------------------------------------------------------------------------
+#[test]
+fn app_top_border_row_has_no_stray_pipe_after_corner() {
+    let src = "graph LR
+    App --> DB[(PostgreSQL)]
+    App --> Cache[(Redis)]
+    App --> Queue[(RabbitMQ)]
+    Queue --> Worker[Worker]
+    Worker --> DB";
+    let out = mermaid_text::render(src).unwrap();
+
+    assert!(
+        out.contains("│ App │"),
+        "expected App label in output (sanity):\n{out}"
+    );
+
+    assert!(
+        !out.contains("┌─────┐│"),
+        "stray `│` immediately follows App's `┌─────┐` top-right corner.\n\n\
+         Full output:\n{out}"
+    );
+
+    assert!(
+        !out.contains("└─────┘│"),
+        "stray `│` immediately follows App's `└─────┘` bottom-right corner.\n\n\
+         Full output:\n{out}"
+    );
+
+    let top_row = out
+        .lines()
+        .find(|l| l.contains("┌─────┐"))
+        .expect("App's top-border row (┌─────┐) not found in output");
+    let after_corner = top_row
+        .find("┌─────┐")
+        .map(|i| &top_row[i + "┌─────┐".len()..])
+        .unwrap();
+    let next_glyph = after_corner.chars().next();
+    assert!(
+        !matches!(next_glyph, Some('│' | '┐' | '├' | '┤' | '┬' | '┴' | '┼')),
+        "App's top-border row has a box/junction glyph immediately adjacent \
+         to the `┐` corner — first cell after `┌─────┐` is {next_glyph:?}.\
+         \n\nFull output:\n{out}"
+    );
+
+    let first_non_space = after_corner.chars().find(|c| !c.is_whitespace());
+    assert!(
+        !matches!(
+            first_non_space,
+            Some('│' | '┐' | '├' | '┤' | '┬' | '┴' | '┼')
+        ),
+        "App's top-border row reaches its first non-space glyph after `┌─────┐` \
+         with a box/junction character {first_non_space:?}, which recreates \
+         the original welded-corner read.\n\nFull output:\n{out}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 19. ANSI color regression guard — running through `render_with_options`
 //     with `color: false` must produce the exact same bytes as `render`.
 //     This is the structural promise that ANSI is opt-in.

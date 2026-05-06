@@ -1,6 +1,5 @@
 ---
 source: crates/mermaid-text/tests/regression_corpus.rs
-assertion_line: 72
 expression: natural
 ---
                        ╭─Services───────╮       ╭─Infra────────╮
