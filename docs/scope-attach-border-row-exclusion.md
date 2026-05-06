@@ -67,6 +67,39 @@
   same `flowchart_app_db_architecture` canary in different render
   modes), all bucket A.
 
+- **Update — 2026-05-06 perpendicular-aligned edges route on the
+  perpendicular axis.** The user reported that bidirectional edges
+  between vertically-aligned nodes (Factory + Worker inside a
+  `direction TB` subgraph nested in `graph LR`) crossed inside the
+  subgraph. Diagnosis: `is_back_edge(LR)` returns false for
+  same-column endpoints, so both edges fell through to `exit_point(LR)`
+  / `entry_point(LR)`, getting attach points at right-source +
+  left-destination. Bidirectional same-column pairs are forced to
+  cross under that geometry. Generic fix (no gating envelope —
+  applies wherever the geometry calls for it):
+
+  1. New `same_layer(from, to, dir)` detects same-column pairs in
+     LR/RL graphs and same-row pairs in TD/BT.
+  2. New `perpendicular_direction(dir)` picks TB for LR/RL, LR for
+     TD/BT.
+  3. New `edge_effective_direction(graph, edge, positions)` returns
+     the perpendicular direction for same-layer pairs and the graph
+     direction otherwise.
+  4. Render pipeline computes `edge_effective_dirs: Vec<Direction>`
+     once and threads it through every place that previously used
+     `graph.direction`: `compute_spread_attaches` (now takes
+     `&[Direction]` parameter), `edge_is_back_flags`,
+     `back_edge_border_cells`, both tip-glyph closures
+     (`router::route_all` and `nudge::run`), and the back-edge
+     border + path-junction stamps in pass 2a.5.
+  5. Stamps (`┬`/`├` for source border, `┘`/`└`/`┐` for path
+     junction) are now picked per-entry from the stored direction.
+
+  Pinned by `supervisor_perpendicular_edges_use_perpendicular_attaches`.
+  Snapshot churn was minimal — only 10 files, all bucket A.
+  Crossings count for `supervisor_bidirectional_in_subgraph` improved
+  2 → 1; no other fixture's count changed.
+
 - **Update — 2026-05-06 destination-channel crossing fix.** A second
   destination-side issue surfaced after the corner fix landed: with
   two incoming edges into PostgreSQL (one from below via U-route, one

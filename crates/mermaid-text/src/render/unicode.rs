@@ -333,6 +333,54 @@ fn is_back_edge(from_pos: GridPos, to_pos: GridPos, dir: Direction) -> bool {
     }
 }
 
+/// Return `true` when both endpoints sit on the same "layer" relative to
+/// the graph's flow direction — same column for LR/RL, same row for TD/BT.
+///
+/// Such pairs are perpendicular-axis connections (e.g. internal edges of
+/// a TB subgraph nested in an LR parent). LR's right-source / left-
+/// destination attach semantics force these edges into a long horizontal
+/// detour that necessarily crosses any return edge between the same
+/// pair; routing them via the perpendicular flow direction's attach
+/// points produces a natural straight-line forward path and a clean
+/// perimeter back-edge.
+fn same_layer(from_pos: GridPos, to_pos: GridPos, dir: Direction) -> bool {
+    let (fc, fr) = from_pos;
+    let (tc, tr) = to_pos;
+    match dir {
+        Direction::LeftToRight | Direction::RightToLeft => fc == tc,
+        Direction::TopToBottom | Direction::BottomToTop => fr == tr,
+    }
+}
+
+/// Canonical perpendicular flow direction. Used to switch attach + tip
+/// semantics for same-layer edges (see [`same_layer`]).
+fn perpendicular_direction(dir: Direction) -> Direction {
+    match dir {
+        Direction::LeftToRight | Direction::RightToLeft => Direction::TopToBottom,
+        Direction::TopToBottom | Direction::BottomToTop => Direction::LeftToRight,
+    }
+}
+
+/// Compute the effective flow direction for one edge. Returns the
+/// perpendicular direction when both endpoints share the layer axis
+/// (forcing a perpendicular routing decision); otherwise returns the
+/// graph's overall direction. Self-loops use the graph direction.
+fn edge_effective_direction(
+    graph: &Graph,
+    edge: &crate::types::Edge,
+    positions: &HashMap<String, GridPos>,
+) -> Direction {
+    if edge.from == edge.to {
+        return graph.direction;
+    }
+    match (positions.get(&edge.from), positions.get(&edge.to)) {
+        (Some(&fp), Some(&tp)) if same_layer(fp, tp, graph.direction) => {
+            perpendicular_direction(graph.direction)
+        }
+        _ => graph.direction,
+    }
+}
+
 /// Select the correct back-tip glyph (source end of a bidirectional edge).
 ///
 /// The back-tip always points in the reverse direction of the flow.
@@ -573,10 +621,22 @@ fn render_inner(
         }
     }
 
+    // Compute the effective routing direction per edge. Edges whose
+    // endpoints share the layer axis (same column for LR/RL, same row for
+    // TD/BT — see [`same_layer`]) take the perpendicular flow direction so
+    // the natural attach points place them on a clean axis-aligned path
+    // instead of forcing both ends into the LR right-source / left-
+    // destination semantics that produce crossing U-shapes.
+    let edge_effective_dirs: Vec<Direction> = graph
+        .edges
+        .iter()
+        .map(|edge| edge_effective_direction(graph, edge, positions))
+        .collect();
+
     // Compute spread-adjusted attach points for all edges before drawing.
     // Both exit and entry points are spread so that multiple edges sharing
     // the same border cell each get their own distinct row/column.
-    let attach_points = compute_spread_attaches(graph, positions, &geoms);
+    let attach_points = compute_spread_attaches(graph, positions, &geoms, &edge_effective_dirs);
 
     // Pass 1: Route all edges using A* obstacle-aware routing.
     //
@@ -604,16 +664,21 @@ fn render_inner(
     let edge_is_back_flags: Vec<bool> = graph
         .edges
         .iter()
-        .map(|e| {
+        .enumerate()
+        .map(|(idx, e)| {
             // Self-loop: always treat as a back-edge so it routes around
             // the bottom/right perimeter of the node rather than right side.
             if e.from == e.to {
                 return true;
             }
+            let dir = edge_effective_dirs
+                .get(idx)
+                .copied()
+                .unwrap_or(graph.direction);
             let fp = positions.get(&e.from).copied();
             let tp = positions.get(&e.to).copied();
             match (fp, tp) {
-                (Some(fp), Some(tp)) => is_back_edge(fp, tp, graph.direction),
+                (Some(fp), Some(tp)) => is_back_edge(fp, tp, dir),
                 _ => false,
             }
         })
@@ -648,9 +713,9 @@ fn render_inner(
     // node has a rounded bottom border — in that case stamping `┬` onto the
     // bottom border row would pierce the `╰──╯` arc (B12).  The `┴` on the
     // path row (from `back_edge_path_joins`) already makes the connection.
-    let mut back_edge_border_joins: Vec<(usize, usize, bool, bool)> = Vec::new();
+    let mut back_edge_border_joins: Vec<(usize, usize, bool, bool, Direction)> = Vec::new();
     // First-path-cell joins (source end only — destination end is the arrow tip).
-    let mut back_edge_path_joins: Vec<(usize, usize)> = Vec::new();
+    let mut back_edge_path_joins: Vec<(usize, usize, Direction)> = Vec::new();
     for (edge_idx, edge) in graph.edges.iter().enumerate() {
         if !edge_is_back_flags[edge_idx] {
             continue;
@@ -670,21 +735,23 @@ fn render_inner(
             if edge.from == edge.to {
                 continue;
             }
-            let (sb, sp) = back_edge_border_cells(fp, fg, graph.direction);
-            let (db, _) = back_edge_border_cells(tp, tg, graph.direction);
+            let dir = edge_effective_dirs
+                .get(edge_idx)
+                .copied()
+                .unwrap_or(graph.direction);
+            let (sb, sp) = back_edge_border_cells(fp, fg, dir);
+            let (db, _) = back_edge_border_cells(tp, tg, dir);
             // B12 guard: for LR/RL, the source border row is the bottom of the
             // source box (`r + geom.height - 1`).  For rounded shapes that row is
             // `╰──╯`; stamping `┬` there pierces the rounded arc.  Record whether
             // to skip the border stamp for this source entry.
-            let skip_src_border = matches!(
-                graph.direction,
-                Direction::LeftToRight | Direction::RightToLeft
-            ) && graph
-                .node(&edge.from)
-                .is_some_and(|n| has_rounded_bottom_border(n.shape));
-            back_edge_border_joins.push((sb.0, sb.1, false, skip_src_border));
-            back_edge_border_joins.push((db.0, db.1, true, false));
-            back_edge_path_joins.push(sp);
+            let skip_src_border = matches!(dir, Direction::LeftToRight | Direction::RightToLeft)
+                && graph
+                    .node(&edge.from)
+                    .is_some_and(|n| has_rounded_bottom_border(n.shape));
+            back_edge_border_joins.push((sb.0, sb.1, false, skip_src_border, dir));
+            back_edge_border_joins.push((db.0, db.1, true, false, dir));
+            back_edge_path_joins.push((sp.0, sp.1, dir));
         }
     }
 
@@ -696,10 +763,14 @@ fn render_inner(
         graph,
         &attach_points,
         |edge_idx| {
+            let dir = edge_effective_dirs
+                .get(edge_idx)
+                .copied()
+                .unwrap_or(graph.direction);
             if edge_is_back_flags.get(edge_idx).copied().unwrap_or(false) {
-                tip_char_for_back_edge(graph.direction)
+                tip_char_for_back_edge(dir)
             } else {
-                tip_char(graph.direction)
+                tip_char(dir)
             }
         },
         |edge_idx| edge_is_back_flags.get(edge_idx).copied().unwrap_or(false),
@@ -719,10 +790,14 @@ fn render_inner(
         &node_rects,
         enable_endpoint_corner_nudge,
         |edge_idx| {
+            let dir = edge_effective_dirs
+                .get(edge_idx)
+                .copied()
+                .unwrap_or(graph.direction);
             if edge_is_back_flags.get(edge_idx).copied().unwrap_or(false) {
-                tip_char_for_back_edge(graph.direction)
+                tip_char_for_back_edge(dir)
             } else {
-                tip_char(graph.direction)
+                tip_char(dir)
             }
         },
     );
@@ -898,10 +973,6 @@ fn render_inner(
     //   below). Using a corner here fixes the old bug where `├┤` glued
     //   together and read as garbage — the corner connects the `├`
     //   stub to the vertical perimeter column above/below.
-    let border_junction = match graph.direction {
-        Direction::LeftToRight | Direction::RightToLeft => '┬',
-        Direction::TopToBottom | Direction::BottomToTop => '├',
-    };
     // LR back-edges always route left from the source's exit cell
     // (destination is to the left), so the first path cell has only an
     // upward AND leftward connection — use `┘` (bottom-right corner)
@@ -911,7 +982,7 @@ fn render_inner(
     // (handled below).
     let path_junction_lr_corner_left = '\u{2518}'; // ┘
     let path_junction_lr_corner_right = '\u{2514}'; // └
-    for (col, row, is_dest, skip_border_stamp) in &back_edge_border_joins {
+    for (col, row, is_dest, skip_border_stamp, dir) in &back_edge_border_joins {
         if *is_dest || *skip_border_stamp {
             // `is_dest`: destination border glyph is the arrow tip placed by
             // the router — no junction stamp needed here.
@@ -920,9 +991,13 @@ fn render_inner(
             // without piercing the rounded arc.
             continue;
         }
+        let border_junction = match dir {
+            Direction::LeftToRight | Direction::RightToLeft => '┬',
+            Direction::TopToBottom | Direction::BottomToTop => '├',
+        };
         grid.set(*col, *row, border_junction);
     }
-    for (col, row) in &back_edge_path_joins {
+    for (col, row, dir) in &back_edge_path_joins {
         // Only upgrade the path cell if it's a plain horizontal/vertical line
         // from the router, or a junction glyph formed by the exact collision
         // pattern (B9) where the exit cell is simultaneously a transit cell for
@@ -931,10 +1006,8 @@ fn render_inner(
         // still want to stamp the exit-stub glyph (`┴`) there so the
         // perimeter path reads cleanly.  Other junctions are left alone.
         let current = grid.get(*col, *row);
-        let is_exit_collision = matches!(
-            graph.direction,
-            Direction::LeftToRight | Direction::RightToLeft
-        ) && current == '├';
+        let is_exit_collision =
+            matches!(*dir, Direction::LeftToRight | Direction::RightToLeft) && current == '├';
         if current != '─' && current != '│' && !is_exit_collision {
             continue;
         }
@@ -943,7 +1016,7 @@ fn render_inner(
         let glyph = if is_exit_collision {
             '\u{2534}' // ┴
         } else {
-            match graph.direction {
+            match dir {
                 Direction::LeftToRight => path_junction_lr_corner_left,
                 Direction::RightToLeft => path_junction_lr_corner_right,
                 Direction::TopToBottom => '┘',
@@ -1070,30 +1143,42 @@ fn compute_spread_attaches(
     graph: &Graph,
     positions: &HashMap<String, GridPos>,
     geoms: &HashMap<String, NodeGeom>,
+    edge_effective_dirs: &[Direction],
 ) -> Vec<Option<(Attach, Attach)>> {
     // --- Build the base (unspread) attach points ---
     //
     // Back-edges (target upstream of source in the flow direction) use
     // perpendicular attach points so they travel around the perimeter instead
     // of cutting across the centre of the diagram.
+    //
+    // The edge's *effective* direction (per `edge_effective_direction`) may
+    // differ from the graph direction when source and destination share a
+    // layer axis — those pairs route along the perpendicular direction so
+    // bidirectional same-layer edges don't force each other into crossing
+    // detours.
     let mut pairs: Vec<Option<(Attach, Attach)>> = graph
         .edges
         .iter()
-        .map(|edge| {
+        .enumerate()
+        .map(|(idx, edge)| {
             let from_pos = *positions.get(&edge.from)?;
             let to_pos = *positions.get(&edge.to)?;
             let from_geom = *geoms.get(&edge.from)?;
             let to_geom = *geoms.get(&edge.to)?;
+            let dir = edge_effective_dirs
+                .get(idx)
+                .copied()
+                .unwrap_or(graph.direction);
             // Self-loops and true back-edges both use the perpendicular-side
             // attach points. Self-loops have `from_pos == to_pos` so
             // `is_back_edge` returns false for them; check explicitly first.
-            if edge.from == edge.to || is_back_edge(from_pos, to_pos, graph.direction) {
-                let src = exit_point_back_edge(from_pos, from_geom, graph.direction);
-                let dst = entry_point_back_edge(to_pos, to_geom, graph.direction);
+            if edge.from == edge.to || is_back_edge(from_pos, to_pos, dir) {
+                let src = exit_point_back_edge(from_pos, from_geom, dir);
+                let dst = entry_point_back_edge(to_pos, to_geom, dir);
                 Some((src, dst))
             } else {
-                let src = exit_point(from_pos, from_geom, graph.direction);
-                let dst = entry_point(to_pos, to_geom, graph.direction);
+                let src = exit_point(from_pos, from_geom, dir);
+                let dst = entry_point(to_pos, to_geom, dir);
                 Some((src, dst))
             }
         })

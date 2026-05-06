@@ -373,8 +373,11 @@ fn supervisor_perpendicular_edges_use_perpendicular_attaches() {
     HB --> WD[Watchdog]";
     let out = mermaid_text::render(src).unwrap();
 
-    assert!(out.contains("│ Factory │"), "Factory label missing:\n{out}");
-    assert!(out.contains("│ Worker │"), "Worker label missing:\n{out}");
+    // Sanity: labels intact. The right-side border may be replaced by `├`
+    // (perpendicular back-edge attach junction, analogous to LR's `┬` on
+    // the bottom border row), so we don't pin the surrounding `│ … │`.
+    assert!(out.contains("Factory"), "Factory label missing:\n{out}");
+    assert!(out.contains("Worker"), "Worker label missing:\n{out}");
 
     // The forward `creates` edge (F→W in TB direction) must NOT enter
     // Worker's left side. In the bug state, both edges use LR attaches
