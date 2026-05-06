@@ -3,6 +3,44 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.47.0 — 2026-05-06 — LR fanout destination-corner cleanup
+
+### Fixed
+
+- **Incoming arrows no longer point at destination box corners.**
+  Symmetric to 0.46.0's source-side fix: `spread_destinations`
+  distributed arrival rows across the full node height, so for a
+  4-row cylinder receiving 2 incoming edges the lower arrival
+  landed on the bottom-border row — visible in the README's
+  dependency-graph example as `▸╰` (arrow tip immediately before
+  PostgreSQL's `╰` bottom-left corner). The function now takes an
+  `interior_clamp` flag, and under the same conservative envelope
+  as the source-side fixes (simple LR/RL flowcharts, no subgraphs,
+  rectangle/cylinder endpoints — `destination_interior_clamp_allowed`
+  / `graph_supports_simple_lr_fanout_heuristics`), placements are
+  clamped to interior rows/cols using the existing full-height step
+  calculation. For the canary fixture this clamps the lower arrow
+  from PostgreSQL's bottom-border row to its label row, leaving
+  both tips at interior `│` ports.
+
+  Pinned by `postgres_left_border_has_no_arrow_into_corner` —
+  hand-written assertion (not snapshot) so `INSTA_UPDATE` cannot
+  silently re-bless the bug.
+
+### Snapshot churn
+
+3 snapshots updated, all the `flowchart_app_db_architecture`
+canary in different render modes (natural, width80, main suite).
+All bucket A (strict improvement). Crossings counts unchanged on
+every fixture; architecture fixture remains at 0 crossings.
+
+### Documentation
+
+- `crates/mermaid-text/README.md` dependency-graph example updated
+  to match the new render.
+- `docs/scope-attach-border-row-exclusion.md` extended with the
+  destination-side follow-up.
+
 ## 0.46.0 — 2026-05-06 — LR fanout source-corner cleanup
 
 ### Fixed
