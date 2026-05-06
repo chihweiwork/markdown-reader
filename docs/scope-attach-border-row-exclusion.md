@@ -51,6 +51,22 @@
   `crates/mermaid-text/tests/snapshots.rs` is active and passing. The
   crossings harness also returns the architecture fixture to 0 crossings.
 
+- **Update — 2026-05-06 destination-side follow-up.** A symmetric
+  artefact at the destination side (incoming arrow into PostgreSQL's
+  bottom-left corner — `▸╰`) was reported. `spread_destinations` now
+  takes an `interior_clamp` flag, and when set (under the same
+  `graph_supports_simple_lr_fanout_heuristics` envelope as the source-
+  side fixes) AND `height.saturating_sub(2) >= n`, placements are
+  clamped to interior rows/cols using the existing full-height step
+  calculation. For a 4-row cylinder receiving 2 incoming edges this
+  clamps the lower arrow from row=bottom-border to row=label, leaving
+  both tips at interior `│` ports instead of one against the `╰`
+  corner. Pinned by `postgres_left_border_has_no_arrow_into_corner`
+  in `crates/mermaid-text/tests/snapshots.rs`. Crossings counts
+  unchanged on every fixture; only 3 snapshot files updated (all the
+  same `flowchart_app_db_architecture` canary in different render
+  modes), all bucket A.
+
 ## What was tried
 
 ### Attempt 1 — interior-only spread (sources + destinations)

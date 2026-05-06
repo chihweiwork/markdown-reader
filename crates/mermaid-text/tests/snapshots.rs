@@ -510,6 +510,71 @@ fn app_top_border_row_has_no_stray_pipe_after_corner() {
 }
 
 // ---------------------------------------------------------------------------
+// 18c. Symmetric to 18b at the destination side: incoming arrows must not
+//      point at a destination box's corner glyph. PostgreSQL is a 4-row
+//      cylinder receiving two incoming edges (Worker→DB, App→DB); when
+//      `spread_destinations` distributes arrival rows across the FULL
+//      cylinder height the bottommost arrival lands on the bottom-border
+//      row, where the left side is `╰` (corner) — producing the welded
+//      `▸╰` substring. Hand-written assertion (not a snapshot) so
+//      `INSTA_UPDATE` cannot silently re-bless the bug.
+// ---------------------------------------------------------------------------
+#[test]
+fn postgres_left_border_has_no_arrow_into_corner() {
+    let src = "graph LR
+    App --> DB[(PostgreSQL)]
+    App --> Cache[(Redis)]
+    App --> Queue[(RabbitMQ)]
+    Queue --> Worker[Worker]
+    Worker --> DB";
+    let out = mermaid_text::render(src).unwrap();
+
+    assert!(
+        out.contains("PostgreSQL"),
+        "expected PostgreSQL label in output (sanity):\n{out}"
+    );
+
+    assert!(
+        !out.contains("▸╰"),
+        "incoming arrow points at a `╰` bottom-left corner glyph — \
+         spread_destinations is leaking arrivals onto the box's bottom \
+         border row.\n\nFull output:\n{out}"
+    );
+
+    assert!(
+        !out.contains("▸╭"),
+        "incoming arrow points at a `╭` top-left corner glyph — \
+         spread_destinations is leaking arrivals onto the box's top \
+         border row.\n\nFull output:\n{out}"
+    );
+
+    let bottom_row = out
+        .lines()
+        .find(|l| l.contains("╰────────────╯"))
+        .expect("PostgreSQL's bottom-border row (╰────────────╯) not found");
+    let before_corner = bottom_row
+        .find("╰────────────╯")
+        .map(|i| &bottom_row[..i])
+        .unwrap();
+    let last_glyph = before_corner.chars().next_back();
+    assert!(
+        !matches!(last_glyph, Some('▸' | '◂' | '▴' | '▾' | '┤' | '├')),
+        "PostgreSQL's bottom-border row has an arrow/junction glyph \
+         immediately adjacent to the `╰` corner — last cell before \
+         `╰────────────╯` is {last_glyph:?}.\n\nFull output:\n{out}"
+    );
+
+    let last_non_space = before_corner.chars().rev().find(|c| !c.is_whitespace());
+    assert!(
+        !matches!(last_non_space, Some('▸' | '◂' | '▴' | '▾' | '┤' | '├')),
+        "PostgreSQL's bottom-border row reaches its last non-space glyph \
+         before `╰────────────╯` with an arrow/junction character \
+         {last_non_space:?}, which recreates the welded-corner read.\n\n\
+         Full output:\n{out}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 19. ANSI color regression guard — running through `render_with_options`
 //     with `color: false` must produce the exact same bytes as `render`.
 //     This is the structural promise that ANSI is opt-in.

@@ -1121,7 +1121,15 @@ fn compute_spread_attaches(
         let Some(&to_geom) = geoms.get(&first_edge.to) else {
             continue;
         };
-        spread_destinations(&mut pairs, indices, to_pos, to_geom, graph.direction);
+        let interior_clamp_for_lr = destination_interior_clamp_allowed(graph, indices);
+        spread_destinations(
+            &mut pairs,
+            indices,
+            to_pos,
+            to_geom,
+            graph.direction,
+            interior_clamp_for_lr,
+        );
     }
 
     // --- Spread source endpoints ---
@@ -1169,6 +1177,7 @@ fn spread_destinations(
     to_pos: GridPos,
     to_geom: NodeGeom,
     dir: Direction,
+    interior_clamp: bool,
 ) {
     let n = indices.len();
     let (to_col, to_row) = to_pos;
@@ -1189,6 +1198,19 @@ fn spread_destinations(
             } else {
                 1
             };
+            // Prefer interior rows so an arrow tip never lands on a
+            // border-row cell where the destination's left side is a
+            // corner glyph (`╭`/`╰`). Falls back to full range if the
+            // interior is too small to fit `n` distinct rows. Step
+            // calculation continues to use the full range so n=2 in a
+            // 4-row cylinder still gets step=2 (offsets ±1, placements
+            // centre±1, then clamped into the interior).
+            let (clamp_min, clamp_max) = if interior_clamp && to_geom.height.saturating_sub(2) >= n
+            {
+                (to_row + 1, to_row + to_geom.height - 2)
+            } else {
+                (min_row, max_row)
+            };
             for (i, &idx) in indices.iter().enumerate() {
                 // Symmetric centring: (2*i - (n-1)) * step / 2. For odd n
                 // this is identical to (i - (n-1)/2) * step. For even n it
@@ -1198,8 +1220,8 @@ fn spread_destinations(
                 // adjacent rows. See merging_arrows_into_shared_destination_are_not_adjacent.
                 let offset = (2 * i as isize - (n as isize - 1)) * step / 2;
                 let new_row = (centre + offset)
-                    .max(min_row as isize)
-                    .min(max_row as isize) as usize;
+                    .max(clamp_min as isize)
+                    .min(clamp_max as isize) as usize;
                 if let Some((_, dst)) = &mut pairs[idx] {
                     dst.row = new_row;
                 }
@@ -1220,6 +1242,13 @@ fn spread_destinations(
             } else {
                 1
             };
+            // Symmetric to the LR/RL branch above: prefer interior columns
+            // so the arrow tip doesn't land beside a corner glyph.
+            let (clamp_min, clamp_max) = if interior_clamp && to_geom.width.saturating_sub(2) >= n {
+                (to_col + 1, to_col + to_geom.width - 2)
+            } else {
+                (min_col, max_col)
+            };
             for (i, &idx) in indices.iter().enumerate() {
                 // Symmetric centring: (2*i - (n-1)) * step / 2. For odd n
                 // this is identical to (i - (n-1)/2) * step. For even n it
@@ -1229,8 +1258,8 @@ fn spread_destinations(
                 // adjacent rows. See merging_arrows_into_shared_destination_are_not_adjacent.
                 let offset = (2 * i as isize - (n as isize - 1)) * step / 2;
                 let new_col = (centre + offset)
-                    .max(min_col as isize)
-                    .min(max_col as isize) as usize;
+                    .max(clamp_min as isize)
+                    .min(clamp_max as isize) as usize;
                 if let Some((_, dst)) = &mut pairs[idx] {
                     dst.col = new_col;
                 }
@@ -1343,6 +1372,27 @@ fn spread_sources(
 }
 
 fn source_reordering_allowed(graph: &Graph, indices: &[usize]) -> bool {
+    if !graph_supports_simple_lr_fanout_heuristics(graph) {
+        return false;
+    }
+
+    indices.iter().all(|&idx| {
+        graph.edges.get(idx).is_some_and(|edge| {
+            graph
+                .node(&edge.from)
+                .is_some_and(|node| shape_supports_lr_fanout_ordering(node.shape))
+                && graph
+                    .node(&edge.to)
+                    .is_some_and(|node| shape_supports_lr_fanout_ordering(node.shape))
+        })
+    })
+}
+
+fn destination_interior_clamp_allowed(graph: &Graph, indices: &[usize]) -> bool {
+    // Mirror of `source_reordering_allowed`: same envelope (simple LR/RL
+    // flowcharts, no subgraphs, rectangle/cylinder endpoints only) so that
+    // the destination-side interior clamp ships with the same conservative
+    // gating as the source-side reorder + corner-nudge.
     if !graph_supports_simple_lr_fanout_heuristics(graph) {
         return false;
     }
