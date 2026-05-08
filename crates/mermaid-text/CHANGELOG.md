@@ -3,6 +3,56 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.53.0 — 2026-05-08 — Composite-edge attach-to-border (state diagrams)
+
+### Fixed
+
+- **Edges to/from a composite state now attach to its OUTER border
+  instead of landing on a synthesised inner `[*]` marker.** ROADMAP
+  "Composite-edge attach-to-border (state diagrams)". Pre-fix, the
+  parser rewrote `X --> Composite` to `X --> __start__Composite` and
+  `Composite --> Y` to `__end__Composite --> Y`, then drew the
+  rewritten target as a Circle / DoubleCircle inside the composite.
+  Arrows visually landed on `(  ●  )` markers within the composite
+  rather than on its outer rectangle, contradicting Mermaid's visual
+  contract. The fix introduces a render-time intercept that keeps
+  the parser rewrite (so layout layering stays correct) but:
+
+  1. Detects "composite-attached" markers (`__start__X` / `__end__X`
+     where `X` is a subgraph id) via `composite_attached_marker_target`.
+  2. Computes the set of EXTERNALLY-attached markers — those whose
+     ALL incident edges have the OTHER endpoint OUTSIDE the marker's
+     composite — via `compute_externally_attached_markers`.
+  3. For markers in that set: suppresses the node-box / label
+     rendering AND redirects the edge endpoint geometry (in
+     `endpoint_geom` / `endpoint_pos`) to the matching composite's
+     outer bounds. Markers with at least one INTERNAL edge (e.g.
+     `state Active { [*] --> Inner }`) are kept visible and routed
+     to their actual position so internal edges still read normally.
+
+  The render-time approach avoids the layered-layout interaction
+  that blocked the earlier attempt (see the now-deleted
+  `docs/scope-composite-edge-attach.md`): the parser-synthesised
+  marker stays in the layered layout (preserves layer rank), but
+  the renderer hides the marker and reroutes the edge to the
+  composite border.
+
+  Pinned by `composite_edge_attaches_to_outer_border_not_inner_marker`
+  on a `state Composite { S1 --> S2 } X --> Composite Composite --> Y`
+  fixture: zero `●` glyphs in the output and at least three arrow
+  tips.
+
+### Snapshot churn
+
+0 substantive diffs. Three snapshots had cosmetic `assertion_line:`
+metadata removals (insta artefact); no rendering changed for any
+existing fixture. `state_composite_simple` keeps its visible inner
+marker (purely-internal `[*] --> Inner`), and the GC'd-marker
+fixtures (`state_composite_external_edges`,
+`state_composite_keyboard_lock`) are unchanged because their
+synthesised markers are removed by `gc_orphan_markers` before
+rendering anyway.
+
 ## 0.52.0 — 2026-05-08 — xychart-beta mixed-width label drift fixed
 
 ### Fixed
