@@ -1468,6 +1468,35 @@ B->>A: reply";
 }
 
 #[test]
+// ---------------------------------------------------------------------------
+// Activation bars must render as a thick filled block, not a single-cell
+// heavy line. ROADMAP: "Wider activation bars … filled thick bar".
+// Hand-written assertion (not snapshot) so INSTA_UPDATE cannot silently
+// re-bless a regression to the thin `┃` glyph.
+// ---------------------------------------------------------------------------
+#[test]
+fn sequence_activation_bar_is_thick_filled_block() {
+    let src = "sequenceDiagram
+participant U as User
+participant API
+U->>API: POST /login
+activate API
+API->>U: 200 OK
+deactivate API";
+    let out = mermaid_text::render(src).unwrap();
+
+    assert!(
+        !out.contains('\u{2503}'),
+        "activation bar still uses thin heavy-line `┃` (U+2503) instead of \
+         filled block `█`:\n{out}"
+    );
+    assert!(
+        out.contains("\u{2588}\u{2588}"),
+        "expected two adjacent filled-block `██` cells (activation bar must \
+         be at least 2 cells wide):\n{out}"
+    );
+}
+
 fn sequence_with_explicit_activation() {
     // `activate X` / `deactivate X` overlay heavy `┃` bars on the
     // participant's lifeline between the activate and deactivate rows.
