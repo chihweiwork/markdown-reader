@@ -206,15 +206,36 @@ pub fn render(diag: &XyChart, max_width: Option<usize>) -> String {
     // ---- X-axis tick labels ------------------------------------------------
     let x_labels = build_x_labels(diag, n_data);
     if !x_labels.is_empty() {
+        // Pad every label to the maximum display width across all labels
+        // BEFORE slot centering. Without this, integer-division centering
+        // (`(col_width - lw) / 2`) gives a different left-pad to width-2
+        // vs width-3 labels in the same slot when there's a parity
+        // mismatch — labels then drift ±1 cell across the axis. Right-
+        // padding to uniform width keeps the FIRST character of every
+        // label at the same offset within its slot.
+        let max_lw = x_labels
+            .iter()
+            .map(|l| UnicodeWidthStr::width(l.as_str()))
+            .max()
+            .unwrap_or(0);
+        let padded: Vec<String> = x_labels
+            .iter()
+            .map(|l| {
+                let lw = UnicodeWidthStr::width(l.as_str());
+                let pad = max_lw.saturating_sub(lw);
+                format!("{}{}", l, " ".repeat(pad))
+            })
+            .collect();
+
         let label_pad = " ".repeat(y_label_width + 2); // align under axis body
         out.push_str(&label_pad);
-        for (i, label) in x_labels.iter().enumerate() {
+        for (i, label) in padded.iter().enumerate() {
             let lw = UnicodeWidthStr::width(label.as_str());
             let left_pad = col_width.saturating_sub(lw) / 2;
             let right_pad = col_width.saturating_sub(lw).saturating_sub(left_pad);
             out.push_str(&" ".repeat(left_pad));
             out.push_str(label);
-            if i + 1 < x_labels.len() {
+            if i + 1 < padded.len() {
                 out.push_str(&" ".repeat(right_pad));
             }
         }

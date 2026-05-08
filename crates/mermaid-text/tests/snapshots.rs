@@ -2865,7 +2865,8 @@ fn xychart_mixed_width_labels_align_consistently() {
     let first = distances[0];
     for (idx, &d) in distances.iter().enumerate() {
         assert_eq!(
-            d, first,
+            d,
+            first,
             "label start position drifts at slot {idx}: c{idx}→c{} distance is {d}, \
              but c0→c1 distance is {first}. Full row: {label_row:?}",
             idx + 1
