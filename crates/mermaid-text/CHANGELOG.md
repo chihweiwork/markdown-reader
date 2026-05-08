@@ -3,6 +3,34 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.51.0 — 2026-05-08 — Sequence activation bars render as thick filled blocks
+
+### Changed
+
+- **Activation bars in sequence diagrams are now 2-cell-wide filled
+  blocks** instead of single-cell-thick heavy lines. Previously
+  `activate X` / `deactivate X` overlaid `┃` (U+2503) on the
+  lifeline; now they overlay `██` (two `█` U+2588 full-block cells)
+  at the lifeline column and one column to its right. Closer to
+  Mermaid's SVG visual weight where activation bars read as a
+  filled rectangle, not a thin stroke. Pinned by
+  `sequence_activation_bar_is_thick_filled_block` —
+  hand-written assertion that the output contains `██` AND no `┃`.
+
+### Snapshot churn
+
+3 sequence-diagram snapshot files updated, all bucket A:
+`sequence_with_explicit_activation`,
+`sequence_with_inline_call_reply_activation`,
+`sequence_with_nested_activations`.
+
+### Deferred
+
+- **Block-frame fills (alt/loop/par/critical interiors)** — needs a
+  separate design decision (subtle bg colour vs visible `░` shade
+  glyph, how to handle message arrows crossing the block). Tracked
+  in ROADMAP under "Sequence-diagram polish follow-ups".
+
 ## 0.50.0 — 2026-05-07 — Perpendicular edges keep their base attach + label uses effective direction
 
 ### Fixed
