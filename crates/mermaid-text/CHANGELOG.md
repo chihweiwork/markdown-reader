@@ -3,6 +3,28 @@
 All notable changes to `mermaid-text` are documented in this file.
 This project adheres to [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## 0.54.0 — 2026-05-08 — Block-frame interior fill primitive
+
+### Added
+
+- **Block-frame interior cells now filled with `░` (U+2591 LIGHT SHADE).**
+  Every row in `top+1..bottom`, every column in `left+1..right` of a
+  `loop`, `alt`, `opt`, `par`, `critical`, or `break` block frame is
+  filled with the light-shade glyph when the cell was previously a plain
+  space `' '`. Border glyphs (`╔ ═ ╗ ║ ╚ ╝`), dividers (`╠ ┄ ╣`),
+  labels, arrows, lifelines, and activation bars are never overwritten —
+  the fill uses the same `paintable` guard (`cell == ' '`) already used
+  by the border-painting path.
+
+  This is the substrate for 0.55.0 `rect <colour>` background highlight
+  blocks.
+
+### Snapshot churn
+
+0 substantive diffs. All reclassified snapshots contain only newly-added
+`░` glyphs in formerly-blank interior cells. No border, label, or glyph
+position changed.
+
 ## 0.53.0 — 2026-05-08 — Composite-edge attach-to-border (state diagrams)
 
 ### Fixed
