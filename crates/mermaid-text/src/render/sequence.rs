@@ -53,11 +53,11 @@ const LABEL_PADDING: usize = 2;
 /// Rows consumed per regular (non-self) message event (label row + arrow row).
 const EVENT_ROW_H: usize = 2;
 
-/// Rows consumed per self-message event. Self-messages render as a two-leg
-/// right-loop (`──┐` / `──┘`) plus a label row above, so they need one more
-/// row than a regular message to avoid the bottom leg colliding with the
-/// next message's label.
-const SELF_MSG_ROW_H: usize = 3;
+/// Rows consumed per self-message event. Self-messages render as a three-row
+/// U-shape (top leg / label+right-wall / bottom-leg-with-arrowhead). Advancing
+/// by 4 leaves one blank row below the bottom leg before the next message's
+/// label row, matching the spacing used for regular two-row messages.
+const SELF_MSG_ROW_H: usize = 4;
 
 /// Right-pointing solid arrowhead.
 const ARROW_RIGHT: char = '▸';
@@ -535,49 +535,51 @@ fn draw_message(
     }
 }
 
-/// Draw a self-message loop to the right of the lifeline column.
+/// Draw a self-message U-shape loop to the right of the lifeline column.
+///
+/// Three-row layout (occupies rows `row`, `row+1`, `row+2`):
 ///
 /// ```text
-///  label
-/// ┆──┐
-/// ◂──┘
+/// ├──────┐
+/// │ label│   <- right wall `│` flanks the label so its left is non-space
+/// ├◂─────┘
 /// ```
+///
+/// The right vertical bar makes the label's left neighbour a `│`, satisfying
+/// the requirement that the label not float in blank space.
 fn draw_self_message(canvas: &mut Canvas, cx: usize, row: usize, text: &str, style: MessageStyle) {
     let h_char = if style.is_dashed() { H_DASH } else { H_SOLID };
-    // TODO: Self-messages with dashed line style use the same box shape;
-    // only the horizontal segments change character.
-    let loop_w = text.width().max(4) + 4;
+    // Width of the horizontal legs: wide enough to fit the label plus 2
+    // cells of padding (one between the lifeline junction and the label,
+    // one between the label and the right corner).
+    let loop_w = text.width().max(4) + 3;
     let right = cx + loop_w;
 
-    // Top leg: `├──────┐`. `├` at the lifeline column makes the branch-off
-    // from the lifeline visually explicit (otherwise the dashed `┆` lifeline
-    // cell reads as disconnected from the solid horizontal). Horizontal
-    // segment fills the rest, `┐` is the top-right corner.
+    // Top leg: `├──────┐`.
     canvas.put(row, cx, '├');
     for c in (cx + 1)..right {
         canvas.put(row, c, h_char);
     }
     canvas.put(row, right, '┐');
 
-    // Bottom leg: `├◂─────┘`. T-junction at the lifeline, arrow tip
-    // immediately inside the loop so the return-to-sender direction reads
-    // clearly, then horizontal segment, then `┘` corner. For plain-line
-    // (no-arrow) style the arrow slot becomes another horizontal char.
-    canvas.put(row + 1, cx, '├');
+    // Middle row: right wall with label inside the U.
+    // `│` at the right edge; label starts one cell after the lifeline junction.
+    canvas.put(row + 1, right, '│');
+    if !text.is_empty() {
+        canvas.put_str(row + 1, cx + 1, text);
+    }
+
+    // Bottom leg: `├◂─────┘`.
+    canvas.put(row + 2, cx, '├');
     if style.has_arrow() {
-        canvas.put(row + 1, cx + 1, ARROW_LEFT);
+        canvas.put(row + 2, cx + 1, ARROW_LEFT);
     } else {
-        canvas.put(row + 1, cx + 1, h_char);
+        canvas.put(row + 2, cx + 1, h_char);
     }
     for c in (cx + 2)..right {
-        canvas.put(row + 1, c, h_char);
+        canvas.put(row + 2, c, h_char);
     }
-    canvas.put(row + 1, right, '┘');
-
-    // Label above.
-    if !text.is_empty() && row > 0 {
-        canvas.put_str(row - 1, cx + 2, text);
-    }
+    canvas.put(row + 2, right, '┘');
 }
 
 // ---------------------------------------------------------------------------

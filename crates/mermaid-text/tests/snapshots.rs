@@ -3567,3 +3567,84 @@ end";
     );
     assert_snapshot!("rect_nested_inside_loop", out);
 }
+
+// ---------------------------------------------------------------------------
+// 0.56.0 Feature 1 — Self-messages render as U-shape arrows
+// ---------------------------------------------------------------------------
+#[test]
+fn self_message_renders_as_u_shape() {
+    let src = "sequenceDiagram\nparticipant A\nparticipant B\nA->>A: think";
+    let out = mermaid_text::render(src).unwrap();
+
+    // `think` appears exactly once in the output.
+    let think_count = out.matches("think").count();
+    assert_eq!(
+        think_count, 1,
+        "label `think` must appear exactly once, found {think_count}:\n{out}"
+    );
+
+    // Find the line containing `think`.
+    let lines: Vec<&str> = out.lines().collect();
+    let label_row_idx = lines
+        .iter()
+        .position(|l| l.contains("think"))
+        .expect("label row containing `think` not found");
+    let label_line = lines[label_row_idx];
+
+    // Locate `think` in the line and check the char immediately to its left.
+    let t_byte = label_line.find("think").expect("think in label line");
+    // Walk back by one char from the byte position of `t`.
+    let before_t_char = label_line[..t_byte].chars().next_back();
+    assert!(
+        before_t_char.is_some_and(|c| c != ' '),
+        "char immediately left of `think` must not be a space (expected a vertical bar or \
+         connector on the right wall of the U-loop), got {:?}:\n{label_line}",
+        before_t_char
+    );
+
+    // The row above `think` and the row below must contain corner/turn glyphs.
+    let turn_glyphs: &[char] = &[
+        '\u{256E}', '\u{256F}', '\u{2510}', '\u{2518}', '\u{2554}', '\u{255D}', '\u{252C}',
+        '\u{2534}',
+    ];
+    let row_above = label_row_idx
+        .checked_sub(1)
+        .and_then(|r| lines.get(r))
+        .copied()
+        .unwrap_or("");
+    let row_below = lines.get(label_row_idx + 1).copied().unwrap_or("");
+    let above_has_corner = row_above.chars().any(|c| turn_glyphs.contains(&c));
+    let below_has_corner = row_below.chars().any(|c| turn_glyphs.contains(&c));
+    assert!(
+        above_has_corner || below_has_corner,
+        "rows adjacent to `think` label must contain at least one corner/turn glyph \
+         (e.g. \\u{{256E}} \\u{{256F}} \\u{{2510}} \\u{{2518}}):\n\
+         above: {row_above:?}\n\
+         label: {label_line:?}\n\
+         below: {row_below:?}"
+    );
+
+    // At least one arrowhead appears in the self-loop rows.
+    let self_loop_rows = {
+        let start = label_row_idx;
+        let end = (label_row_idx + 3).min(lines.len());
+        &lines[start..end]
+    };
+    let has_arrowhead = self_loop_rows
+        .iter()
+        .any(|l| l.contains('\u{25B8}') || l.contains('\u{25C2}'));
+    assert!(
+        has_arrowhead,
+        "self-loop rows must contain an arrowhead (`\u{25B8}` or `\u{25C2}`):\n{out}"
+    );
+
+    // The lifeline `A` (at column cx) remains intact above the self-loop
+    // (participant header is above; the lifeline glyph `\u{2506}` must appear
+    // somewhere outside the self-loop region).
+    assert!(
+        out.contains('\u{2506}'),
+        "lifeline glyph (`\u{2506}`) must appear in output:\n{out}"
+    );
+
+    assert_snapshot!("self_message_u_shape", out);
+}
