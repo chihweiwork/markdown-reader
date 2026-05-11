@@ -3705,6 +3705,26 @@ deactivate B";
          should appear side-by-side, not overlapping):\n{out}"
     );
 
+    // Outer-bar anchoring: on the `r1` row only the outer activation is still
+    // active (inner already deactivated), so the first non-space glyph AFTER
+    // the `r1` label must be `█` — i.e. the outer bar overwrites the lifeline.
+    // A trivially-broken implementation that anchors the outer bar at an OFFSET
+    // would leave a `┆` there, which this assertion catches.
+    let r1_row = lines
+        .iter()
+        .find(|l| l.contains("r1") && l.contains('\u{2588}'))
+        .expect("expected an r1 row with an activation bar");
+    let r1_pos = r1_row.find("r1").unwrap();
+    let next_glyph = r1_row[r1_pos + 2..]
+        .chars()
+        .find(|c| !c.is_whitespace())
+        .expect("expected a non-space glyph after r1 label");
+    assert_eq!(
+        next_glyph, '\u{2588}',
+        "after `r1`, outer activation must anchor at the lifeline column \
+         (first non-space glyph must be `█`, got `{next_glyph}`):\n{out}"
+    );
+
     assert_snapshot!("nested_activations_stack_horizontally", out);
 }
 

@@ -1040,13 +1040,20 @@ pub fn render(diag: &SequenceDiagram) -> String {
         };
         let cx = layouts[pi].center;
         let (lo, hi, _) = act_ranges[i];
-        // Count activations on the same participant that strictly contain or
-        // overlap this one AND were created earlier (lower index) — that count
-        // is the horizontal stack depth for this bar.
-        let depth = act_ranges[..i]
+        // Depth = number of other activations on this participant that STRICTLY
+        // CONTAIN this one (their row range fully encloses ours). Containment
+        // is order-independent, so the source-order vs deactivate-order of the
+        // activations vec doesn't matter: the outermost bar always anchors at
+        // the lifeline (depth=0); each nested deeper bar offsets one step right.
+        let depth = act_ranges
             .iter()
-            .filter(|&&(other_lo, other_hi, other_pi)| {
-                other_pi == pi && other_lo <= hi && other_hi >= lo
+            .enumerate()
+            .filter(|&(j, &(other_lo, other_hi, other_pi))| {
+                j != i
+                    && other_pi == pi
+                    && other_lo <= lo
+                    && other_hi >= hi
+                    && (other_lo, other_hi) != (lo, hi)
             })
             .count();
         let col_offset = depth * (ACTIVATION_BAR_WIDTH + 1);
