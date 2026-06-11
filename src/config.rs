@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +55,13 @@ impl Default for UpdatesConfig {
 /// `use_hybrid_by_default = false` in `config.toml` to restore the pre-1.33.0
 /// mapping while regressions are still being filed.
 fn default_use_hybrid_by_default() -> bool {
+    true
+}
+
+/// Default value for [`Config::show_file_tree`].
+///
+/// Returns `true` so existing users keep seeing the file tree at launch.
+fn default_show_file_tree() -> bool {
     true
 }
 
@@ -147,6 +155,11 @@ pub struct Config {
     pub theme: Theme,
     #[serde(default)]
     pub show_line_numbers: bool,
+    /// Whether the file tree is visible when the app starts.
+    ///
+    /// Runtime toggles via `H` do not rewrite this startup default.
+    #[serde(default = "default_show_file_tree")]
+    pub show_file_tree: bool,
     #[serde(default)]
     pub tree_position: TreePosition,
     #[serde(default)]
@@ -185,6 +198,7 @@ impl Default for Config {
         Self {
             theme: Theme::default(),
             show_line_numbers: false,
+            show_file_tree: default_show_file_tree(),
             tree_position: TreePosition::default(),
             search_preview: SearchPreview::default(),
             mermaid_mode: MermaidMode::default(),
@@ -221,7 +235,21 @@ impl Config {
         let Ok(text) = toml::to_string_pretty(self) else {
             return;
         };
-        let _ = fs::write(&path, text);
+        // Write atomically: a partial write (crash, or a concurrent reader) must
+        // never leave a truncated/corrupt config behind. Write to a unique
+        // sibling temp file, then rename — rename is atomic on the same
+        // filesystem, so a reader sees either the old file or the complete new
+        // one, never a tear. The temp name is per-process-and-call unique so
+        // concurrent savers never clobber each other's temp file.
+        static SAVE_SEQ: AtomicU64 = AtomicU64::new(0);
+        let seq = SAVE_SEQ.fetch_add(1, Ordering::Relaxed);
+        let tmp = path.with_file_name(format!(".{CONFIG_FILE}.{}.{seq}.tmp", std::process::id()));
+        if fs::write(&tmp, text).is_err() {
+            return;
+        }
+        if fs::rename(&tmp, &path).is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
     }
 
     /// Return a [`MermaidMode`] label suitable for display (e.g. in the UI).
@@ -243,7 +271,28 @@ impl Config {
     }
 }
 
+/// Test-only override for the config directory. Set once per test binary so
+/// unit tests never read from — or clobber — the user's real `config.toml`.
+#[cfg(test)]
+static CONFIG_DIR_OVERRIDE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Redirect config I/O to a throwaway per-process temp directory for the
+/// duration of the test binary. Idempotent: the first call wins, later calls
+/// are no-ops, so every test shares one isolated config dir.
+#[cfg(test)]
+pub(crate) fn use_isolated_test_config() {
+    CONFIG_DIR_OVERRIDE.get_or_init(|| {
+        let dir = std::env::temp_dir().join(format!("mdr-test-cfg-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        dir
+    });
+}
+
 fn config_path() -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(dir) = CONFIG_DIR_OVERRIDE.get() {
+        return Some(dir.join(CONFIG_FILE));
+    }
     let mut path = dirs::config_dir()?;
     path.push(APP_NAME);
     path.push(CONFIG_FILE);
@@ -269,6 +318,37 @@ mod tests {
         let toml_str = r#"theme = "default""#;
         let config: Config = toml::from_str(toml_str).expect("deserialization failed");
         assert_eq!(config.search_preview, SearchPreview::default());
+    }
+
+    /// A TOML file without `show_file_tree` must keep the historical visible tree.
+    #[test]
+    fn show_file_tree_missing_field_defaults_to_true() {
+        let toml_str = r#"theme = "default""#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization failed");
+        assert!(config.show_file_tree);
+    }
+
+    /// An explicit `show_file_tree = false` must be honoured.
+    #[test]
+    fn show_file_tree_explicit_false_is_honoured() {
+        let toml_str = r#"
+theme = "default"
+show_file_tree = false
+"#;
+        let config: Config = toml::from_str(toml_str).expect("deserialization failed");
+        assert!(!config.show_file_tree);
+    }
+
+    /// `show_file_tree = false` must survive a TOML round-trip.
+    #[test]
+    fn show_file_tree_false_round_trips() {
+        let config = Config {
+            show_file_tree: false,
+            ..Config::default()
+        };
+        let serialized = toml::to_string_pretty(&config).expect("serialization failed");
+        let deserialized: Config = toml::from_str(&serialized).expect("deserialization failed");
+        assert!(!deserialized.show_file_tree);
     }
 
     /// `mermaid_max_height` must survive a TOML round-trip with a custom value.

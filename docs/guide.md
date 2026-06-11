@@ -289,12 +289,17 @@ sections:
 - **Markdown** — toggle the line-number gutter on or off with `Enter`.
   The gutter appears on the left of the viewer with display line
   numbers aligned with what `:` and `Ctrl+f` use.
-- **Panels** — choose whether the file tree sits on the left (default)
-  or right side of the viewer. The width ratio is preserved either way.
+- **Panels** — show or hide the file tree, and choose whether it sits on
+  the left (default) or right side of the viewer. The width ratio is
+  preserved either way.
 
 Navigate with `j`/`k` or arrows, `Enter` to apply, `Esc` or `c` to
 close the modal. All changes are persisted to disk immediately so the
 next launch reopens with your choices.
+
+The same file-tree visibility choice is stored as `show_file_tree` in
+`config.toml`. The `H` shortcut still toggles the tree during the
+current session.
 
 ## Session resume
 
@@ -315,7 +320,7 @@ of a stale or missing entry.
 
 ### Where the files live
 
-- `config.toml` — the settings modal's choices:
+- `config.toml` — the settings modal's choices plus TOML-only preferences:
   - Linux: `~/.config/markdown-reader/config.toml`
   - macOS: `~/Library/Application Support/markdown-reader/config.toml`
   - Windows: `%APPDATA%\markdown-reader\config.toml`

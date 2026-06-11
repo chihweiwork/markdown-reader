@@ -308,7 +308,7 @@ impl ConfigPopupState {
     pub const SECTIONS: &'static [(&'static str, usize)] = &[
         ("Theme", Theme::ALL.len()),
         ("Markdown", 1),
-        ("Panels", 2),
+        ("Panels", 3),
         ("Search", 2),
         ("Mermaid", 6), // Mode: Auto / Text only / Image only — Backend: Auto / Sugiyama / Native
     ];
@@ -373,6 +373,8 @@ pub struct App {
     pub show_help: bool,
     /// Whether the file tree panel is hidden.
     pub tree_hidden: bool,
+    /// Whether the file tree has been discovered or discovery has been queued.
+    pub tree_discovered: bool,
     /// Width of the file-tree panel as a percentage (10–80).
     pub tree_width_pct: u16,
     /// Root directory being browsed.
@@ -386,6 +388,8 @@ pub struct App {
     pub tokens: Tokens,
     /// Whether to show line numbers in the viewer.
     pub show_line_numbers: bool,
+    /// Whether the persisted config prefers showing the file tree at launch.
+    pub show_file_tree: bool,
     /// Which side of the screen the file-tree panel appears on.
     pub tree_position: TreePosition,
     /// How to render the inline preview in content-search results.
@@ -505,32 +509,45 @@ impl App {
         let tokens = Tokens::from_theme(config.theme);
         let app_state = AppState::load();
 
-        let entries = FileEntry::discover(&root);
+        let tree_hidden = !config.show_file_tree;
         let mut tree = FileTreeState::default();
-        tree.rebuild(entries);
+        let tree_discovered = if tree_hidden {
+            false
+        } else {
+            let entries = FileEntry::discover(&root);
+            tree.rebuild(entries);
+            true
+        };
         // Git status is populated asynchronously via `refresh_git_status` once the
         // event loop starts (so action_tx is available).  Starting with an empty map
         // means the tree renders immediately without blocking on `git` subprocess I/O.
 
         let picker = crate::mermaid::create_picker();
+        let initial_focus = if tree_hidden {
+            Focus::Viewer
+        } else {
+            Focus::Tree
+        };
 
         let mut app = Self {
             running: true,
-            focus: Focus::Tree,
-            pre_config_focus: Focus::Tree,
+            focus: initial_focus,
+            pre_config_focus: initial_focus,
             tree,
             tabs: Tabs::new(),
             search: SearchState::default(),
             goto_line: GotoLineState::default(),
             config_popup: None,
             show_help: false,
-            tree_hidden: false,
+            tree_hidden,
+            tree_discovered,
             tree_width_pct: 25,
             root,
             theme: config.theme,
             palette,
             tokens,
             show_line_numbers: config.show_line_numbers,
+            show_file_tree: config.show_file_tree,
             tree_position: config.tree_position,
             search_preview: config.search_preview,
             mermaid_mode: config.mermaid_mode,
@@ -720,6 +737,7 @@ impl App {
         let config = Config {
             theme: self.theme,
             show_line_numbers: self.show_line_numbers,
+            show_file_tree: self.show_file_tree,
             tree_position: self.tree_position,
             search_preview: self.search_preview,
             mermaid_mode: self.mermaid_mode,
@@ -742,6 +760,31 @@ impl App {
             let map = git_status::collect(&root);
             let _ = tx.send(Action::GitStatusReady(map));
         });
+    }
+
+    /// Walk the filesystem on a background thread and deliver the result as
+    /// [`Action::TreeDiscovered`]. No-ops when `action_tx` is not yet set.
+    fn spawn_tree_discovery(&self) {
+        let Some(tx) = self.action_tx.clone() else {
+            return;
+        };
+        let root = self.root.clone();
+        tokio::task::spawn_blocking(move || {
+            let _ = tx.send(Action::TreeDiscovered(FileEntry::discover(&root)));
+        });
+    }
+
+    /// Discover the file tree on a background thread if it was skipped at startup.
+    ///
+    /// Marks the tree as discovered *before* spawning so repeated reveals (e.g.
+    /// rapid `H` presses) are idempotent and never queue duplicate walks,
+    /// regardless of whether `action_tx` is wired yet.
+    fn ensure_tree_discovered(&mut self) {
+        if self.tree_discovered {
+            return;
+        }
+        self.tree_discovered = true;
+        self.spawn_tree_discovery();
     }
 
     // ── Re-render helpers ────────────────────────────────────────────────────
@@ -768,7 +811,9 @@ impl App {
         // Populate git status on a background thread now that action_tx is set.
         // This avoids blocking `App::new` (which runs on the tokio thread) on a
         // potentially slow `git status` subprocess call.
-        self.refresh_git_status();
+        if self.tree_discovered {
+            self.refresh_git_status();
+        }
 
         // If the user passed a file path on the CLI (or stdin was piped), open
         // it now that action_tx is wired up.  When a display name override was
@@ -878,17 +923,22 @@ impl App {
             Action::SearchConfirm => self.confirm_search(),
             Action::FilesChanged(changed) => {
                 self.reload_changed_tabs(&changed);
-                self.refresh_git_status();
-                if let Some(tx) = self.action_tx.clone() {
-                    let root = self.root.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let entries = FileEntry::discover(&root);
-                        let _ = tx.send(Action::TreeDiscovered(entries));
-                    });
+                if self.tree_discovered {
+                    self.refresh_git_status();
+                    self.spawn_tree_discovery();
                 }
             }
             Action::TreeDiscovered(entries) => {
+                // `tree_discovered` is already set by `ensure_tree_discovered`
+                // before the walk is spawned, so no need to set it here.
                 self.tree.rebuild(entries);
+                if let Some(path) = self
+                    .tabs
+                    .active_tab()
+                    .and_then(|tab| tab.view.current_path.clone())
+                {
+                    self.tree.reveal_path(&path);
+                }
             }
             Action::Resize(_, _) => {}
             Action::Mouse(m) => self.handle_mouse(m),
@@ -1172,6 +1222,10 @@ impl App {
             && self.focus != Focus::TableModal
         {
             self.tree_hidden = !self.tree_hidden;
+            if !self.tree_hidden {
+                self.ensure_tree_discovered();
+                self.refresh_git_status();
+            }
             if self.tree_hidden && self.focus == Focus::Tree {
                 self.focus = Focus::Viewer;
             }

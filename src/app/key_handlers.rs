@@ -31,7 +31,11 @@ impl App {
             }
             KeyCode::Esc | KeyCode::Char('c') => {
                 self.config_popup = None;
-                self.focus = self.pre_config_focus;
+                self.focus = if self.tree_hidden && self.pre_config_focus == Focus::Tree {
+                    Focus::Viewer
+                } else {
+                    self.pre_config_focus
+                };
             }
             KeyCode::Char('q') => self.running = false,
             _ => {}
@@ -44,8 +48,9 @@ impl App {
         // Section offsets (cumulative row indices):
         // [0, theme_count)       → Theme
         // [markdown_start]       → Markdown: show_line_numbers
-        // [panels_start]         → Panels: tree_position left
-        // [panels_start + 1]     → Panels: tree_position right
+        // [panels_start]         → Panels: show_file_tree
+        // [panels_start + 1]     → Panels: tree_position left
+        // [panels_start + 2]     → Panels: tree_position right
         // [search_start]         → Search: full_line preview
         // [search_start + 1]     → Search: snippet preview
         // [mermaid_start]        → Mermaid: mode Auto
@@ -55,7 +60,7 @@ impl App {
         // [mermaid_start + 4]    → Mermaid: text backend Sugiyama
         // [mermaid_start + 5]    → Mermaid: text backend Native
         const MARKDOWN_ROWS: usize = 1; // "Show line numbers"
-        const PANELS_ROWS: usize = 2; // "Tree left", "Tree right"
+        const PANELS_ROWS: usize = 3; // "Show file tree", "Tree left", "Tree right"
         const SEARCH_ROWS: usize = 2; // "Full line preview", "Snippet preview"
         let theme_count = Theme::ALL.len();
         let markdown_start = theme_count;
@@ -74,9 +79,23 @@ impl App {
             self.show_line_numbers = !self.show_line_numbers;
             self.persist_config();
         } else if cursor == panels_start {
-            self.tree_position = crate::config::TreePosition::Left;
+            // Toggle live visibility and persist it as the startup preference so
+            // the bullet always reflects the panel's actual state.
+            self.tree_hidden = !self.tree_hidden;
+            self.show_file_tree = !self.tree_hidden;
+            if self.tree_hidden {
+                if self.focus == Focus::Tree {
+                    self.focus = Focus::Viewer;
+                }
+            } else {
+                self.ensure_tree_discovered();
+                self.refresh_git_status();
+            }
             self.persist_config();
         } else if cursor == panels_start + 1 {
+            self.tree_position = crate::config::TreePosition::Left;
+            self.persist_config();
+        } else if cursor == panels_start + 2 {
             self.tree_position = crate::config::TreePosition::Right;
             self.persist_config();
         } else if cursor == search_start {

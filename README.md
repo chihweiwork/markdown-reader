@@ -184,8 +184,8 @@ drawn on the left of the viewer content when enabled.
 - **Git status colors** — new/untracked files appear in green, modified
   files in yellow, with the entire ancestor directory chain colored so
   changed subtrees are easy to spot at a glance.
-- **Configurable tree position** — place the file tree on the left
-  (default) or right side of the viewer via the settings modal.
+- **Configurable file tree** — show or hide the file tree and place it
+  on the left (default) or right side of the viewer via the settings modal.
 - **Hybrid live-preview editing** — press `i` to enter hybrid mode: all
   blocks stay fully rendered, but the block under the cursor reveals its
   raw markdown source for editing (powered by
@@ -432,7 +432,7 @@ same or higher level (lower H-number = higher level). Exit code `0` on success,
 
 Once inside the TUI, press `?` at any time for the keyboard help overlay.
 Press `c` to open the settings modal (themes, line numbers, tree
-position). Press `q`
+visibility and position). Press `q`
 to quit — the current tabs and scroll positions are saved before exit, so
 reopening the same directory resumes where you left off.
 
@@ -723,6 +723,7 @@ Fields:
 ```toml
 theme = "dracula"          # default | dracula | solarized_dark | solarized_light | nord | gruvbox_dark | gruvbox_light | github_light
 show_line_numbers = true
+show_file_tree = true      # true | false; false starts hidden (H still toggles)
 tree_position = "left"     # left | right
 ```
 
