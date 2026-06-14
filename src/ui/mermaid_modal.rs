@@ -107,7 +107,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
                 content_rect,
                 protocol.as_mut(),
             );
-            " image  Esc/Enter close ".to_string()
+            " image  q/Esc close ".to_string()
         }
         Some(MermaidEntry::AsciiDiagram { diagram, .. }) => {
             // Capture the diagram out of the borrow so we can call
@@ -139,18 +139,18 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         Some(MermaidEntry::SourceOnly { reason, .. }) => {
             let reason = reason.clone();
             draw_text(f, content_rect, &source, h_scroll, v_scroll, foreground);
-            format!(" source ({reason})  Esc/Enter close ")
+            format!(" source ({reason})  q/Esc close ")
         }
         Some(MermaidEntry::Failed { msg, .. }) => {
             let msg = msg.clone();
             draw_text(f, content_rect, &source, h_scroll, v_scroll, foreground);
-            format!(" render failed: {msg} \u{2014} Esc/Enter close ")
+            format!(" render failed: {msg} \u{2014} q/Esc close ")
         }
         Some(MermaidEntry::Pending) | None => {
             let centered = Paragraph::new(Line::from(Span::styled("rendering\u{2026}", dim_style)))
                 .alignment(ratatui::layout::Alignment::Center);
             f.render_widget(centered, content_rect);
-            " pending  Esc/Enter close ".to_string()
+            " pending  q/Esc close ".to_string()
         }
     };
 

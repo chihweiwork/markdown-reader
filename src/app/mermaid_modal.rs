@@ -92,7 +92,7 @@ impl App {
             .map_or(80, |r| r.width.saturating_sub(2));
 
         match code {
-            KeyCode::Char('q') | KeyCode::Esc | KeyCode::Enter => {
+            KeyCode::Char('q') | KeyCode::Esc => {
                 self.close_mermaid_modal();
             }
             KeyCode::Char('h') | KeyCode::Left => {

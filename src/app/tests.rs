@@ -1840,10 +1840,10 @@ fn try_open_mermaid_modal_noop_when_no_blocks() {
 /// `q` / Esc / Enter close the modal and restore Viewer focus.
 #[test]
 fn handle_mermaid_modal_key_close() {
+    // Only q and Esc close the modal (Enter removed to fix immediate-close bug)
     for code in [
         crossterm::event::KeyCode::Char('q'),
         crossterm::event::KeyCode::Esc,
-        crossterm::event::KeyCode::Enter,
     ] {
         let mut app = App::new(PathBuf::from("."), None, None);
         app.mermaid_modal = Some(MermaidModalState {
@@ -1859,6 +1859,21 @@ fn handle_mermaid_modal_key_close() {
         assert!(app.mermaid_modal.is_none(), "key {code:?} must close modal");
         assert_eq!(app.focus, Focus::Viewer);
     }
+
+    // Enter should NOT close the modal (to prevent immediate close bug)
+    let mut app = App::new(PathBuf::from("."), None, None);
+    app.mermaid_modal = Some(MermaidModalState {
+        tab_id: crate::ui::tabs::TabId(0),
+        block_id: MermaidBlockId(1),
+        source: "graph LR\nA --> B".to_string(),
+        h_scroll: 0,
+        v_scroll: 0,
+        text_zoom: 0,
+    });
+    app.focus = Focus::MermaidModal;
+    app.handle_mermaid_modal_key(crossterm::event::KeyCode::Enter);
+    assert!(app.mermaid_modal.is_some(), "Enter must NOT close modal");
+    assert_eq!(app.focus, Focus::MermaidModal);
 }
 
 /// `j` / `k` adjust v_scroll; `h` / `l` adjust h_scroll. Saturating

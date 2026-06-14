@@ -11,6 +11,7 @@ use ratatui::{
 #[allow(clippy::too_many_lines)]
 pub fn draw(f: &mut Frame, app: &App) {
     let p = &app.palette;
+    let scroll_offset = app.help_scroll as usize;
 
     let header_style = Style::default().fg(p.accent).add_modifier(Modifier::BOLD);
     let key_style = Style::default()
@@ -19,7 +20,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     let desc_style = Style::default().fg(p.foreground);
     let dim_style = p.dim_style();
 
-    let lines = vec![
+    let mut lines = vec![
         Line::from(Span::styled("Keyboard Shortcuts", header_style)),
         Line::from(""),
         Line::from(Span::styled("── Navigation ──", dim_style)),
@@ -115,11 +116,39 @@ pub fn draw(f: &mut Frame, app: &App) {
         shortcut_line("?", "Toggle this help", key_style, desc_style),
         shortcut_line("q", "Quit", key_style, desc_style),
         Line::from(""),
-        Line::from(Span::styled("Press any key to close", dim_style)),
     ];
 
-    let height = crate::cast::u16_sat(lines.len()) + 2;
-    let width = 54; // content-sized: fits the longest shortcut line + 2-char indent
+    // Cap popup height at 80% of terminal to avoid covering entire screen
+    let total_lines = lines.len();
+    let max_content_height = (f.area().height * 80 / 100).saturating_sub(2); // -2 for borders
+    let content_height = crate::cast::u16_sat(total_lines).min(max_content_height);
+
+    // Add scroll indicator if content is scrollable
+    let visible_start = scroll_offset.min(total_lines.saturating_sub(1));
+    let visible_end = (visible_start + content_height as usize).min(total_lines);
+    let is_scrollable = total_lines > content_height as usize;
+
+    if is_scrollable {
+        let scroll_info = format!(
+            "Lines {}-{} of {}  │  j/k to scroll, any other key to close",
+            visible_start + 1,
+            visible_end,
+            total_lines
+        );
+        lines.push(Line::from(Span::styled(scroll_info, dim_style)));
+    } else {
+        lines.push(Line::from(Span::styled("Press any key to close", dim_style)));
+    }
+
+    // Slice lines based on scroll offset
+    let visible_lines: Vec<Line> = lines
+        .into_iter()
+        .skip(visible_start)
+        .take(content_height as usize)
+        .collect();
+
+    let height = content_height + 2; // +2 for borders
+    let width = 66; // increased to fit scroll indicator text
 
     let area = centered_rect(width, height, f.area());
 
@@ -129,7 +158,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         .border_style(Style::default().fg(p.border_focused))
         .style(Style::default().bg(p.help_bg));
 
-    let paragraph = Paragraph::new(lines).block(block);
+    let paragraph = Paragraph::new(visible_lines).block(block);
 
     f.render_widget(Clear, area);
     f.render_widget(paragraph, area);

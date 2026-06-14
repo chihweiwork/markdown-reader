@@ -371,6 +371,8 @@ pub struct App {
     pub config_popup: Option<ConfigPopupState>,
     /// Whether the help overlay is visible.
     pub show_help: bool,
+    /// Scroll offset for the help overlay (number of lines scrolled down).
+    pub help_scroll: u16,
     /// Whether the file tree panel is hidden.
     pub tree_hidden: bool,
     /// Whether the file tree has been discovered or discovery has been queued.
@@ -539,6 +541,7 @@ impl App {
             goto_line: GotoLineState::default(),
             config_popup: None,
             show_help: false,
+            help_scroll: 0,
             tree_hidden,
             tree_discovered,
             tree_width_pct: 25,
@@ -1208,8 +1211,23 @@ impl App {
     /// Top-level key-event dispatcher.
     fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
         if self.show_help {
-            self.show_help = false;
-            return;
+            // Allow j/k scrolling in help overlay
+            match code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.help_scroll = self.help_scroll.saturating_add(1);
+                    return;
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.help_scroll = self.help_scroll.saturating_sub(1);
+                    return;
+                }
+                _ => {
+                    // Any other key closes help
+                    self.show_help = false;
+                    self.help_scroll = 0;
+                    return;
+                }
+            }
         }
 
         if self.focus == Focus::Config {
@@ -1233,6 +1251,7 @@ impl App {
         }
         if code == KeyCode::Char('?') && self.focus != Focus::Search {
             self.show_help = true;
+            self.help_scroll = 0;  // Reset scroll position when opening help
             return;
         }
         match self.focus {
