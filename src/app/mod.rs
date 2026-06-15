@@ -934,12 +934,24 @@ impl App {
             Action::TreeDiscovered(entries) => {
                 // `tree_discovered` is already set by `ensure_tree_discovered`
                 // before the walk is spawned, so no need to set it here.
+
+                // Save selected path before rebuild to preserve user's cursor.
+                let saved = if self.tree.user_navigated {
+                    self.tree.selected_path().map(std::path::Path::to_path_buf)
+                } else {
+                    None
+                };
+
                 self.tree.rebuild(entries);
-                if let Some(path) = self
+
+                if let Some(path) = saved {
+                    self.tree.reveal_path(&path);
+                } else if let Some(path) = self
                     .tabs
                     .active_tab()
                     .and_then(|tab| tab.view.current_path.clone())
                 {
+                    // No manual navigation - auto-position to active file
                     self.tree.reveal_path(&path);
                 }
             }

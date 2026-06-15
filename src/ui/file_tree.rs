@@ -28,6 +28,11 @@ pub struct FileTreeState {
     /// treated as clean. Directories are pre-populated with `Modified` when any
     /// descendant has changes (see `fs::git_status::collect`).
     pub git_status: HashMap<PathBuf, GitFileStatus>,
+    /// Flag tracking whether user has manually navigated the tree since last file open.
+    ///
+    /// Set to `true` when user presses j/k/gg/G. Reset to `false` when opening a file.
+    /// Used to prevent async TreeDiscovered from overwriting user's cursor position.
+    pub user_navigated: bool,
 }
 
 /// A single visible row in the flattened file-tree list.
@@ -89,6 +94,7 @@ impl FileTreeState {
             _ => 0,
         };
         self.list_state.select(Some(i));
+        self.user_navigated = true;  // Mark manual navigation
     }
 
     /// Move the cursor down one row, clamping at the bottom.
@@ -102,6 +108,7 @@ impl FileTreeState {
             None => 0,
         };
         self.list_state.select(Some(i));
+        self.user_navigated = true;  // Mark manual navigation
     }
 
     /// Toggle the expansion state of the selected directory, then re-flatten.
@@ -122,6 +129,7 @@ impl FileTreeState {
     pub fn go_first(&mut self) {
         if !self.flat_items.is_empty() {
             self.list_state.select(Some(0));
+            self.user_navigated = true;  // Mark manual navigation
         }
     }
 
@@ -129,6 +137,7 @@ impl FileTreeState {
     pub fn go_last(&mut self) {
         if !self.flat_items.is_empty() {
             self.list_state.select(Some(self.flat_items.len() - 1));
+            self.user_navigated = true;  // Mark manual navigation
         }
     }
 
@@ -159,6 +168,14 @@ impl FileTreeState {
         if let Some(idx) = self.flat_items.iter().position(|item| item.path == path) {
             self.list_state.select(Some(idx));
         }
+    }
+
+    /// Reset the manual navigation flag.
+    ///
+    /// Called when a file is opened programmatically to allow TreeDiscovered
+    /// to auto-position the cursor to the newly opened file.
+    pub fn reset_navigation_flag(&mut self) {
+        self.user_navigated = false;
     }
 }
 

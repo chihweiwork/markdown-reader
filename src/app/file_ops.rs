@@ -127,7 +127,7 @@ impl App {
 
     /// Open the selected tree item in the active tab (replacing its content).
     pub(super) fn open_in_active_tab(&mut self) {
-        self.open_selected_file(false);
+        self.open_selected_file(true);
     }
 
     /// Open `path` in a tab, optionally jumping to a source line after load.
@@ -283,6 +283,8 @@ impl App {
         }
 
         self.focus = Focus::Viewer;
+        // Reset navigation flag so TreeDiscovered can auto-position to this file
+        self.tree.reset_navigation_flag();
         self.expand_and_select(&path);
     }
 

@@ -120,6 +120,10 @@ impl Tabs {
 
         // Replace active tab when requested (no new tab).
         if !new_tab && let Some(id) = self.active {
+            if let Some(tab) = self.tabs.iter_mut().find(|t| t.id == id) {
+                tab.view.current_path = Some(path.clone());
+                tab.view.content.clear();
+            }
             return (id, OpenOutcome::Replaced);
         }
 
